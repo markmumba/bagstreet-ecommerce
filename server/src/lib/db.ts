@@ -32,6 +32,7 @@ export async function initDatabase() {
             CREATE TABLE IF NOT EXISTS products (
                 id  SERIAL PRIMARY KEY,
                 category_id INTEGER NOT NULL REFERENCES categories(id) ON DELETE RESTRICT,
+                sku VARCHAR(50) NOT NULL UNIQUE,
                 name VARCHAR(200) NOT NULL,
                 slug VARCHAR(200) NOT NULL,
                 description TEXT,

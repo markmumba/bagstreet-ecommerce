@@ -1,19 +1,20 @@
-import {sql } from '../../lib/db';
+import { slugify } from '@server/lib/util';
+import { sql } from '../../lib/db';
 import type { Category } from 'shared/dist';
 
 export const categoriesQueries = {
-    findAll: async(): Promise<Category[]> => {
+    findAll: async (): Promise<Category[]> => {
         return await sql<Category[]>`SELECT * FROM categories ORDER BY name ASC`;
     },
-    findById: async(id: number): Promise<Category | undefined > => {
+    findById: async (id: number): Promise<Category | undefined> => {
         const [category] = await sql<Category[]>`SELECT * FROM categories WHERE id = ${id}`;
         return category;
     },
-    findBySlug: async(slug: string): Promise<Category | undefined> => {
-        const [category] = await sql<Category[]>`SELECT * FROM categories WHERE id = ${slug}`;
+    findBySlug: async (slug: string): Promise<Category | undefined> => {
+        const [category] = await sql<Category[]>`SELECT * FROM categories WHERE slug = ${slug}`;
         return category;
     },
-    create: async(name:string,slug:string,description:string|null):Promise<Category | undefined > => {
+    create: async (name: string, slug: string, description: string | null): Promise<Category | undefined> => {
         const [category] = await sql<Category[]>`INSERT INTO categories(name, slug,description) VALUES (${name}, ${slug}, ${description}) RETURNING *`;
         return category;
     },
@@ -36,7 +37,7 @@ export const categoriesQueries = {
         await sql`DELETE FROM categories WHERE id = ${id}`;
     },
 
-    countProducts: async (categoryId: number): Promise<number| undefined> => {
+    countProducts: async (categoryId: number): Promise<number | undefined> => {
         const [result] = await sql<{ count: number }[]>`
         SELECT COUNT(*)::int as count  FROM products  WHERE category_id = ${categoryId}`;
         // @ts-ignore
@@ -54,10 +55,4 @@ export const categoriesQueries = {
     },
 }
 
-function slugify(text: string): string {
-    return text
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-|-$/g, '');
-}
 
