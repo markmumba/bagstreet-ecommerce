@@ -1,9 +1,9 @@
 import type { Context } from "hono";
 import { categoriesQueries } from "./categories.queries";
 import { success } from "@server/lib/response";
-import { ConflictError, NotFoundError, ValidationError } from "@server/lib/errors";
+import { ConflictError, InternalServerError, NotFoundError, ValidationError } from "@server/lib/errors";
 import {  createCategorySchema,updateCategorySchema } from "./categories.schema";
-import type { CategoryRequest } from "shared/dist";
+import type { CategoryRequest, CategoryResponse } from "shared/dist";
 
 
 export const categoriesHandlers = {
@@ -11,17 +11,34 @@ export const categoriesHandlers = {
     list: async (c: Context) => {
         const searchTerm = c.req.query('search');
         const categories = searchTerm ? await categoriesQueries.search(searchTerm) : await categoriesQueries.findAll();
-        return success(c, categories);
+
+        const response: CategoryResponse[] = categories.map(category => ({
+            id: category.id.toString(),
+            name: category.name,
+            description: category.description ?? '',
+            created_at: category.created_at,
+            updated_at: category.updated_at,
+        }));
+
+        return success(c, response);
     },
 
     get:async (c: Context) => {
+
         const id = parseInt(c.req.param('id'));
         const category = await categoriesQueries.findById(id);
 
         if (!category) {
             throw new NotFoundError('Category', id);
         }
-        return success(c, category);
+        const response: CategoryResponse = {
+            id: category.id.toString(),
+            name: category.name,
+            description: category.description ?? null,
+            created_at: category.created_at,
+            updated_at: category.updated_at,
+        };
+        return success(c, response);
     },
 
     create: async (c: Context) => {
@@ -36,7 +53,19 @@ export const categoriesHandlers = {
         }
 
         const category = await categoriesQueries.create(validated.data!.name, slug, validated.data!.description ?? null);
-        return success(c, category, 'Category created successfully', 201);
+
+        if (!category) {
+            throw new InternalServerError('Failed to create category');
+        }
+
+        const response: CategoryResponse = {
+            id: category.id.toString(),
+            name: category.name,
+            description: category.description ?? '',
+            created_at: category.created_at,
+            updated_at: category.updated_at,
+        };
+        return success(c, response, 'Category created successfully', 201);
 
     },
 
@@ -62,9 +91,23 @@ export const categoriesHandlers = {
             updateData.description = validated.data!.description;
         }
         const updatedCategory = await categoriesQueries.update(id, updateData);
-        return success(c, updatedCategory, 'Category updated successfully');
+
+        if (!updatedCategory) {
+            throw new InternalServerError('Failed to update category');
+        }
+
+        const response: CategoryResponse = {
+            id: updatedCategory.id.toString(),
+            name: updatedCategory.name,
+            description: updatedCategory.description ?? '',
+            created_at: updatedCategory.created_at,
+            updated_at: updatedCategory.updated_at,
+        };
+        return success(c, response, 'Category updated successfully');
     },
+
     delete: async (c: Context) => {
+
         const id = parseInt(c.req.param('id'));
         const category = await categoriesQueries.findById(id);
         if (!category) {

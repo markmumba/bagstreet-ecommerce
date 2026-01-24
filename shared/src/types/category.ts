@@ -1,4 +1,4 @@
-import type {BaseType} from "@shared/types/baseType";
+import type {BaseType} from "./baseType";
 
 export interface Category extends BaseType {
     name: string,

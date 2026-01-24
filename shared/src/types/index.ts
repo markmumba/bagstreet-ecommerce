@@ -1,3 +1,4 @@
+export * from "./baseType";
 export * from "./category";
 
 export interface ApiResponse<T = unknown> {
