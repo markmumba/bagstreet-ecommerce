@@ -1,11 +1,11 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { logger } from 'hono/logger';
-import type { ApiResponse } from 'shared/dist'
-import {initDb} from "@server/db";
-import categories from "@server/categories";
+import { categoriesRoutes } from './features/categories/categories.routes';
+import { errorHandler } from './middleware/error-handler';
+import { initDatabase } from './lib/db';
+import { env } from './config/env';
 
-initDb()
 
 
 const app = new Hono()
@@ -13,23 +13,35 @@ const app = new Hono()
 app.use('*',logger());
 app.use('*',cors());
 
+app.get('/health',(c) => c.json({
+  status: 'OK',
+  timestamp: new Date().toISOString(),
+  environment: process.env.NODE_ENV || 'development',
+  version: process.env.npm_package_version || '1.0.0',
+}));
 
-app.route("/api/categories",categories);
-app.get('/health',(c) => c.json({status: 'OK'}));
+
+app.route('/api/categories',categoriesRoutes);
+
+app.onError(errorHandler);
+
+app.notFound((c) => c.json({
+  success: false,
+  message: {message: 'Not Found', code: 'NOT_FOUND'},
+},404));
 
 
-app.get('/', (c) => {
-  return c.text('Hello Hono!')
-})
+initDatabase()
+  .then(() => {
+    console.log('Database ready');
+  })
+  .catch((error) => {
+    console.error('Database initialization failed:', error);
+    process.exit(1);
+  });
 
-app.get('/hello', async (c) => {
 
-  const data: ApiResponse = {
-    message: "Hello BHVR!",
-    status:200
-  }
-
-  return c.json(data, { status: 200 })
-})
-
-export default app
+export default {
+  port: env.PORT,
+  fetch: app.fetch,
+}
