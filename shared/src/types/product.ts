@@ -18,8 +18,14 @@ export interface ProductRequest {
     description?: string,
     price: number,
     stock?: number,
-    image_url: string,
+    image_url:string,
     is_active: boolean,
+}
+
+export interface ProductUpdateRequest {
+    name?: string,
+    description?: string,
+    price?: number,
 }
 
 export interface ProductResponse {

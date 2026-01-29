@@ -1,21 +1,15 @@
 
-import postgres from 'postgres';
-import { env } from '../config/env'
+import { sql as bunSql } from 'bun';
+import { env } from '../config/env';
 
+export const sql = bunSql(env.DATABASE_URL) as any;
 
-export const sql = postgres(env.DATABASE_URL, {
-    max: 10,
-    idle_timeout: 20,
-    connect_timeout: 10,
-});
 
 
 export async function initDatabase() {
     try {
-        // Create extension
         await sql`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`;
 
-        // Create categories table
         await sql`
             CREATE TABLE IF NOT EXISTS categories (
                 id SERIAL PRIMARY KEY,
@@ -27,7 +21,6 @@ export async function initDatabase() {
             )
         `;
 
-        // Create products table
         await sql`
             CREATE TABLE IF NOT EXISTS products (
                 id  SERIAL PRIMARY KEY,
@@ -45,13 +38,11 @@ export async function initDatabase() {
             )
         `;
 
-        // Create indexes
         await sql`CREATE INDEX IF NOT EXISTS idx_products_category_id ON products(category_id)`;
         await sql`CREATE INDEX IF NOT EXISTS idx_products_slug ON products(slug)`;
         await sql`CREATE INDEX IF NOT EXISTS idx_products_is_active ON products(is_active)`;
         await sql`CREATE INDEX IF NOT EXISTS idx_categories_slug ON categories(slug)`;
 
-        // Create function for updating updated_at column
         await sql`
             CREATE OR REPLACE FUNCTION update_updated_at_column()
             RETURNS TRIGGER AS $$
@@ -62,7 +53,6 @@ export async function initDatabase() {
             $$ language 'plpgsql'
         `;
 
-        // Create triggers for categories
         await sql`DROP TRIGGER IF EXISTS update_categories_updated_at ON categories`;
         await sql`
             CREATE TRIGGER update_categories_updated_at 
@@ -71,7 +61,6 @@ export async function initDatabase() {
             EXECUTE FUNCTION update_updated_at_column()
         `;
 
-        // Create triggers for products
         await sql`DROP TRIGGER IF EXISTS update_products_updated_at ON products`;
         await sql`
             CREATE TRIGGER update_products_updated_at

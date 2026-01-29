@@ -5,6 +5,7 @@ import { categoriesRoutes } from './features/categories/categories.routes';
 import { errorHandler } from './middleware/error-handler';
 import { initDatabase } from './lib/db';
 import { env } from './config/env';
+import productsRoutes from './features/products/products.routes';
 
 
 
@@ -22,6 +23,7 @@ app.get('/health',(c) => c.json({
 
 
 app.route('/api/categories',categoriesRoutes);
+app.route('/api/products',productsRoutes);
 
 app.onError(errorHandler);
 

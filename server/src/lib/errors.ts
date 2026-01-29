@@ -10,6 +10,11 @@ export class AppError extends Error {
     }
 }
 
+export class BadRequestError extends AppError {
+  constructor(message: string) {
+    super(400, message, 'BAD_REQUEST');
+  }
+}
 export class NotFoundError extends AppError {
     constructor(resource:string,identifier?:string|number) {
         super (
