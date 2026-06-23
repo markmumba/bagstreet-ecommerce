@@ -13,11 +13,13 @@ export const productsHandlers = {
         const limitParam = c.req.query('limit');
         const categoryParameter = c.req.query('categoryId');
         const searchParam = c.req.query('searchTerm');
+        const status = c.req.query('status');
 
         const page = pageParam ? parseInt(pageParam, 10) : 1;
         const limit = limitParam ? parseInt(limitParam, 10) : 10;
         const categoryId = categoryParameter ? parseInt(categoryParameter, 10) : null;
         const searchTerm = searchParam ?? '';
+        const productStatus = status ?? '';
 
         if (page < 1) {
             throw new BadRequestError('Page must be greater than 0');
@@ -27,17 +29,19 @@ export const productsHandlers = {
         }
 
         const [products, total] = await Promise.all([
-            productsQueries.findAll(page, limit, categoryId, searchTerm),
+            productsQueries.findAll(page, limit, categoryId, searchTerm ,productStatus),
             productsQueries.countAll(categoryId, searchTerm)
         ]);
 
-        const response: ProductResponse[] = products.map(product => ({
+        const response: ProductResponse[] = products.map((product: any) => ({
             id: product.id.toString(),
+            category_id: product.category_id,
             name: product.name,
             sku: product.sku,
             description: product.description ?? '',
             price: product.price,
             stock: product.stock,
+            total_stock: product.total_stock != null ? parseInt(product.total_stock, 10) : 0,
             image_url: product.image_url ?? '',
             is_active: product.is_active,
             created_at: product.created_at,
@@ -57,6 +61,7 @@ export const productsHandlers = {
 
         const response: ProductResponse = {
             id: product.id.toString(),
+            category_id:product.category_id,
             name: product.name,
             sku: product.sku,
             description: product.description ?? '',
@@ -118,6 +123,7 @@ export const productsHandlers = {
 
             const response: ProductResponse = {
                 id: product.id.toString(),
+                category_id:product.category_id,
                 sku: product.sku,
                 name: product.name,
                 description: product.description ?? '',
@@ -155,6 +161,7 @@ export const productsHandlers = {
         }
         const response: ProductResponse = {
             id: updatedProduct.id.toString(),
+            category_id:updatedProduct.category_id,
             sku: updatedProduct.sku,
             name: updatedProduct.name,
             description: updatedProduct.description ?? '',

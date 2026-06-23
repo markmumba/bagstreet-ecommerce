@@ -1,10 +1,15 @@
 import { apiClient } from './api';
-import type {  CategoryRequest, CategoryResponse } from 'shared';
+import type { CategoryRequest, CategoryResponse } from 'shared';
+
+export interface CategoryListParams {
+  search?: string;
+  page?: number;
+  limit?: number;
+}
 
 export const categoriesService = {
-  getAll: async (search?: string) => {
-    const params = search ? { search } : undefined;
-    return apiClient.get<CategoryResponse[]>('/api/categories', params);
+  getAll: async (params?: CategoryListParams) => {
+    return apiClient.get<CategoryResponse[]>('/api/categories', params as Record<string, unknown>);
   },
 
   getById: async (id: string) => {

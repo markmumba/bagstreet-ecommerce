@@ -1,7 +1,8 @@
 import type { BaseType } from "./baseType";
+import type { ProductVariantResponse } from "./variant";
 
 export interface Product extends BaseType {
-    category_id: number,
+    category_id: string,
     sku: string,
     name: string,
     slug: string,
@@ -13,7 +14,7 @@ export interface Product extends BaseType {
 }
 
 export interface ProductRequest {
-    category_id: number,
+    category_id: string,
     name: string,
     description?: string,
     price: number,
@@ -30,13 +31,16 @@ export interface ProductUpdateRequest {
 
 export interface ProductResponse {
     id: string,
+    category_id: string,
     sku: string,
     name: string,
     description: string,
     price: number,
     stock: number,
+    total_stock?: number,
     image_url: string,
     is_active: boolean,
     created_at: string,
     updated_at: string,
+    variants?: ProductVariantResponse[],
 }

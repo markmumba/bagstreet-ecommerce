@@ -1,4 +1,6 @@
-import { Link, useLocation } from '@tanstack/react-router';
+import { Link, useLocation, useNavigate } from '@tanstack/react-router';
+import { useEffect } from 'react';
+import { useAuth } from '@/context/AuthContext';
 import {
   Sidebar,
   SidebarContent,
@@ -11,48 +13,15 @@ import {
   SidebarProvider,
   SidebarTrigger,
 } from '@/components/ui/sidebar';
-import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/button';
+import { LayoutDashboard, Tag, Package, ClipboardList, Users, LogOut, ShoppingBag } from 'lucide-react';
 
 const navigation = [
-  {
-    title: 'Categories',
-    href: '/categories',
-    icon: () => (
-      <svg
-        className="h-4 w-4"
-        fill="none"
-        stroke="currentColor"
-        viewBox="0 0 24 24"
-      >
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth={2}
-          d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"
-        />
-      </svg>
-    ),
-  },
-  {
-    title: 'Products',
-    href: '/products',
-    icon: () => (
-      <svg
-        className="h-4 w-4"
-        fill="none"
-        stroke="currentColor"
-        viewBox="0 0 24 24"
-      >
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth={2}
-          d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"
-        />
-      </svg>
-    ),
-    disabled: true,
-  },
+  { title: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
+  { title: 'Categories', href: '/categories', icon: Tag },
+  { title: 'Products', href: '/products', icon: Package },
+  { title: 'Orders', href: '/orders', icon: ClipboardList },
+  { title: 'Users', href: '/users', icon: Users },
 ];
 
 interface DashboardLayoutProps {
@@ -61,39 +30,46 @@ interface DashboardLayoutProps {
 
 export function DashboardLayout({ children }: DashboardLayoutProps) {
   const location = useLocation();
+  const navigate = useNavigate();
+  const { user, isAuthenticated, isLoading, logout } = useAuth();
+
+  useEffect(() => {
+    if (!isLoading && !isAuthenticated) {
+      navigate({ to: '/login' });
+    }
+  }, [isLoading, isAuthenticated, navigate]);
+
+  if (isLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-solid border-primary border-r-transparent" />
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) return null;
+
+  const handleLogout = async () => {
+    await logout();
+    navigate({ to: '/login' });
+  };
 
   return (
     <SidebarProvider>
       <div className="flex min-h-screen w-full">
         <Sidebar>
           <SidebarContent>
-            {/* Header */}
+            {/* Brand */}
             <div className="p-6 border-b border-sidebar-border">
-              <Link to="/" className="flex items-center gap-3 group">
-                <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center group-hover:bg-primary/20 transition-colors">
-                  <svg
-                    className="h-5 w-5 text-primary"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z"
-                    />
-                  </svg>
+              <div className="flex items-center gap-3">
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+                  <ShoppingBag className="h-4 w-4" />
                 </div>
                 <div>
-                  <h1 className="font-semibold text-sidebar-foreground">
-                    Bagstreet
-                  </h1>
-                  <p className="text-xs text-sidebar-foreground/60">
-                    Admin Dashboard
-                  </p>
+                  <h1 className="font-semibold text-sidebar-foreground">Bagstreet</h1>
+                  <p className="text-xs text-sidebar-foreground/60">Admin Dashboard</p>
                 </div>
-              </Link>
+              </div>
             </div>
 
             {/* Navigation */}
@@ -105,22 +81,10 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                     const isActive = location.pathname === item.href;
                     return (
                       <SidebarMenuItem key={item.href}>
-                        <SidebarMenuButton
-                          asChild
-                          isActive={isActive}
-                          disabled={item.disabled}
-                          className={cn(
-                            item.disabled && 'opacity-50 cursor-not-allowed'
-                          )}
-                        >
-                          <Link to={item.href as '/categories'}>
-                            <item.icon />
+                        <SidebarMenuButton asChild isActive={isActive}>
+                          <Link to={item.href as '/dashboard' | '/categories' | '/products' | '/orders' | '/users'}>
+                            <item.icon className="h-4 w-4" />
                             <span>{item.title}</span>
-                            {item.disabled && (
-                              <span className="ml-auto text-xs text-muted-foreground">
-                                Soon
-                              </span>
-                            )}
                           </Link>
                         </SidebarMenuButton>
                       </SidebarMenuItem>
@@ -133,12 +97,23 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
         </Sidebar>
 
         {/* Main Content */}
-        <main className="flex-1 flex flex-col">
+        <main className="flex-1 flex flex-col min-w-0">
           {/* Top Bar */}
           <header className="sticky top-0 z-10 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
             <div className="flex h-14 items-center gap-4 px-6">
               <SidebarTrigger />
               <div className="flex-1" />
+              {/* User info + logout */}
+              <div className="flex items-center gap-3">
+                <div className="text-right hidden sm:block">
+                  <p className="text-sm font-medium leading-none">{user?.full_name}</p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">{user?.role}</p>
+                </div>
+                <Button variant="ghost" size="sm" onClick={handleLogout} className="gap-2">
+                  <LogOut className="h-4 w-4" />
+                  <span className="hidden sm:inline">Logout</span>
+                </Button>
+              </div>
             </div>
           </header>
 

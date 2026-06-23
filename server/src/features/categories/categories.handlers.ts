@@ -1,128 +1,91 @@
 import type { Context } from "hono";
 import { categoriesQueries } from "./categories.queries";
-import { success } from "@server/lib/response";
-import { ConflictError, InternalServerError, NotFoundError, ValidationError } from "@server/lib/errors";
-import {  createCategorySchema,updateCategorySchema } from "./categories.schema";
+import { success, paginated } from "@server/lib/response";
+import { BadRequestError, ConflictError, InternalServerError, NotFoundError, ValidationError } from "@server/lib/errors";
+import { createCategorySchema, updateCategorySchema } from "./categories.schema";
+import { slugify } from "@server/lib/util";
 import type { CategoryRequest, CategoryResponse } from "shared/dist";
 
+function toCategoryResponse(category: any): CategoryResponse {
+    return {
+        id: category.id.toString(),
+        name: category.name,
+        description: category.description ?? '',
+        created_at: category.created_at,
+        updated_at: category.updated_at,
+    };
+}
 
 export const categoriesHandlers = {
 
     list: async (c: Context) => {
-        const searchTerm = c.req.query('search');
-        const categories = searchTerm ? await categoriesQueries.search(searchTerm) : await categoriesQueries.findAll();
+        const page = Math.max(1, parseInt(c.req.query('page') ?? '1', 10));
+        const limit = Math.min(100, Math.max(1, parseInt(c.req.query('limit') ?? '100', 10)));
+        const search = c.req.query('search') ?? '';
 
-        const response: CategoryResponse[] = categories.map(category => ({
-            id: category.id.toString(),
-            name: category.name,
-            description: category.description ?? '',
-            created_at: category.created_at,
-            updated_at: category.updated_at,
-        }));
+        const [categories, total] = await Promise.all([
+            categoriesQueries.findAll(page, limit, search),
+            categoriesQueries.countAll(search),
+        ]);
 
-        return success(c, response);
+        return paginated(c, categories.map(toCategoryResponse), page, limit, total);
     },
 
-    get:async (c: Context) => {
-
+    get: async (c: Context) => {
         const id = parseInt(c.req.param('id'));
         const category = await categoriesQueries.findById(id);
-
-        if (!category) {
-            throw new NotFoundError('Category', id);
-        }
-        const response: CategoryResponse = {
-            id: category.id.toString(),
-            name: category.name,
-            description: category.description ?? null,
-            created_at: category.created_at,
-            updated_at: category.updated_at,
-        };
-        return success(c, response);
+        if (!category) throw new NotFoundError('Category', id);
+        return success(c, toCategoryResponse(category));
     },
 
     create: async (c: Context) => {
-
-        const body = await  c.req.json<CategoryRequest>();
+        const body = await c.req.json<CategoryRequest>();
         const validated = createCategorySchema.safeParse(body);
-        const slug = slugify(validated.data!.name);
+        if (!validated.success) throw new ValidationError('Invalid category data', validated.error.errors);
 
-        const existingCategory = await categoriesQueries.findBySlug(slug);
-        if (existingCategory) {
-            throw new ConflictError('Category with this name already exists');
-        }
+        const slug = slugify(validated.data.name);
+        const existing = await categoriesQueries.findBySlug(slug);
+        if (existing) throw new ConflictError('Category with this name already exists');
 
-        const category = await categoriesQueries.create(validated.data!.name, slug, validated.data!.description ?? null);
+        const category = await categoriesQueries.create(validated.data.name, slug, validated.data.description ?? null);
+        if (!category) throw new InternalServerError('Failed to create category');
 
-        if (!category) {
-            throw new InternalServerError('Failed to create category');
-        }
-
-        const response: CategoryResponse = {
-            id: category.id.toString(),
-            name: category.name,
-            description: category.description ?? '',
-            created_at: category.created_at,
-            updated_at: category.updated_at,
-        };
-        return success(c, response, 'Category created successfully', 201);
-
+        return success(c, toCategoryResponse(category), 'Category created successfully', 201);
     },
 
     update: async (c: Context) => {
         const id = parseInt(c.req.param('id'));
         const body = await c.req.json<CategoryRequest>();
         const validated = updateCategorySchema.safeParse(body);
+        if (!validated.success) throw new ValidationError('Invalid category data', validated.error.errors);
 
-        if (!validated.success) {
-            throw new ValidationError('Invalid category data', validated.error.errors);
-        }
-        const existingCategory = await categoriesQueries.findById(id);
-        if (!existingCategory) {
-            throw new NotFoundError('Category', id);
-        }
+        const existing = await categoriesQueries.findById(id);
+        if (!existing) throw new NotFoundError('Category', id);
 
-        const updateData:any = {}
-        if (validated.data!.name !== undefined) {
-            updateData.name = validated.data!.name;
-            updateData.slug = slugify(validated.data!.name);
+        const updateData: any = {};
+        if (validated.data.name !== undefined) {
+            updateData.name = validated.data.name;
+            updateData.slug = slugify(validated.data.name);
         }
-        if (validated.data!.description !== undefined) {
-            updateData.description = validated.data!.description;
-        }
-        const updatedCategory = await categoriesQueries.update(id, updateData);
-
-        if (!updatedCategory) {
-            throw new InternalServerError('Failed to update category');
+        if (validated.data.description !== undefined) {
+            updateData.description = validated.data.description;
         }
 
-        const response: CategoryResponse = {
-            id: updatedCategory.id.toString(),
-            name: updatedCategory.name,
-            description: updatedCategory.description ?? '',
-            created_at: updatedCategory.created_at,
-            updated_at: updatedCategory.updated_at,
-        };
-        return success(c, response, 'Category updated successfully');
+        const updated = await categoriesQueries.update(id, updateData);
+        if (!updated) throw new InternalServerError('Failed to update category');
+
+        return success(c, toCategoryResponse(updated), 'Category updated successfully');
     },
 
     delete: async (c: Context) => {
-
         const id = parseInt(c.req.param('id'));
         const category = await categoriesQueries.findById(id);
-        if (!category) {
-            throw new NotFoundError('Category', id);
-        }
+        if (!category) throw new NotFoundError('Category', id);
+
         const count = await categoriesQueries.countProducts(id);
-        if (count && count > 0) {
-            throw new ConflictError('Category has products');
-        }
+        if (count && count > 0) throw new ConflictError('Category has products');
+
         await categoriesQueries.delete(id);
         return success(c, null, 'Category deleted successfully');
-    }
-
-}
-
-function slugify(text: string): string {
-    return text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-  }
+    },
+};

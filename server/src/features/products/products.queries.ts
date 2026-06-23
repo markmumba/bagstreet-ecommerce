@@ -6,22 +6,27 @@ export const productsQueries = {
         page: number,
         limit: number,
         categoryId: number | null,
-        searchTerm: string
-    ): Promise<Product[]> => {
+        searchTerm: string,
+        status: string
+    ): Promise<(Product & { total_stock: number | null })[]> => {
         const offset = (page - 1) * limit;
 
         const pattern = searchTerm && searchTerm.trim() !== ""
             ? `%${searchTerm.trim()}%`
             : null;
 
-        const products = await sql<Product[]>`
-            SELECT * FROM products
-            WHERE (${categoryId} IS NULL OR category_id = ${categoryId})
-              AND (${pattern} IS NULL OR name ILIKE ${pattern})
-            ORDER BY name ASC
+        return await sql<(Product & { total_stock: number | null })[]>`
+            SELECT p.*,
+                COALESCE(SUM(pv.stock) FILTER (WHERE pv.is_active = true), 0) AS total_stock
+            FROM products p
+            LEFT JOIN product_variants pv ON pv.product_id = p.id
+            WHERE (${categoryId} IS NULL OR p.category_id = ${categoryId})
+              AND (${pattern} IS NULL OR p.name ILIKE ${pattern})
+              AND (${status} IS NULL OR p.is_active = ${status})
+            GROUP BY p.id
+            ORDER BY p.name ASC
             LIMIT ${limit} OFFSET ${offset}
         `;
-        return products;
     },
 
     countAll: async (
@@ -50,20 +55,26 @@ export const productsQueries = {
         const [product] = await sql<Product[]>`SELECT * FROM products WHERE slug = ${slug}`;
         return product;
     },
+
     create: async (product: ProductRequest & { sku: string; slug: string }): Promise<Product | undefined> => {
         const result = await sql<Product[]>`INSERT INTO products
-         (category_id, name, description, sku, slug, price, stock, image_url, is_active) 
-        VALUES 
+         (category_id, name, description, sku, slug, price, stock, image_url, is_active)
+        VALUES
         (${product.category_id}, ${product.name}, ${product.description ?? null}, ${product.sku}, ${product.slug}, ${product.price}, ${product.stock ?? 0}, ${product.image_url ?? null}, ${product.is_active}) RETURNING *`;
         const [newProduct] = result;
         return newProduct;
     },
+
     update: async (id: number, product: { name?: string; description?: string; price?: number }): Promise<Product | undefined> => {
         const [updatedProduct] = await sql<Product[]>`UPDATE products SET ${sql(product)} WHERE id = ${id} RETURNING *`;
         return updatedProduct;
     },
+
     delete: async (id: number): Promise<void> => {
         await sql`DELETE FROM products WHERE id = ${id}`;
+    },
 
-    }
-}
+    bulkDelete: async (productIds: []): Promise<void> => {
+        await sql`DELETE FROM products WHERE id IN (productIds = ${productIds})`;
+    },
+};

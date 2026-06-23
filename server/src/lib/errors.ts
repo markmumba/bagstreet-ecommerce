@@ -44,3 +44,15 @@ export class InternalServerError extends AppError {
     super(500, message, 'INTERNAL_SERVER_ERROR');
   }
 }
+
+export class UnauthorizedError extends AppError {
+  constructor(message = 'Unauthorized') {
+    super(401, message, 'UNAUTHORIZED');
+  }
+}
+
+export class ForbiddenError extends AppError {
+  constructor(message = 'Forbidden') {
+    super(403, message, 'FORBIDDEN');
+  }
+}

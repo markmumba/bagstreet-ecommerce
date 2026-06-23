@@ -1,39 +1,63 @@
-import { BlobServiceClient } from "@azure/storage-blob";
+import { Client } from "minio";
 import { env } from "../config/env";
 import { v4 as uuidv4 } from 'uuid';
 import { BadRequestError } from "@server/lib/errors";
+import path from "path";
+
+const minioClient = new Client({
+    endPoint: env.MINIO_ENDPOINT,
+    port: env.MINIO_PORT,
+    useSSL: env.MINIO_USE_SSL,
+    accessKey: env.MINIO_ACCESS_KEY,
+    secretKey: env.MINIO_SECRET_KEY,
+});
+
+async function ensureBucket() {
+    const exists = await minioClient.bucketExists(env.MINIO_BUCKET);
+    if (!exists) {
+        await minioClient.makeBucket(env.MINIO_BUCKET);
+        await minioClient.setBucketPolicy(env.MINIO_BUCKET, JSON.stringify({
+            Version: '2012-10-17',
+            Statement: [{
+                Effect: 'Allow',
+                Principal: { AWS: ['*'] },
+                Action: ['s3:GetObject'],
+                Resource: [`arn:aws:s3:::${env.MINIO_BUCKET}/*`],
+            }],
+        }));
+    }
+}
+
+const bucketReady = ensureBucket();
 
 export const imageUploadService = {
     upload: async (file: File) => {
         const allowedTypes = ['image/jpeg', 'image/png', 'image/jpg', 'image/webp'];
-        if(!allowedTypes.includes(file.type)){
+        if (!allowedTypes.includes(file.type)) {
             throw new BadRequestError('Invalid file type');
         }
-        const maxSize = 10 * 1024 * 1024; 
-        if(file.size > maxSize){
+        const maxSize = 10 * 1024 * 1024;
+        if (file.size > maxSize) {
             throw new BadRequestError('File size exceeds the maximum allowed size');
         }
-        const fileName = `${uuidv4()}-${file.name}`;
 
-        const blobServiceClient =BlobServiceClient.fromConnectionString(env.AZURE_STORAGE_CONNECTION_STRING);
-        const containerClient = blobServiceClient.getContainerClient(env.AZURE_STORAGE_CONTAINER_NAME);
-        const blockBlobClient = containerClient.getBlockBlobClient(fileName);
+        await bucketReady;
 
-        await blockBlobClient.upload(file,file.size,{
-            blobHTTPHeaders:{
-                blobContentType: file.type,
-            },
+        const fileExtension = path.extname(file.name);
+        const fileName = `${uuidv4()}${fileExtension}`;
+        const buffer = Buffer.from(await file.arrayBuffer());
+
+        await minioClient.putObject(env.MINIO_BUCKET, fileName, buffer, file.size, {
+            'Content-Type': file.type,
         });
 
-        return {
-            url: blockBlobClient.url,
-            filename: fileName,
-        }
+        const protocol = env.MINIO_USE_SSL ? 'https' : 'http';
+        const url = `${protocol}://${env.MINIO_ENDPOINT}:${env.MINIO_PORT}/${env.MINIO_BUCKET}/${fileName}`;
+
+        return { url, filename: fileName };
     },
-    delete: async(filename: string) => {
-        const blobServiceClient =BlobServiceClient.fromConnectionString(env.AZURE_STORAGE_CONNECTION_STRING);
-        const containerClient = blobServiceClient.getContainerClient(env.AZURE_STORAGE_CONTAINER_NAME);
-        const blockBlobClient = containerClient.getBlockBlobClient(filename);
-        await blockBlobClient.delete();
-    }
-}
+
+    delete: async (filename: string) => {
+        await minioClient.removeObject(env.MINIO_BUCKET, filename);
+    },
+};
