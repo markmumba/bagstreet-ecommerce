@@ -19,7 +19,7 @@ export const productsHandlers = {
         const limit = limitParam ? parseInt(limitParam, 10) : 10;
         const categoryId = categoryParameter ? parseInt(categoryParameter, 10) : null;
         const searchTerm = searchParam ?? '';
-        const productStatus = status ?? '';
+        const productStatus = status === 'true' ? true : status === 'false' ? false : null;
 
         if (page < 1) {
             throw new BadRequestError('Page must be greater than 0');
@@ -29,7 +29,7 @@ export const productsHandlers = {
         }
 
         const [products, total] = await Promise.all([
-            productsQueries.findAll(page, limit, categoryId, searchTerm ,productStatus),
+            productsQueries.findAll(page, limit, categoryId, searchTerm, productStatus),
             productsQueries.countAll(categoryId, searchTerm)
         ]);
 
@@ -44,6 +44,7 @@ export const productsHandlers = {
             total_stock: product.total_stock != null ? parseInt(product.total_stock, 10) : 0,
             image_url: product.image_url ?? '',
             is_active: product.is_active,
+            is_featured: product.is_featured ?? false,
             created_at: product.created_at,
             updated_at: product.updated_at,
         }));
@@ -61,7 +62,7 @@ export const productsHandlers = {
 
         const response: ProductResponse = {
             id: product.id.toString(),
-            category_id:product.category_id,
+            category_id: product.category_id,
             name: product.name,
             sku: product.sku,
             description: product.description ?? '',
@@ -69,6 +70,7 @@ export const productsHandlers = {
             stock: product.stock,
             image_url: product.image_url ?? '',
             is_active: product.is_active,
+            is_featured: product.is_featured ?? false,
             created_at: product.created_at,
             updated_at: product.updated_at,
         };
@@ -123,7 +125,7 @@ export const productsHandlers = {
 
             const response: ProductResponse = {
                 id: product.id.toString(),
-                category_id:product.category_id,
+                category_id: product.category_id,
                 sku: product.sku,
                 name: product.name,
                 description: product.description ?? '',
@@ -131,6 +133,7 @@ export const productsHandlers = {
                 stock: product.stock,
                 image_url: product.image_url ?? '',
                 is_active: product.is_active,
+                is_featured: product.is_featured ?? false,
                 created_at: product.created_at,
                 updated_at: product.updated_at,
             };
@@ -161,7 +164,7 @@ export const productsHandlers = {
         }
         const response: ProductResponse = {
             id: updatedProduct.id.toString(),
-            category_id:updatedProduct.category_id,
+            category_id: updatedProduct.category_id,
             sku: updatedProduct.sku,
             name: updatedProduct.name,
             description: updatedProduct.description ?? '',
@@ -169,6 +172,7 @@ export const productsHandlers = {
             stock: updatedProduct.stock,
             image_url: updatedProduct.image_url ?? '',
             is_active: updatedProduct.is_active,
+            is_featured: updatedProduct.is_featured ?? false,
             created_at: updatedProduct.created_at,
             updated_at: updatedProduct.updated_at,
         };

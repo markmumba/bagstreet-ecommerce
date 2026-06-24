@@ -1,7 +1,7 @@
 import axios, { type AxiosError, type AxiosInstance } from 'axios';
 import type { ApiResponse } from 'shared';
 
-let authToken: string | null = null;
+let authToken: string | null = localStorage.getItem('bagstreet_token');
 let isRefreshing = false;
 let refreshQueue: Array<(token: string | null) => void> = [];
 
@@ -54,7 +54,7 @@ class ApiClient {
             return new Promise((resolve, reject) => {
               refreshQueue.push((token) => {
                 if (token) {
-                  originalRequest.headers.Authorization = `Bearer ${token}`;
+                  delete (originalRequest.headers as any).Authorization;
                   resolve(this.client(originalRequest));
                 } else {
                   reject(error);
@@ -75,7 +75,8 @@ class ApiClient {
             authToken = newToken;
             localStorage.setItem('bagstreet_token', newToken);
             drainQueue(newToken);
-            originalRequest.headers.Authorization = `Bearer ${newToken}`;
+            // Delete stale header; request interceptor re-adds it with fresh token
+            delete (originalRequest.headers as any).Authorization;
             return this.client(originalRequest);
           } catch {
             drainQueue(null);

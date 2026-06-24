@@ -149,7 +149,7 @@ function DashboardPage() {
                           {order.items.length} item{order.items.length !== 1 ? 's' : ''}
                         </td>
                         <td className="px-4 py-3 text-right font-medium">
-                          ${order.total_amount.toFixed(2)}
+                          KES {order.total_amount.toFixed(2)}
                         </td>
                       </tr>
                     ))}

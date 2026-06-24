@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import type { Category } from 'shared';
-import { useCreateCategory, useUpdateCategory } from '@/hooks/useCategories';
+import { useCreateCategory, useUpdateCategory, useCategoryOptions } from '@/hooks/useCategories';
 import {
   Dialog,
   DialogContent,
@@ -12,6 +12,13 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 
 interface CategoryDialogProps {
   open: boolean;
@@ -22,21 +29,29 @@ interface CategoryDialogProps {
 export function CategoryDialog({ open, onOpenChange, category }: CategoryDialogProps) {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
+  const [parentId, setParentId] = useState<string>('');
 
   const createMutation = useCreateCategory();
   const updateMutation = useUpdateCategory();
+  const { data: allCategories } = useCategoryOptions();
 
   const isEditing = !!category;
   const isLoading = createMutation.isPending || updateMutation.isPending;
 
-  // Populate form when editing
+  // Only allow top-level categories as parents (parent_id == null), exclude self
+  const parentOptions = (allCategories ?? []).filter(
+    (cat) => cat.parent_id == null && cat.id !== category?.id
+  );
+
   useEffect(() => {
     if (category) {
       setName(category.name);
       setDescription(category.description || '');
+      setParentId(category.parent_id != null ? String(category.parent_id) : 'none');
     } else {
       setName('');
       setDescription('');
+      setParentId('none');
     }
   }, [category, open]);
 
@@ -46,6 +61,7 @@ export function CategoryDialog({ open, onOpenChange, category }: CategoryDialogP
     const data = {
       name: name.trim(),
       description: description.trim(),
+      parent_id: parentId && parentId !== 'none' ? parseInt(parentId, 10) : null,
     };
 
     try {
@@ -55,12 +71,11 @@ export function CategoryDialog({ open, onOpenChange, category }: CategoryDialogP
         await createMutation.mutateAsync(data);
       }
 
-      // Reset form and close dialog
       setName('');
       setDescription('');
+      setParentId('none');
       onOpenChange(false);
     } catch (error) {
-      // Error handling is done by TanStack Query
       console.error('Failed to save category:', error);
     }
   };
@@ -93,6 +108,27 @@ export function CategoryDialog({ open, onOpenChange, category }: CategoryDialogP
               maxLength={100}
               disabled={isLoading}
             />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="parent">Parent Category</Label>
+            <Select
+              value={parentId}
+              onValueChange={setParentId}
+              disabled={isLoading}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="None (top-level)" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">None (top-level)</SelectItem>
+                {parentOptions.map((cat) => (
+                  <SelectItem key={cat.id} value={cat.id}>
+                    {cat.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           <div className="space-y-2">

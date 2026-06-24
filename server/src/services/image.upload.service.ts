@@ -12,6 +12,8 @@ const minioClient = new Client({
     secretKey: env.MINIO_SECRET_KEY,
 });
 
+let bucketReady: Promise<void> | null = null;
+
 async function ensureBucket() {
     const exists = await minioClient.bucketExists(env.MINIO_BUCKET);
     if (!exists) {
@@ -28,7 +30,15 @@ async function ensureBucket() {
     }
 }
 
-const bucketReady = ensureBucket();
+function getBucketReady() {
+    if (!bucketReady) {
+        bucketReady = ensureBucket().catch((err) => {
+            bucketReady = null;
+            throw err;
+        });
+    }
+    return bucketReady;
+}
 
 export const imageUploadService = {
     upload: async (file: File) => {
@@ -41,7 +51,7 @@ export const imageUploadService = {
             throw new BadRequestError('File size exceeds the maximum allowed size');
         }
 
-        await bucketReady;
+        await getBucketReady();
 
         const fileExtension = path.extname(file.name);
         const fileName = `${uuidv4()}${fileExtension}`;

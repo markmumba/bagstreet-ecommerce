@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
-import type { ProductResponse, CategoryResponse } from 'shared';
+import type { ProductResponse } from 'shared';
 
 type Product = ProductResponse;
 import { useCreateProduct, useUpdateProduct } from '@/hooks/useProducts';
-import { useCategoryOptions } from '@/hooks/useCategories';
+import { useCategoryTree } from '@/hooks/useCategories';
+import type { CategoryTreeNode } from 'shared';
 import {
   Dialog,
   DialogContent,
@@ -37,7 +38,7 @@ export function ProductDialog({ open, onOpenChange, product }: ProductDialogProp
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [isActive, setIsActive] = useState(true);
 
-  const { data: categories } = useCategoryOptions();
+  const { data: categoryTree } = useCategoryTree();
   const createMutation = useCreateProduct();
   const updateMutation = useUpdateProduct();
 
@@ -147,10 +148,23 @@ export function ProductDialog({ open, onOpenChange, product }: ProductDialogProp
                   <SelectValue placeholder="Select a category" />
                 </SelectTrigger>
                 <SelectContent>
-                  {categories?.map((category: CategoryResponse) => (
-                    <SelectItem key={category.id} value={category.id}>
-                      {category.name}
-                    </SelectItem>
+                  {(categoryTree ?? []).map((parent: CategoryTreeNode) => (
+                    parent.children.length > 0 ? (
+                      <div key={parent.id}>
+                        <div className="px-2 py-1 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                          {parent.name}
+                        </div>
+                        {parent.children.map((child) => (
+                          <SelectItem key={child.id} value={child.id}>
+                            › {child.name}
+                          </SelectItem>
+                        ))}
+                      </div>
+                    ) : (
+                      <SelectItem key={parent.id} value={parent.id}>
+                        {parent.name}
+                      </SelectItem>
+                    )
                   ))}
                 </SelectContent>
               </Select>

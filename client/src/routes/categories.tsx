@@ -85,6 +85,30 @@ function CategoriesPage() {
       ),
     },
     {
+      id: 'parent',
+      header: 'Parent',
+      cell: ({ row }) => {
+        const cat = row.original as any;
+        return (
+          <div className="text-sm text-muted-foreground">
+            {cat.parent_name ?? <span className="italic text-muted-foreground/60">—</span>}
+          </div>
+        );
+      },
+    },
+    {
+      id: 'children_count',
+      header: 'Subcategories',
+      cell: ({ row }) => {
+        const cat = row.original as any;
+        return (
+          <div className="text-sm text-muted-foreground">
+            {cat.children_count ?? 0}
+          </div>
+        );
+      },
+    },
+    {
       accessorKey: 'created_at',
       header: ({ column }) => (
         <Button variant="ghost" onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')} className="-ml-4">

@@ -22,4 +22,8 @@ export const productsService = {
   delete: async (id: string) => {
     return apiClient.delete<void>(`/api/products/${id}`);
   },
+
+  toggleFeatured: async (id: string, is_featured: boolean) => {
+    return apiClient.put<ProductResponse>(`/api/products/${id}`, { is_featured });
+  },
 };

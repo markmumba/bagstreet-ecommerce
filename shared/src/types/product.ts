@@ -11,6 +11,7 @@ export interface Product extends BaseType {
     stock: number,
     image_url: string,
     is_active: boolean,
+    is_featured: boolean,
 }
 
 export interface ProductRequest {
@@ -27,6 +28,7 @@ export interface ProductUpdateRequest {
     name?: string,
     description?: string,
     price?: number,
+    is_featured?: boolean,
 }
 
 export interface ProductResponse {
@@ -40,6 +42,7 @@ export interface ProductResponse {
     total_stock?: number,
     image_url: string,
     is_active: boolean,
+    is_featured: boolean,
     created_at: string,
     updated_at: string,
     variants?: ProductVariantResponse[],

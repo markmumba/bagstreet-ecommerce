@@ -27,7 +27,7 @@ export const ordersQueries = {
         const offset = (page - 1) * limit;
         return await sql<OrderRow[]>`
             SELECT * FROM orders
-            WHERE (${status} IS NULL OR status = ${status})
+            WHERE (${status}::text IS NULL OR status = ${status}::text)
             ORDER BY created_at DESC
             LIMIT ${limit} OFFSET ${offset}
         `;
@@ -36,7 +36,7 @@ export const ordersQueries = {
     countAll: async (status: string | null): Promise<number> => {
         const [result] = await sql<[{ count: string }]>`
             SELECT COUNT(*) as count FROM orders
-            WHERE (${status} IS NULL OR status = ${status})
+            WHERE (${status}::text IS NULL OR status = ${status}::text)
         `;
         return parseInt(result.count, 10);
     },
@@ -46,7 +46,7 @@ export const ordersQueries = {
         return await sql<OrderRow[]>`
             SELECT * FROM orders
             WHERE user_id = ${userId}
-              AND (${status} IS NULL OR status = ${status})
+              AND (${status}::text IS NULL OR status = ${status}::text)
             ORDER BY created_at DESC
             LIMIT ${limit} OFFSET ${offset}
         `;
@@ -56,7 +56,7 @@ export const ordersQueries = {
         const [result] = await sql<[{ count: string }]>`
             SELECT COUNT(*) as count FROM orders
             WHERE user_id = ${userId}
-              AND (${status} IS NULL OR status = ${status})
+              AND (${status}::text IS NULL OR status = ${status}::text)
         `;
         return parseInt(result.count, 10);
     },

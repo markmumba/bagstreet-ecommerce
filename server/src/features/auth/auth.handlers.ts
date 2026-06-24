@@ -21,7 +21,8 @@ async function generateAccessToken(userId: number, email: string, role: string):
     const now = Math.floor(Date.now() / 1000);
     return sign(
         { sub: String(userId), email, role, iat: now, exp: now + ACCESS_TOKEN_TTL },
-        env.JWT_SECRET
+        env.JWT_SECRET,
+        'HS256'
     );
 }
 
@@ -29,14 +30,14 @@ function setRefreshCookie(c: Context, token: string) {
     const isProduction = env.NODE_ENV === 'production';
     c.header(
         'Set-Cookie',
-        `refresh_token=${token}; HttpOnly; Path=/api/auth; SameSite=Strict; Max-Age=${REFRESH_TOKEN_TTL}${isProduction ? '; Secure' : ''}`
+        `refresh_token=${token}; HttpOnly; Path=/api/auth; SameSite=Lax; Max-Age=${REFRESH_TOKEN_TTL}${isProduction ? '; Secure' : ''}`
     );
 }
 
 function clearRefreshCookie(c: Context) {
     c.header(
         'Set-Cookie',
-        `refresh_token=; HttpOnly; Path=/api/auth; SameSite=Strict; Max-Age=0`
+        `refresh_token=; HttpOnly; Path=/api/auth; SameSite=Lax; Max-Age=0`
     );
 }
 

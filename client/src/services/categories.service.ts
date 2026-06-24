@@ -1,5 +1,5 @@
 import { apiClient } from './api';
-import type { CategoryRequest, CategoryResponse } from 'shared';
+import type { CategoryRequest, CategoryResponse, CategoryTreeNode } from 'shared';
 
 export interface CategoryListParams {
   search?: string;
@@ -26,5 +26,9 @@ export const categoriesService = {
 
   delete: async (id: string) => {
     return apiClient.delete<void>(`/api/categories/${id}`);
+  },
+
+  getTree: async () => {
+    return apiClient.get<CategoryTreeNode[]>('/api/categories/tree');
   },
 };

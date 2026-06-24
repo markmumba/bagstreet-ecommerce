@@ -96,7 +96,7 @@ export function VariantsSheet({ open, onOpenChange, product }: VariantsSheetProp
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-full sm:max-w-xl overflow-y-auto">
+      <SheetContent side="right" className="w-full sm:max-w-xl overflow-y-auto px-6">
         <SheetHeader className="pb-4">
           <SheetTitle>{product?.name ?? 'Product'} — Variants</SheetTitle>
           <SheetDescription>
@@ -173,7 +173,7 @@ export function VariantsSheet({ open, onOpenChange, product }: VariantsSheetProp
                     </td>
                     <td className="py-2 pr-3">
                       {v.price_override != null
-                        ? `$${v.price_override.toFixed(2)}`
+                        ? `KES ${v.price_override.toFixed(2)}`
                         : <span className="text-muted-foreground text-xs">default</span>}
                     </td>
                     <td className="py-2 pr-3">

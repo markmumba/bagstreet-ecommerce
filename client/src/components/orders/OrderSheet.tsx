@@ -168,17 +168,17 @@ export function OrderSheet({ order, open, onOpenChange }: OrderSheetProps) {
                   <div>
                     <p className="font-medium">{item.product_name}</p>
                     <p className="text-xs text-muted-foreground">
-                      {item.quantity} × ${item.unit_price.toFixed(2)}
+                      {item.quantity} × KES {item.unit_price.toFixed(2)}
                     </p>
                   </div>
-                  <span className="font-medium">${item.subtotal.toFixed(2)}</span>
+                  <span className="font-medium">KES {item.subtotal.toFixed(2)}</span>
                 </div>
               ))}
             </div>
 
             <div className="flex justify-between border-t pt-3 font-semibold text-sm">
               <span>Total</span>
-              <span>${order.total_amount.toFixed(2)}</span>
+              <span>KES {order.total_amount.toFixed(2)}</span>
             </div>
           </div>
         </div>

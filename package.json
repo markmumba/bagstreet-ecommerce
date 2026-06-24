@@ -9,11 +9,13 @@
   "workspaces": [
     "./server",
     "./client",
+    "./storefront",
     "./shared"
   ],
   "scripts": {
     "dev": "turbo dev",
     "dev:client": "turbo dev --filter=client",
+    "dev:storefront": "turbo dev --filter=storefront",
     "dev:server": "turbo dev --filter=server",
     "build": "turbo build",
     "build:client": "turbo build --filter=client",

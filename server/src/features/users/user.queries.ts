@@ -13,9 +13,9 @@ export const UsersQueries = {
         const pattern = search.trim() !== '' ? `%${search.trim()}%` : null;
         return await sql<User[]>`
             SELECT id, email, full_name, role, is_active, created_at, updated_at FROM users
-            WHERE (${pattern} IS NULL OR full_name ILIKE ${pattern} OR email ILIKE ${pattern})
-              AND (${role} IS NULL OR role = ${role})
-              AND (${isActive} IS NULL OR is_active = ${isActive})
+            WHERE (${pattern}::text IS NULL OR full_name ILIKE ${pattern}::text OR email ILIKE ${pattern}::text)
+              AND (${role}::text IS NULL OR role = ${role}::text)
+              AND (${isActive}::boolean IS NULL OR is_active = ${isActive}::boolean)
             ORDER BY created_at DESC
             LIMIT ${limit} OFFSET ${offset}
         `;
@@ -29,9 +29,9 @@ export const UsersQueries = {
         const pattern = search.trim() !== '' ? `%${search.trim()}%` : null;
         const [result] = await sql<[{ count: string }]>`
             SELECT COUNT(*) as count FROM users
-            WHERE (${pattern} IS NULL OR full_name ILIKE ${pattern} OR email ILIKE ${pattern})
-              AND (${role} IS NULL OR role = ${role})
-              AND (${isActive} IS NULL OR is_active = ${isActive})
+            WHERE (${pattern}::text IS NULL OR full_name ILIKE ${pattern}::text OR email ILIKE ${pattern}::text)
+              AND (${role}::text IS NULL OR role = ${role}::text)
+              AND (${isActive}::boolean IS NULL OR is_active = ${isActive}::boolean)
         `;
         return parseInt(result.count, 10);
     },

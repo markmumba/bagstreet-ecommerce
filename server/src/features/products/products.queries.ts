@@ -7,7 +7,7 @@ export const productsQueries = {
         limit: number,
         categoryId: number | null,
         searchTerm: string,
-        status: string
+        status: boolean | null
     ): Promise<(Product & { total_stock: number | null })[]> => {
         const offset = (page - 1) * limit;
 
@@ -16,13 +16,18 @@ export const productsQueries = {
             : null;
 
         return await sql<(Product & { total_stock: number | null })[]>`
+            WITH RECURSIVE descendants AS (
+                SELECT id FROM categories WHERE ${categoryId}::integer IS NOT NULL AND id = ${categoryId}::integer
+                UNION ALL
+                SELECT c.id FROM categories c JOIN descendants d ON c.parent_id = d.id
+            )
             SELECT p.*,
                 COALESCE(SUM(pv.stock) FILTER (WHERE pv.is_active = true), 0) AS total_stock
             FROM products p
             LEFT JOIN product_variants pv ON pv.product_id = p.id
-            WHERE (${categoryId} IS NULL OR p.category_id = ${categoryId})
-              AND (${pattern} IS NULL OR p.name ILIKE ${pattern})
-              AND (${status} IS NULL OR p.is_active = ${status})
+            WHERE (${categoryId}::integer IS NULL OR p.category_id IN (SELECT id FROM descendants))
+              AND (${pattern}::text IS NULL OR p.name ILIKE ${pattern}::text)
+              AND (${status}::boolean IS NULL OR p.is_active = ${status}::boolean)
             GROUP BY p.id
             ORDER BY p.name ASC
             LIMIT ${limit} OFFSET ${offset}
@@ -38,10 +43,15 @@ export const productsQueries = {
             : null;
 
         const [result] = await sql<[{ count: string }]>`
+            WITH RECURSIVE descendants AS (
+                SELECT id FROM categories WHERE ${categoryId}::integer IS NOT NULL AND id = ${categoryId}::integer
+                UNION ALL
+                SELECT c.id FROM categories c JOIN descendants d ON c.parent_id = d.id
+            )
             SELECT COUNT(*) as count
             FROM products
-            WHERE (${categoryId} IS NULL OR category_id = ${categoryId})
-              AND (${pattern} IS NULL OR name ILIKE ${pattern})
+            WHERE (${categoryId}::integer IS NULL OR category_id IN (SELECT id FROM descendants))
+              AND (${pattern}::text IS NULL OR name ILIKE ${pattern}::text)
         `;
         return parseInt(result.count, 10);
     },

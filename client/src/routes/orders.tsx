@@ -110,7 +110,7 @@ function OrdersPage() {
       accessorKey: 'total_amount',
       header: 'Total',
       cell: ({ row }) => (
-        <span className="font-medium">${row.original.total_amount.toFixed(2)}</span>
+        <span className="font-medium">KES {row.original.total_amount.toFixed(2)}</span>
       ),
     },
     {

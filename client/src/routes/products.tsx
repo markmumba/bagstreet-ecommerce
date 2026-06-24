@@ -1,7 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useState } from 'react';
 import type { ColumnDef } from '@tanstack/react-table';
-import { useProducts, useDeleteProduct } from '@/hooks/useProducts';
+import { useProducts, useDeleteProduct, useToggleFeatured } from '@/hooks/useProducts';
 import { useCategoryOptions } from '@/hooks/useCategories';
 import { ProductDialog } from '@/components/products/ProductDialog';
 import { ProductsDataTable } from '@/components/products/ProductsDataTable';
@@ -25,6 +25,7 @@ function ProductsPage() {
   const { data: products, isLoading, error } = useProducts();
   const { data: categories } = useCategoryOptions();
   const deleteMutation = useDeleteProduct();
+  const toggleFeaturedMutation = useToggleFeatured();
 
   const handleCreate = () => {
     setEditingProduct(null);
@@ -63,15 +64,15 @@ function ProductsPage() {
   };
 
   const formatPrice = (price: number) => {
-    return new Intl.NumberFormat('en-US', {
+    return new Intl.NumberFormat('en-KE', {
       style: 'currency',
-      currency: 'USD',
+      currency: 'KES',
     }).format(price);
   };
 
   const getCategoryName = (categoryId: string) => {
-    const category = categories?.find((c: CategoryResponse) => c.id === categoryId);
-    return category?.name || 'Unknown';
+    const category = categories?.find((c: CategoryResponse) => c.id === String(categoryId));
+    return category?.name || '—';
   };
 
   const columns: ColumnDef<Product>[] = [
@@ -127,12 +128,7 @@ function ProductsPage() {
       },
       cell: ({ row }) => {
         const product = row.original;
-        return (
-          <div>
-            <div className="font-medium">{product.name}</div>
-            <div className="text-xs text-muted-foreground">{product.sku}</div>
-          </div>
-        );
+        return <div className="font-medium">{product.name}</div>;
       },
     },
     {
@@ -243,6 +239,25 @@ function ProductsPage() {
           <div className="text-sm text-muted-foreground">
             {formatDate(product.created_at)}
           </div>
+        );
+      },
+    },
+    {
+      id: 'is_featured',
+      header: 'Featured',
+      cell: ({ row }) => {
+        const product = row.original;
+        return (
+          <button
+            title={product.is_featured ? 'Unfeature' : 'Feature'}
+            onClick={() => toggleFeaturedMutation.mutate({ id: product.id, is_featured: !product.is_featured })}
+            disabled={toggleFeaturedMutation.isPending}
+            className={`text-xl leading-none transition-colors ${
+              product.is_featured ? 'text-yellow-400 hover:text-yellow-300' : 'text-muted-foreground hover:text-yellow-400'
+            }`}
+          >
+            ★
+          </button>
         );
       },
     },

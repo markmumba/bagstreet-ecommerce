@@ -156,6 +156,20 @@ export async function initDatabase() {
         await sql`CREATE INDEX IF NOT EXISTS idx_product_variants_sku ON product_variants(sku)`;
         await sql`CREATE INDEX IF NOT EXISTS idx_cart_items_user_id ON cart_items(user_id)`;
 
+        // Featured products
+        await sql`ALTER TABLE products ADD COLUMN IF NOT EXISTS is_featured BOOLEAN NOT NULL DEFAULT false`;
+        await sql`CREATE INDEX IF NOT EXISTS idx_products_is_featured ON products(is_featured)`;
+
+        // Hierarchical categories
+        await sql`ALTER TABLE categories ADD COLUMN IF NOT EXISTS parent_id INTEGER REFERENCES categories(id) ON DELETE RESTRICT`;
+        await sql`CREATE INDEX IF NOT EXISTS idx_categories_parent_id ON categories(parent_id)`;
+
+        // Additive products columns
+        await sql`ALTER TABLE products ADD COLUMN IF NOT EXISTS sku VARCHAR(50)`;
+        await sql`ALTER TABLE products ADD COLUMN IF NOT EXISTS slug VARCHAR(200)`;
+        await sql`ALTER TABLE products ADD COLUMN IF NOT EXISTS image_url TEXT`;
+        await sql`ALTER TABLE products ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP`;
+
         // Additive order_items columns for variant snapshot
         await sql`ALTER TABLE order_items ADD COLUMN IF NOT EXISTS variant_id INTEGER REFERENCES product_variants(id) ON DELETE RESTRICT`;
         await sql`ALTER TABLE order_items ADD COLUMN IF NOT EXISTS variant_sku VARCHAR(50)`;

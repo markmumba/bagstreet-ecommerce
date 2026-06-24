@@ -4,13 +4,16 @@ import { success, paginated } from "@server/lib/response";
 import { BadRequestError, ConflictError, InternalServerError, NotFoundError, ValidationError } from "@server/lib/errors";
 import { createCategorySchema, updateCategorySchema } from "./categories.schema";
 import { slugify } from "@server/lib/util";
-import type { CategoryRequest, CategoryResponse } from "shared/dist";
+import type { CategoryRequest, CategoryResponse, CategoryTreeNode } from "shared/dist";
 
 function toCategoryResponse(category: any): CategoryResponse {
     return {
         id: category.id.toString(),
         name: category.name,
         description: category.description ?? '',
+        parent_id: category.parent_id != null ? category.parent_id.toString() : null,
+        parent_name: category.parent_name ?? undefined,
+        children_count: category.children_count ?? 0,
         created_at: category.created_at,
         updated_at: category.updated_at,
     };
@@ -43,11 +46,17 @@ export const categoriesHandlers = {
         const validated = createCategorySchema.safeParse(body);
         if (!validated.success) throw new ValidationError('Invalid category data', validated.error.errors);
 
+        const parentId = validated.data.parent_id ?? null;
+        if (parentId != null) {
+            const parent = await categoriesQueries.findById(parentId);
+            if (!parent) throw new NotFoundError('Parent category', parentId);
+        }
+
         const slug = slugify(validated.data.name);
         const existing = await categoriesQueries.findBySlug(slug);
         if (existing) throw new ConflictError('Category with this name already exists');
 
-        const category = await categoriesQueries.create(validated.data.name, slug, validated.data.description ?? null);
+        const category = await categoriesQueries.create(validated.data.name, slug, validated.data.description ?? null, parentId);
         if (!category) throw new InternalServerError('Failed to create category');
 
         return success(c, toCategoryResponse(category), 'Category created successfully', 201);
@@ -62,6 +71,18 @@ export const categoriesHandlers = {
         const existing = await categoriesQueries.findById(id);
         if (!existing) throw new NotFoundError('Category', id);
 
+        if ('parent_id' in validated.data && validated.data.parent_id != null) {
+            const parentId = validated.data.parent_id;
+            const parent = await categoriesQueries.findById(parentId);
+            if (!parent) throw new NotFoundError('Parent category', parentId);
+            // Circular ref check: parent cannot be a descendant of self
+            const descendants = await categoriesQueries.findDescendantIds(id);
+            const descendantIds = descendants.map(d => d.id);
+            if (descendantIds.includes(parentId)) {
+                throw new BadRequestError('Cannot set a descendant as parent (circular reference)');
+            }
+        }
+
         const updateData: any = {};
         if (validated.data.name !== undefined) {
             updateData.name = validated.data.name;
@@ -69,6 +90,9 @@ export const categoriesHandlers = {
         }
         if (validated.data.description !== undefined) {
             updateData.description = validated.data.description;
+        }
+        if ('parent_id' in validated.data) {
+            updateData.parent_id = validated.data.parent_id ?? null;
         }
 
         const updated = await categoriesQueries.update(id, updateData);
@@ -82,10 +106,30 @@ export const categoriesHandlers = {
         const category = await categoriesQueries.findById(id);
         if (!category) throw new NotFoundError('Category', id);
 
+        const childCount = await categoriesQueries.countChildren(id);
+        if (childCount > 0) throw new ConflictError('Remove subcategories first');
+
         const count = await categoriesQueries.countProducts(id);
         if (count && count > 0) throw new ConflictError('Category has products');
 
         await categoriesQueries.delete(id);
         return success(c, null, 'Category deleted successfully');
+    },
+
+    tree: async (c: Context) => {
+        const all = await categoriesQueries.findAllFlat();
+        const map = new Map<number, CategoryTreeNode>(
+            all.map(cat => [cat.id, { ...toCategoryResponse(cat), children: [] }])
+        );
+        const roots: CategoryTreeNode[] = [];
+        for (const node of map.values()) {
+            if (node.parent_id == null) {
+                roots.push(node);
+            } else {
+                const parent = map.get(Number(node.parent_id));
+                if (parent) parent.children.push(node);
+            }
+        }
+        return success(c, roots);
     },
 };

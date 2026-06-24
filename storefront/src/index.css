@@ -1,0 +1,94 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  /* Luxury font stack */
+  --font-display: "Cormorant Garamond", "Georgia", serif;
+  --font-sans: "DM Sans", system-ui, sans-serif;
+  --font-mono: "DM Mono", "Courier New", monospace;
+}
+
+:root {
+  /* Zero radius — luxury = sharp corners */
+  --radius: 0rem;
+
+  /* Backgrounds */
+  --background:         oklch(0.978 0.006 75);   /* #F7F4EF warm ivory */
+  --surface:            oklch(0.965 0.008 72);   /* #F2EDE6 cashmere */
+  --surface-raised:     oklch(1.000 0.000 0);    /* #FFFFFF modals */
+
+  /* Text */
+  --foreground:         oklch(0.175 0.010 30);   /* #1C1917 near-black with warmth */
+  --foreground-muted:   oklch(0.480 0.018 35);   /* #6B6158 secondary */
+  --foreground-faint:   oklch(0.680 0.012 40);   /* #9E958D placeholder */
+
+  /* Cards */
+  --card:               var(--surface);
+  --card-foreground:    var(--foreground);
+  --popover:            var(--surface-raised);
+  --popover-foreground: var(--foreground);
+
+  /* Brand — deep oxblood */
+  --primary:            oklch(0.295 0.085 15);   /* #3D1A14 */
+  --primary-foreground: oklch(0.978 0.006 75);   /* matches background */
+
+  /* Secondary */
+  --secondary:          oklch(0.945 0.008 68);
+  --secondary-foreground: var(--foreground);
+
+  /* Muted */
+  --muted:              oklch(0.945 0.008 68);   /* #EDE8E2 */
+  --muted-foreground:   oklch(0.480 0.018 35);
+
+  /* Accent — warm taupe */
+  --accent:             oklch(0.555 0.052 42);   /* #7A6254 */
+  --accent-foreground:  oklch(0.978 0.006 75);
+
+  /* Borders */
+  --border:             oklch(0.875 0.010 60);   /* #DDD6CC warm linen */
+  --border-subtle:      oklch(0.925 0.007 65);   /* #EAE5DE hairline */
+  --input:              var(--border);
+  --ring:               var(--primary);
+
+  /* Status */
+  --destructive:        oklch(0.577 0.245 27.325);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: var(--font-sans);
+    font-weight: 300;
+    font-feature-settings: "kern" 1, "liga" 1, "onum" 1;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}

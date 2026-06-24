@@ -67,3 +67,15 @@ export function useDeleteProduct() {
     },
   });
 }
+
+export function useToggleFeatured() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ id, is_featured }: { id: string; is_featured: boolean }) =>
+      productsService.toggleFeatured(id, is_featured),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: productKeys.lists() });
+    },
+  });
+}

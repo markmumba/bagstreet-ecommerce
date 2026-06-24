@@ -20,7 +20,7 @@ export async function requireAuth(c: Context, next: Next) {
     const token = authHeader.slice(7);
 
     try {
-        const payload = await verify(token, env.JWT_SECRET) as unknown as JWTPayload;
+        const payload = await verify(token, env.JWT_SECRET, 'HS256') as unknown as JWTPayload;
         c.set('user', payload);
     } catch {
         throw new UnauthorizedError('Invalid or expired access token');
