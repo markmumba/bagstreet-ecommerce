@@ -12,6 +12,7 @@ import userRoutes from './features/users/user.routes';
 import authRoutes from './features/auth/auth.routes';
 import ordersRoutes from './features/orders/orders.routes';
 import cartRoutes from './features/cart/cart.routes';
+import notificationsRoutes from './features/notifications/notifications.routes';
 import { requireAuth, requireRole } from './middleware/auth.middleware';
 import { role } from 'shared/dist';
 import { authRateLimit, generalRateLimit } from './middleware/rate-limit.middleware';
@@ -48,6 +49,7 @@ app.use('/api/users/*', requireAuth, requireRole(role.ADMIN));
 app.route('/api/users', userRoutes);
 app.route('/api/orders', ordersRoutes);
 app.route('/api/cart', cartRoutes);
+app.route('/api/notifications', notificationsRoutes);
 
 app.onError(errorHandler);
 

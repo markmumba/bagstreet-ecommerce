@@ -10,3 +10,8 @@ export const registerSchema = z.object({
     full_name: z.string().min(2, 'Full name must be at least 2 characters').max(200),
     password: z.string().min(8, 'Password must be at least 8 characters'),
 });
+
+export const acceptInviteSchema = z.object({
+    token: z.string().min(1, 'Token is required'),
+    password: z.string().min(8, 'Password must be at least 8 characters'),
+});

@@ -3,9 +3,9 @@ import { sign } from 'hono/jwt';
 import { createHash, randomBytes } from 'crypto';
 import { UsersQueries } from '../users/user.queries';
 import { authQueries } from './auth.queries';
-import { loginSchema, registerSchema } from './auth.schema';
+import { loginSchema, registerSchema, acceptInviteSchema } from './auth.schema';
 import { env } from '../../config/env';
-import { ConflictError, InternalServerError, UnauthorizedError, ValidationError } from '@server/lib/errors';
+import { BadRequestError, ConflictError, InternalServerError, NotFoundError, UnauthorizedError, ValidationError } from '@server/lib/errors';
 import { success } from '@server/lib/response';
 import { password} from 'bun';
 import {role} from "shared/dist"; 
@@ -164,6 +164,44 @@ export const authHandlers = {
             created_at: user.created_at,
             updated_at: user.updated_at,
         });
+    },
+
+    acceptInvite: async (c: Context) => {
+        const body = await c.req.json();
+        const validated = acceptInviteSchema.safeParse(body);
+        if (!validated.success) throw new ValidationError('Invalid data', validated.error.errors);
+
+        const tokenHash = hashToken(validated.data.token);
+        const invitation = await UsersQueries.findInvitationByTokenHash(tokenHash);
+        if (!invitation) throw new BadRequestError('Invalid or expired invite link');
+
+        const user = await UsersQueries.findById(invitation.user_id);
+        if (!user) throw new NotFoundError('User', invitation.user_id);
+
+        const password_hash = await password.hash(validated.data.password);
+        const activated = await UsersQueries.activateWithPassword(Number(user.id), password_hash);
+        if (!activated) throw new InternalServerError('Failed to activate account');
+
+        await UsersQueries.consumeInvitation(invitation.id);
+
+        const accessToken = await generateAccessToken(Number(activated.id), activated.email, activated.role as string);
+
+        const rawRefreshToken = randomBytes(32).toString('hex');
+        const refreshHash = hashToken(rawRefreshToken);
+        const expiresAt = new Date(Date.now() + REFRESH_TOKEN_TTL * 1000);
+        await authQueries.saveRefreshToken(Number(activated.id), refreshHash, expiresAt);
+
+        setRefreshCookie(c, rawRefreshToken);
+
+        return success(c, {
+            access_token: accessToken,
+            user: {
+                id: String(activated.id),
+                email: activated.email,
+                full_name: activated.full_name,
+                role: activated.role as string,
+            },
+        }, 'Account activated successfully');
     },
 
     logout: async (c: Context) => {

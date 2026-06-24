@@ -12,6 +12,8 @@ import {
 } from '@server/lib/errors';
 import type { OrderItemResponse, OrderResponse } from 'shared/dist';
 import { role } from 'shared/dist';
+import { notificationsQueries } from '../notifications/notifications.queries';
+import { pushToMany } from '../../lib/sse';
 
 interface JWTPayload { sub: string; email: string; role: string }
 
@@ -88,7 +90,7 @@ export const ordersHandlers = {
     },
 
     get: async (c: Context) => {
-        const id = parseInt(c.req.param('id'));
+        const id = parseInt(c.req.param('id')!);
         const { sub, role: userRole } = getAuthUser(c);
 
         const order = await ordersQueries.findById(id);
@@ -173,11 +175,26 @@ export const ordersHandlers = {
         }
 
         const items = await ordersQueries.findItemsByOrderId(order.id);
+
+        // Notify all admins/managers
+        const adminIds = await notificationsQueries.findAdminIds();
+        if (adminIds.length > 0) {
+            const notifRows = adminIds.map((id) => ({
+                recipient_id: id,
+                type: 'NEW_ORDER',
+                title: `New Order #${String(order.id).padStart(6, '0').toUpperCase()}`,
+                body: `Order placed for KES ${totalAmount.toFixed(2)}`,
+                data: { link: '/orders', order_id: String(order.id) },
+            }));
+            const created = await notificationsQueries.create(notifRows);
+            pushToMany(adminIds, 'notification', { notifications: created });
+        }
+
         return success(c, toOrderResponse(order, items), 'Order placed successfully', 201);
     },
 
     updateStatus: async (c: Context) => {
-        const id = parseInt(c.req.param('id'));
+        const id = parseInt(c.req.param('id')!);
         const body = await c.req.json();
         const validated = updateOrderStatusSchema.safeParse(body);
 
@@ -204,8 +221,13 @@ export const ordersHandlers = {
         return success(c, toOrderResponse(updated, items), 'Order status updated');
     },
 
+    stats: async (c: Context) => {
+        const data = await ordersQueries.getStats();
+        return success(c, data);
+    },
+
     cancel: async (c: Context) => {
-        const id = parseInt(c.req.param('id'));
+        const id = parseInt(c.req.param('id')!);
         const { sub } = getAuthUser(c);
 
         const order = await ordersQueries.findById(id);

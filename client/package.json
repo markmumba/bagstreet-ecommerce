@@ -27,6 +27,7 @@
     "lucide-react": "^0.563.0",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
+    "recharts": "^3.9.0",
     "server": "workspace:*",
     "shared": "workspace:*",
     "tailwind-merge": "^3.4.0",

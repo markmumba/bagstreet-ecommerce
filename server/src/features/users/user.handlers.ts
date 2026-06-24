@@ -1,4 +1,5 @@
 import type { Context } from 'hono';
+import { randomBytes, createHash } from 'crypto';
 import { UsersQueries } from './user.queries';
 import { userCreateSchema, userUpdateSchema } from './user.schema';
 import { success, paginated } from '@server/lib/response';
@@ -8,7 +9,9 @@ import {
     NotFoundError,
     ValidationError,
 } from '@server/lib/errors';
-import type { User, UserCreateRequest, UserResponse } from 'shared/dist';
+import { sendInviteEmail } from '@server/lib/email';
+import { env } from '@server/config/env';
+import type { User, UserResponse } from 'shared/dist';
 
 function toUserResponse(user: User): UserResponse {
     return {
@@ -48,23 +51,32 @@ export const userHandlers = {
     },
 
     create: async (c: Context) => {
-        const body = await c.req.json<UserCreateRequest>();
+        const body = await c.req.json();
         const validated = userCreateSchema.safeParse(body);
         if (!validated.success) throw new ValidationError('Invalid user data', validated.error.errors);
 
         const existing = await UsersQueries.findByEmail(validated.data.email);
         if (existing) throw new ConflictError('User with this email already exists');
 
-        const password_hash = await Bun.password.hash(validated.data.password);
+        const placeholder = await Bun.password.hash(randomBytes(32).toString('hex'));
         const user = await UsersQueries.create({
             email: validated.data.email,
             full_name: validated.data.full_name,
-            password_hash,
+            password_hash: placeholder,
             role: validated.data.role,
         });
 
         if (!user) throw new InternalServerError('Failed to create user');
-        return success(c, toUserResponse(user), 'User created successfully', 201);
+
+        const rawToken = randomBytes(32).toString('hex');
+        const tokenHash = createHash('sha256').update(rawToken).digest('hex');
+        const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+        await UsersQueries.createInvitation(Number(user.id), tokenHash, expiresAt);
+
+        const inviteUrl = `${env.CLIENT_URL}/accept-invite?token=${rawToken}`;
+        await sendInviteEmail(validated.data.email, validated.data.full_name, inviteUrl);
+
+        return success(c, toUserResponse(user), 'Invite sent successfully', 201);
     },
 
     update: async (c: Context) => {

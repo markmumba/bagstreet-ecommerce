@@ -6,6 +6,8 @@ import { useAuth } from '@/context/AuthContext';
 import { apiClient } from '@/services/api';
 import { Tag, Package, ClipboardList, TrendingUp } from 'lucide-react';
 import type { Category, ProductResponse, OrderResponse } from 'shared';
+import { RevenueChart } from '@/components/dashboard/RevenueChart';
+import { OrderStatusChart } from '@/components/dashboard/OrderStatusChart';
 
 export const Route = createFileRoute('/dashboard')({
   component: DashboardPage,
@@ -60,6 +62,11 @@ function DashboardPage() {
     queryFn: () => apiClient.get<OrderResponse[]>('/api/orders'),
   });
 
+  const { data: statsRes } = useQuery({
+    queryKey: ['orders', 'stats'],
+    queryFn: () => apiClient.get<{ dailyRevenue: { date: string; revenue: number }[]; statusCounts: { status: string; count: number }[] }>('/api/orders/stats'),
+  });
+
   const categoryCount = categoriesRes?.data?.length ?? 0;
   const productTotal = (productsRes as any)?.pagination?.total ?? 0;
   const orderCount = ordersRes?.data?.length ?? 0;
@@ -108,6 +115,14 @@ function DashboardPage() {
             isLoading={ordersLoading}
           />
         </div>
+
+        {/* Charts */}
+        {statsRes?.data && (
+          <div className="grid gap-4 lg:grid-cols-2">
+            <RevenueChart data={statsRes.data.dailyRevenue} />
+            <OrderStatusChart data={statsRes.data.statusCounts} />
+          </div>
+        )}
 
         {/* Recent Orders */}
         {!ordersLoading && ordersRes?.data && ordersRes.data.length > 0 && (

@@ -30,7 +30,6 @@ export function UserDialog({ open, onOpenChange, user }: UserDialogProps) {
 
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
   const [role, setRole] = useState<'ADMIN' | 'MANAGER'>('MANAGER');
   const [isActive, setIsActive] = useState<'true' | 'false'>('true');
   const [error, setError] = useState<string | null>(null);
@@ -44,13 +43,11 @@ export function UserDialog({ open, onOpenChange, user }: UserDialogProps) {
       if (user) {
         setFullName(user.full_name);
         setEmail(user.email);
-        setPassword('');
         setRole((user.role as 'ADMIN' | 'MANAGER') ?? 'MANAGER');
         setIsActive(user.is_active ? 'true' : 'false');
       } else {
         setFullName('');
         setEmail('');
-        setPassword('');
         setRole('MANAGER');
         setIsActive('true');
       }
@@ -76,7 +73,6 @@ export function UserDialog({ open, onOpenChange, user }: UserDialogProps) {
         await createMutation.mutateAsync({
           email: email.trim(),
           full_name: fullName.trim(),
-          password,
           role,
         });
       }
@@ -94,7 +90,7 @@ export function UserDialog({ open, onOpenChange, user }: UserDialogProps) {
           <DialogDescription>
             {isEditing
               ? 'Update the user details below.'
-              : 'Create a new admin or manager account.'}
+              : 'An invite link will be emailed to the user.'}
           </DialogDescription>
         </DialogHeader>
 
@@ -112,33 +108,18 @@ export function UserDialog({ open, onOpenChange, user }: UserDialogProps) {
           </div>
 
           {!isEditing && (
-            <>
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="email">Email</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="jane@example.com"
-                  required
-                  disabled={isPending}
-                />
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="password">Password</Label>
-                <Input
-                  id="password"
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Min 8 characters"
-                  required
-                  minLength={8}
-                  disabled={isPending}
-                />
-              </div>
-            </>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="email">Email</Label>
+              <Input
+                id="email"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="jane@example.com"
+                required
+                disabled={isPending}
+              />
+            </div>
           )}
 
           <div className="flex flex-col gap-1.5">

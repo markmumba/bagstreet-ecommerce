@@ -6,7 +6,6 @@ const staffRoles = [role.ADMIN, role.MANAGER] as const;
 export const userCreateSchema = z.object({
     email: z.string().email('Invalid email address').max(200, 'Email too long'),
     full_name: z.string().min(2, 'Full name must be at least 2 characters').max(200, 'Full name too long'),
-    password: z.string().min(8, 'Password must be at least 8 characters'),
     role: z.enum(staffRoles, { message: 'Role must be ADMIN or MANAGER' }),
 });
 

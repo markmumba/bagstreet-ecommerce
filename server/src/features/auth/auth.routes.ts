@@ -8,6 +8,7 @@ authRoutes.post('/register', authHandlers.register);
 authRoutes.post('/login', authHandlers.login);
 authRoutes.post('/refresh', authHandlers.refresh);
 authRoutes.post('/logout', authHandlers.logout);
+authRoutes.post('/accept-invite', authHandlers.acceptInvite);
 authRoutes.get('/me', requireAuth, authHandlers.me);
 
 export default authRoutes;

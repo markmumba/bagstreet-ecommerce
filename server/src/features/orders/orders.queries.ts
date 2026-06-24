@@ -145,4 +145,26 @@ export const ordersQueries = {
             WHERE oi.order_id = ${orderId} AND pv.id = oi.variant_id
         `;
     },
+
+    getStats: async (): Promise<{ dailyRevenue: { date: string; revenue: number }[]; statusCounts: { status: string; count: number }[] }> => {
+        const daily = await sql<{ date: string; revenue: string }[]>`
+            SELECT
+                TO_CHAR(created_at::date, 'YYYY-MM-DD') AS date,
+                COALESCE(SUM(total_amount), 0) AS revenue
+            FROM orders
+            WHERE status NOT IN ('CANCELLED', 'REFUNDED')
+              AND created_at >= NOW() - INTERVAL '30 days'
+            GROUP BY created_at::date
+            ORDER BY created_at::date ASC
+        `;
+
+        const statusRows = await sql<{ status: string; count: string }[]>`
+            SELECT status, COUNT(*) AS count FROM orders GROUP BY status
+        `;
+
+        return {
+            dailyRevenue: daily.map((r) => ({ date: r.date, revenue: parseFloat(r.revenue) })),
+            statusCounts: statusRows.map((r) => ({ status: r.status, count: parseInt(r.count, 10) })),
+        };
+    },
 };

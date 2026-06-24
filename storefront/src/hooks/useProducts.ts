@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/services/api';
 import type { ProductResponse } from 'shared';
 
-export function useProducts(params?: { search?: string; categoryId?: string; page?: number; limit?: number }) {
+export function useProducts(params?: { search?: string; categoryId?: string; page?: number; limit?: number ,status?: string}) {
   return useQuery({
     queryKey: ['products', params],
     queryFn: () => apiClient.get<ProductResponse[]>('/api/products', params as any),

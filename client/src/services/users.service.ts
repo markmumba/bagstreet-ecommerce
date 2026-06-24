@@ -1,5 +1,11 @@
 import { apiClient } from './api';
-import type { UserResponse, UserCreateRequest } from 'shared';
+import type { UserResponse } from 'shared';
+
+export interface AdminUserCreateRequest {
+  email: string;
+  full_name: string;
+  role: 'ADMIN' | 'MANAGER';
+}
 
 export interface UserUpdateRequest {
   full_name?: string;
@@ -21,7 +27,7 @@ export const usersService = {
 
   getById: (id: string) => apiClient.get<UserResponse>(`/api/users/${id}`),
 
-  create: (data: UserCreateRequest) => apiClient.post<UserResponse>('/api/users', data),
+  create: (data: AdminUserCreateRequest) => apiClient.post<UserResponse>('/api/users', data),
 
   update: (id: string, data: UserUpdateRequest) =>
     apiClient.patch<UserResponse>(`/api/users/${id}`, data),

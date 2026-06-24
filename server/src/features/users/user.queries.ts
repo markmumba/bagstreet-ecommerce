@@ -1,6 +1,15 @@
 import type { User } from 'shared/dist';
 import { sql } from '../../lib/db';
 
+interface InvitationRow {
+    id: number;
+    user_id: number;
+    token_hash: string;
+    expires_at: Date;
+    used_at: Date | null;
+    created_at: Date;
+}
+
 export const UsersQueries = {
     findAll: async (
         page: number,
@@ -71,5 +80,35 @@ export const UsersQueries = {
 
     delete: async (id: number): Promise<void> => {
         await sql`DELETE FROM users WHERE id = ${id}`;
+    },
+
+    createInvitation: async (userId: number, tokenHash: string, expiresAt: Date): Promise<void> => {
+        await sql`
+            INSERT INTO user_invitations(user_id, token_hash, expires_at)
+            VALUES (${userId}, ${tokenHash}, ${expiresAt})
+        `;
+    },
+
+    findInvitationByTokenHash: async (hash: string): Promise<InvitationRow | undefined> => {
+        const [row] = await sql<InvitationRow[]>`
+            SELECT * FROM user_invitations
+            WHERE token_hash = ${hash}
+              AND expires_at > NOW()
+              AND used_at IS NULL
+        `;
+        return row;
+    },
+
+    consumeInvitation: async (id: number): Promise<void> => {
+        await sql`UPDATE user_invitations SET used_at = NOW() WHERE id = ${id}`;
+    },
+
+    activateWithPassword: async (userId: number, passwordHash: string): Promise<User | undefined> => {
+        const [user] = await sql<User[]>`
+            UPDATE users SET password_hash = ${passwordHash}, is_active = true, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ${userId}
+            RETURNING id, email, full_name, role, is_active, created_at, updated_at
+        `;
+        return user;
     },
 };

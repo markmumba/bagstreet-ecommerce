@@ -14,6 +14,13 @@ const envSchema = z.object({
     MINIO_ACCESS_KEY: z.string().min(1, 'MINIO_ACCESS_KEY is required'),
     MINIO_SECRET_KEY: z.string().min(1, 'MINIO_SECRET_KEY is required'),
     MINIO_BUCKET: z.string().default('product-images'),
+    SMTP_HOST: z.string().default('smtp.gmail.com'),
+    SMTP_PORT: z.coerce.number().default(587),
+    SMTP_SECURE: z.string().transform(v => v === 'true').default('false'),
+    SMTP_USER: z.string().optional(),
+    SMTP_PASS: z.string().optional(),
+    EMAIL_FROM: z.string().default('Bagstreet <no-reply@bagstreet.com>'),
+    CLIENT_URL: z.string().default('http://localhost:5173'),
 });
 
 

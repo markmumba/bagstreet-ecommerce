@@ -176,6 +176,36 @@ export async function initDatabase() {
         await sql`ALTER TABLE order_items ADD COLUMN IF NOT EXISTS variant_size VARCHAR(20)`;
         await sql`ALTER TABLE order_items ADD COLUMN IF NOT EXISTS variant_color VARCHAR(50)`;
 
+        // In-app notifications
+        await sql`
+            CREATE TABLE IF NOT EXISTS in_app_notifications (
+                id SERIAL PRIMARY KEY,
+                recipient_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                type VARCHAR(50) NOT NULL DEFAULT 'NEW_ORDER',
+                title VARCHAR(255) NOT NULL,
+                body TEXT,
+                data JSONB,
+                is_read BOOLEAN NOT NULL DEFAULT false,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        `;
+        await sql`CREATE INDEX IF NOT EXISTS idx_notifications_recipient_id ON in_app_notifications(recipient_id)`;
+        await sql`CREATE INDEX IF NOT EXISTS idx_notifications_unread ON in_app_notifications(recipient_id, is_read)`;
+
+        // User invitations
+        await sql`
+            CREATE TABLE IF NOT EXISTS user_invitations (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                token_hash TEXT NOT NULL UNIQUE,
+                expires_at TIMESTAMP NOT NULL,
+                used_at TIMESTAMP,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        `;
+        await sql`CREATE INDEX IF NOT EXISTS idx_user_invitations_token_hash ON user_invitations(token_hash)`;
+        await sql`CREATE INDEX IF NOT EXISTS idx_user_invitations_user_id ON user_invitations(user_id)`;
+
         await sql`DROP TRIGGER IF EXISTS update_product_variants_updated_at ON product_variants`;
         await sql`
             CREATE TRIGGER update_product_variants_updated_at

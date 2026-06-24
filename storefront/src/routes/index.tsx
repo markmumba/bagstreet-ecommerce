@@ -113,11 +113,11 @@ function HomePage() {
   };
 
   return (
-    <div className="max-w-[1440px] mx-auto px-8 sm:px-12 lg:px-20">
+    <div className="max-w-360 mx-auto px-8 sm:px-12 lg:px-20">
       {/* Hero */}
       <div className="pt-40 pb-24 text-center">
         <p
-          className="text-xs tracking-[0.3em] uppercase text-[var(--foreground-faint)] mb-6"
+          className="text-xs tracking-[0.3em] uppercase text-(--foreground-faint) mb-6"
           style={{ fontFamily: 'var(--font-sans)' }}
         >
           New Arrivals
@@ -129,7 +129,7 @@ function HomePage() {
           Crafted for<br />the discerning eye
         </h1>
         <p
-          className="text-sm font-light text-[var(--foreground-muted)] max-w-sm mx-auto leading-relaxed tracking-wide"
+          className="text-sm font-light text-(--foreground-muted) max-w-sm mx-auto leading-relaxed tracking-wide"
           style={{ fontFamily: 'var(--font-sans)' }}
         >
           Luxury handbags, shoes &amp; cashmere scarves — curated for the modern woman.
@@ -139,7 +139,7 @@ function HomePage() {
       {/* Featured */}
       {featuredProducts.length > 0 && (
         <section className="mb-24">
-          <div className="flex items-baseline justify-between mb-10 border-b border-[var(--border-subtle)] pb-4">
+          <div className="flex items-baseline justify-between mb-10 border-b border-(--border-subtle) pb-4">
             <h2
               className="text-2xl font-light text-foreground"
               style={{ fontFamily: 'var(--font-display)' }}

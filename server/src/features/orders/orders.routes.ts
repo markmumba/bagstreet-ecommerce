@@ -8,6 +8,7 @@ const ordersRoutes = new Hono();
 // All order routes require authentication
 ordersRoutes.use('/*', requireAuth);
 
+ordersRoutes.get('/stats', requireRole(role.ADMIN, role.MANAGER), ordersHandlers.stats);
 ordersRoutes.get('/', ordersHandlers.list);
 ordersRoutes.get('/:id', ordersHandlers.get);
 ordersRoutes.post('/', ordersHandlers.create);

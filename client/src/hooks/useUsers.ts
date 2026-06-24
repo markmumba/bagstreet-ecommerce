@@ -1,6 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { usersService, type UserUpdateRequest, type UserListParams } from '@/services/users.service';
-import type { UserCreateRequest } from 'shared';
+import { usersService, type UserUpdateRequest, type UserListParams, type AdminUserCreateRequest } from '@/services/users.service';
 
 export const userKeys = {
   all: ['users'] as const,
@@ -22,7 +21,7 @@ export function useUsers(params?: UserListParams) {
 export function useCreateUser() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (data: UserCreateRequest) => usersService.create(data),
+    mutationFn: (data: AdminUserCreateRequest) => usersService.create(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: userKeys.lists() });
     },

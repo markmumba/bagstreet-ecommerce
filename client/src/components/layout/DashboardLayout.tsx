@@ -15,6 +15,8 @@ import {
 } from '@/components/ui/sidebar';
 import { Button } from '@/components/ui/button';
 import { LayoutDashboard, Tag, Package, ClipboardList, Users, LogOut, ShoppingBag } from 'lucide-react';
+import { NotificationBell } from './NotificationBell';
+import { useNotificationStream } from '@/hooks/useNotifications';
 
 const navigation = [
   { title: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
@@ -32,6 +34,8 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const { user, isAuthenticated, isLoading, logout } = useAuth();
+
+  useNotificationStream();
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
@@ -105,6 +109,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
               <div className="flex-1" />
               {/* User info + logout */}
               <div className="flex items-center gap-3">
+                <NotificationBell />
                 <div className="text-right hidden sm:block">
                   <p className="text-sm font-medium leading-none">{user?.full_name}</p>
                   <p className="mt-0.5 text-xs text-muted-foreground">{user?.role}</p>
