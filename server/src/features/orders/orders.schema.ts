@@ -21,6 +21,8 @@ export const createOrderSchema = z.object({
         )
         .min(1, 'Order must have at least one item'),
     shipping_address: shippingAddressSchema,
+    shipping_location_id: z.number().int().positive(),
+    phone: z.string().min(9).max(15),
     notes: z.string().max(500).optional(),
 });
 

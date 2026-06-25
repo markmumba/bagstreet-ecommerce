@@ -17,4 +17,27 @@ export const variantsService = {
   delete: async (productId: string, variantId: string) => {
     return apiClient.delete<void>(`/api/products/${productId}/variants/${variantId}`);
   },
+
+  adjustStock: async (
+    productId: string,
+    variantId: string,
+    data: { delta: number; reason: 'ADMIN_ADJUSTMENT' | 'RESTOCK'; note?: string }
+  ) => {
+    return apiClient.post<ProductVariantResponse>(
+      `/api/products/${productId}/variants/${variantId}/stock`,
+      data
+    );
+  },
+
+  getStockHistory: async (productId: string, variantId: string) => {
+    return apiClient.get<{
+      id: number;
+      delta: number;
+      reason: string;
+      reference_id: number | null;
+      note: string | null;
+      created_by_name: string | null;
+      created_at: string;
+    }[]>(`/api/products/${productId}/variants/${variantId}/stock/history`);
+  },
 };

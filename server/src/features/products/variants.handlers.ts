@@ -1,13 +1,15 @@
 import type { Context } from 'hono';
 import { variantsQueries } from './variants.queries';
 import { productsQueries } from './products.queries';
-import { createVariantSchema, updateVariantSchema } from './variants.schema';
+import { createVariantSchema, updateVariantSchema, adjustStockSchema } from './variants.schema';
 import { success } from '@server/lib/response';
-import { BadRequestError, ConflictError, NotFoundError, ValidationError } from '@server/lib/errors';
+import { BadRequestError, NotFoundError, ValidationError } from '@server/lib/errors';
 import { generateSku } from '@server/lib/util';
+import { adjustStock } from '@server/lib/inventory';
+import { sql } from '@server/lib/db';
 import type { ProductVariantResponse } from 'shared/dist';
 
-function toVariantResponse(v: any): ProductVariantResponse {
+function toVariantResponse(v: any): ProductVariantResponse & { low_stock_threshold?: number } {
     return {
         id: String(v.id),
         product_id: String(v.product_id),
@@ -15,6 +17,7 @@ function toVariantResponse(v: any): ProductVariantResponse {
         size: v.size ?? undefined,
         color: v.color ?? undefined,
         stock: v.stock,
+        low_stock_threshold: v.low_stock_threshold ?? 5,
         price_override: v.price_override != null ? parseFloat(v.price_override) : undefined,
         is_active: v.is_active,
         created_at: v.created_at,
@@ -24,7 +27,7 @@ function toVariantResponse(v: any): ProductVariantResponse {
 
 export const variantsHandlers = {
     list: async (c: Context) => {
-        const productId = parseInt(c.req.param('id'));
+        const productId = parseInt(c.req.param('id')!);
         const product = await productsQueries.findById(productId);
         if (!product) throw new NotFoundError('Product', productId);
 
@@ -33,7 +36,7 @@ export const variantsHandlers = {
     },
 
     create: async (c: Context) => {
-        const productId = parseInt(c.req.param('id'));
+        const productId = parseInt(c.req.param('id')!);
         const product = await productsQueries.findById(productId);
         if (!product) throw new NotFoundError('Product', productId);
 
@@ -49,7 +52,7 @@ export const variantsHandlers = {
     },
 
     update: async (c: Context) => {
-        const variantId = parseInt(c.req.param('vid'));
+        const variantId = parseInt(c.req.param('vid')!);
         const existing = await variantsQueries.findById(variantId);
         if (!existing) throw new NotFoundError('Variant', variantId);
 
@@ -64,7 +67,7 @@ export const variantsHandlers = {
     },
 
     delete: async (c: Context) => {
-        const variantId = parseInt(c.req.param('vid'));
+        const variantId = parseInt(c.req.param('vid')!);
         const existing = await variantsQueries.findById(variantId);
         if (!existing) throw new NotFoundError('Variant', variantId);
 
@@ -76,5 +79,56 @@ export const variantsHandlers = {
 
         await variantsQueries.delete(variantId);
         return success(c, null, 'Variant deleted');
+    },
+
+    adjustStock: async (c: Context) => {
+        const { sub } = c.get('user') as { sub: string };
+        const variantId = parseInt(c.req.param('vid')!);
+        const body = await c.req.json();
+        const validated = adjustStockSchema.safeParse(body);
+        if (!validated.success) throw new ValidationError('Invalid data', validated.error.errors);
+
+        const existing = await variantsQueries.findById(variantId);
+        if (!existing) throw new NotFoundError('Variant', variantId);
+
+        if (existing.stock + validated.data.delta < 0) {
+            throw new BadRequestError(
+                `Cannot reduce stock below 0 (current: ${existing.stock}, delta: ${validated.data.delta})`
+            );
+        }
+
+        await sql.begin(async (tx: typeof sql) => {
+            await adjustStock(
+                tx, variantId, validated.data.delta,
+                validated.data.reason,
+                null,
+                validated.data.note ?? null,
+                Number(sub)
+            );
+        });
+
+        const updated = await variantsQueries.findById(variantId);
+        return success(c, toVariantResponse(updated!), 'Stock adjusted');
+    },
+
+    stockHistory: async (c: Context) => {
+        const variantId = parseInt(c.req.param('vid')!);
+        const existing = await variantsQueries.findById(variantId);
+        if (!existing) throw new NotFoundError('Variant', variantId);
+
+        const movements = await sql<{
+            id: number; delta: number; reason: string;
+            reference_id: number | null; note: string | null;
+            created_by_name: string | null; created_at: string;
+        }[]>`
+            SELECT im.id, im.delta, im.reason, im.reference_id, im.note,
+                   u.full_name AS created_by_name, im.created_at
+            FROM inventory_movements im
+            LEFT JOIN users u ON u.id = im.created_by
+            WHERE im.variant_id = ${variantId}
+            ORDER BY im.created_at DESC
+            LIMIT 100
+        `;
+        return success(c, movements);
     },
 };

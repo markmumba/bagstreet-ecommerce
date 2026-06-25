@@ -1,11 +1,13 @@
-import { createFileRoute, Link } from '@tanstack/react-router';
+import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
 import { useState, useEffect } from 'react';
+import { z } from 'zod';
 import { Search } from 'lucide-react';
 import { useProducts } from '@/hooks/useProducts';
 import { useCategoryTree } from '@/hooks/useCategories';
 import type { ProductResponse, CategoryTreeNode } from 'shared';
 
 export const Route = createFileRoute('/')({
+  validateSearch: z.object({ search: z.string().optional() }),
   component: HomePage,
 });
 
@@ -67,13 +69,27 @@ function ProductCard({ product }: { product: ProductResponse }) {
 }
 
 function HomePage() {
-  const [search, setSearch] = useState('');
-  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const { search: urlSearch } = Route.useSearch();
+  const navigate = useNavigate();
+  const [search, setSearch] = useState(urlSearch ?? '');
+  const [debouncedSearch, setDebouncedSearch] = useState(urlSearch ?? '');
   const [selectedParentId, setSelectedParentId] = useState('');
   const [categoryId, setCategoryId] = useState('');
 
+  // Sync URL search param → local state on first load
   useEffect(() => {
-    const t = setTimeout(() => setDebouncedSearch(search), 350);
+    if (urlSearch !== undefined) {
+      setSearch(urlSearch);
+      setDebouncedSearch(urlSearch);
+    }
+  }, [urlSearch]);
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setDebouncedSearch(search);
+      // Keep URL in sync so search is shareable
+      navigate({ to: '/', search: search ? { search } : {}, replace: true });
+    }, 350);
     return () => clearTimeout(t);
   }, [search]);
 

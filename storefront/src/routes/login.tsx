@@ -1,14 +1,17 @@
 import { createFileRoute, useNavigate, Link } from '@tanstack/react-router';
 import { useState } from 'react';
+import { z } from 'zod';
 import { useAuth } from '@/context/AuthContext';
 
 export const Route = createFileRoute('/login')({
+  validateSearch: z.object({ reset: z.string().optional() }),
   component: LoginPage,
 });
 
 function LoginPage() {
   const { login, register } = useAuth();
   const navigate = useNavigate();
+  const { reset } = Route.useSearch();
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [email, setEmail] = useState('');
   const [fullName, setFullName] = useState('');
@@ -40,6 +43,12 @@ function LoginPage() {
             {mode === 'login' ? 'Sign in to your account' : 'Create a new account'}
           </p>
         </div>
+
+        {reset && (
+          <div className="mb-4 rounded-lg bg-green-50 border border-green-200 px-4 py-3 text-sm text-green-800">
+            Password reset — please sign in with your new password.
+          </div>
+        )}
 
         <div className="border border-border rounded-xl bg-card p-8 shadow-sm">
           {/* Toggle */}
@@ -97,6 +106,14 @@ function LoginPage() {
                 className="w-full px-3 py-2 text-sm border border-input rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring"
               />
             </div>
+
+            {mode === 'login' && (
+              <div className="flex justify-end -mt-2">
+                <Link to="/forgot-password" className="text-xs text-muted-foreground hover:text-foreground">
+                  Forgot password?
+                </Link>
+              </div>
+            )}
 
             {error && <p className="text-xs text-destructive">{error}</p>}
 

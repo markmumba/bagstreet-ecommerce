@@ -1,4 +1,5 @@
 import { sql } from '../../lib/db';
+import { adjustStock } from '../../lib/inventory';
 import type { Order, OrderStatus, ShippingAddress } from 'shared/dist';
 
 interface OrderRow extends Omit<Order, 'id' | 'created_at' | 'updated_at'> {
@@ -88,6 +89,8 @@ export const ordersQueries = {
         }[],
         totalAmount: number,
         shippingAddress: ShippingAddress,
+        shippingLocationId: number,
+        shippingCost: number,
         notes?: string
     ): Promise<OrderRow> => {
         return await sql.begin(async (tx: typeof sql) => {
@@ -104,8 +107,8 @@ export const ordersQueries = {
             }
 
             const [order] = await tx<OrderRow[]>`
-                INSERT INTO orders(user_id, total_amount, shipping_address, notes)
-                VALUES (${userId}, ${totalAmount}, ${JSON.stringify(shippingAddress)}::jsonb, ${notes ?? null})
+                INSERT INTO orders(user_id, total_amount, shipping_address, shipping_location_id, shipping_cost, notes)
+                VALUES (${userId}, ${totalAmount}, ${JSON.stringify(shippingAddress)}::jsonb, ${shippingLocationId}, ${shippingCost}, ${notes ?? null})
                 RETURNING *
             `;
 
@@ -121,9 +124,7 @@ export const ordersQueries = {
                         ${item.quantity}, ${item.unit_price}, ${subtotal}
                     )
                 `;
-                await tx`
-                    UPDATE product_variants SET stock = stock - ${item.quantity} WHERE id = ${item.variant_id}
-                `;
+                await adjustStock(tx, item.variant_id, -item.quantity, 'ORDER_PLACED', order.id, null, userId);
             }
 
             return order!;
@@ -138,12 +139,15 @@ export const ordersQueries = {
     },
 
     restoreStock: async (orderId: number): Promise<void> => {
-        await sql`
-            UPDATE product_variants pv
-            SET stock = pv.stock + oi.quantity
-            FROM order_items oi
-            WHERE oi.order_id = ${orderId} AND pv.id = oi.variant_id
-        `;
+        await sql.begin(async (tx: typeof sql) => {
+            const orderItems = await tx<{ variant_id: number; quantity: number }[]>`
+                SELECT variant_id, quantity FROM order_items
+                WHERE order_id = ${orderId} AND variant_id IS NOT NULL
+            `;
+            for (const item of orderItems) {
+                await adjustStock(tx, item.variant_id, item.quantity, 'ORDER_CANCELLED', orderId, null, null);
+            }
+        });
     },
 
     getStats: async (): Promise<{ dailyRevenue: { date: string; revenue: number }[]; statusCounts: { status: string; count: number }[] }> => {

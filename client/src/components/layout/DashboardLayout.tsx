@@ -14,7 +14,7 @@ import {
   SidebarTrigger,
 } from '@/components/ui/sidebar';
 import { Button } from '@/components/ui/button';
-import { LayoutDashboard, Tag, Package, ClipboardList, Users, LogOut, ShoppingBag } from 'lucide-react';
+import { LayoutDashboard, Tag, Package, ClipboardList, Users, LogOut, ShoppingBag, Truck } from 'lucide-react';
 import { NotificationBell } from './NotificationBell';
 import { useNotificationStream } from '@/hooks/useNotifications';
 
@@ -23,6 +23,7 @@ const navigation = [
   { title: 'Categories', href: '/categories', icon: Tag },
   { title: 'Products', href: '/products', icon: Package },
   { title: 'Orders', href: '/orders', icon: ClipboardList },
+  { title: 'Shipping', href: '/shipping', icon: Truck },
   { title: 'Users', href: '/users', icon: Users },
 ];
 
@@ -86,7 +87,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                     return (
                       <SidebarMenuItem key={item.href}>
                         <SidebarMenuButton asChild isActive={isActive}>
-                          <Link to={item.href as '/dashboard' | '/categories' | '/products' | '/orders' | '/users'}>
+                          <Link to={item.href as '/dashboard' | '/categories' | '/products' | '/orders' | '/shipping' | '/users'}>
                             <item.icon className="h-4 w-4" />
                             <span>{item.title}</span>
                           </Link>

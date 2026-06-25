@@ -21,6 +21,14 @@ const envSchema = z.object({
     SMTP_PASS: z.string().optional(),
     EMAIL_FROM: z.string().default('Bagstreet <no-reply@bagstreet.com>'),
     CLIENT_URL: z.string().default('http://localhost:5173'),
+    STOREFRONT_URL: z.string().default('http://localhost:5174'),
+    RABBITMQ_URL: z.string().optional(),
+    MPESA_CONSUMER_KEY: z.string().optional(),
+    MPESA_CONSUMER_SECRET: z.string().optional(),
+    MPESA_SHORTCODE: z.string().optional(),
+    MPESA_PASSKEY: z.string().optional(),
+    MPESA_CALLBACK_URL: z.string().optional(),
+    MPESA_ENV: z.enum(['sandbox', 'production']).default('sandbox'),
 });
 
 

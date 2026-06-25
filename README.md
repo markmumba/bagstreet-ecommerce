@@ -1,264 +1,174 @@
-# bhvr 🦫
+# Bagstreet Ecommerce
 
-![cover](https://cdn.stevedylan.dev/ipfs/bafybeievx27ar5qfqyqyud7kemnb5n2p4rzt2matogi6qttwkpxonqhra4)
+A full-stack luxury e-commerce platform built with Bun, Hono, React, and PostgreSQL.
 
-A full-stack TypeScript monorepo starter with shared types, using Bun, Hono, Vite, and React.
+## Stack
 
-## Why bhvr?
-
-While there are plenty of existing app building stacks out there, many of them are either bloated, outdated, or have too much of a vendor lock-in. bhvr is built with the opinion that you should be able to deploy your client or server in any environment while also keeping type safety.
-
-## Features
-
-- **Full-Stack TypeScript**: End-to-end type safety between client and server
-- **Shared Types**: Common type definitions shared between client and server
-- **Monorepo Structure**: Organized as a workspaces-based monorepo with Turbo for build orchestration
-- **Modern Stack**:
-  - [Bun](https://bun.sh) as the JavaScript runtime and package manager
-  - [Hono](https://hono.dev) as the backend framework
-  - [Vite](https://vitejs.dev) for frontend bundling
-  - [React](https://react.dev) for the frontend UI
-  - [Turbo](https://turbo.build) for monorepo build orchestration and caching
+| Layer | Technology |
+|---|---|
+| Runtime | Bun |
+| Backend | Hono |
+| Database | PostgreSQL (`bun:sql`) |
+| Frontend (Admin) | React + TanStack Router + TanStack Query |
+| Frontend (Storefront) | React + TanStack Router |
+| Shared Types | TypeScript monorepo (`shared/`) |
+| File Storage | MinIO |
+| Monorepo | Turborepo |
 
 ## Project Structure
 
 ```
 .
-├── client/               # React frontend
-├── server/               # Hono backend
-├── shared/               # Shared TypeScript definitions
-│   └── src/types/        # Type definitions used by both client and server
-├── package.json          # Root package.json with workspaces
-└── turbo.json            # Turbo configuration for build orchestration
-```
-
-### Server
-
-bhvr uses Hono as a backend API for its simplicity and massive ecosystem of plugins. If you have ever used Express then it might feel familiar. Declaring routes and returning data is easy.
-
-```
-server
-├── bun.lock
-├── package.json
-├── README.md
-├── src
-│   └── index.ts
-└── tsconfig.json
-```
-
-```typescript src/index.ts
-import { Hono } from 'hono'
-import { cors } from 'hono/cors'
-import type { ApiResponse } from 'shared/dist'
-
-const app = new Hono()
-
-app.use(cors())
-
-app.get('/', (c) => {
-  return c.text('Hello Hono!')
-})
-
-app.get('/hello', async (c) => {
-
-  const data: ApiResponse = {
-    message: "Hello BHVR!",
-    success: true
-  }
-
-  return c.json(data, { status: 200 })
-})
-
-export default app
-```
-
-If you wanted to add a database to Hono you can do so with a multitude of Typescript libraries like [Supabase](https://supabase.com), or ORMs like [Drizzle](https://orm.drizzle.team/docs/get-started) or [Prisma](https://www.prisma.io/orm)
-
-### Client
-
-bhvr uses Vite + React Typescript template, which means you can build your frontend just as you would with any other React app. This makes it flexible to add UI components like [shadcn/ui](https://ui.shadcn.com) or routing using [React Router](https://reactrouter.com/start/declarative/installation).
-
-```
-client
-├── eslint.config.js
-├── index.html
-├── package.json
-├── public
-│   └── vite.svg
-├── README.md
-├── src
-│   ├── App.css
-│   ├── App.tsx
-│   ├── assets
-│   ├── index.css
-│   ├── main.tsx
-│   └── vite-env.d.ts
-├── tsconfig.app.json
-├── tsconfig.json
-├── tsconfig.node.json
-└── vite.config.ts
-```
-
-```typescript src/App.tsx
-import { useState } from 'react'
-import beaver from './assets/beaver.svg'
-import { ApiResponse } from 'shared'
-import './App.css'
-
-const SERVER_URL = import.meta.env.VITE_SERVER_URL || "http://localhost:3000"
-
-function App() {
-  const [data, setData] = useState<ApiResponse | undefined>()
-
-  async function sendRequest() {
-    try {
-      const req = await fetch(`${SERVER_URL}/hello`)
-      const res: ApiResponse = await req.json()
-      setData(res)
-    } catch (error) {
-      console.log(error)
-    }
-  }
-
-  return (
-    <>
-      <div>
-        <a href="https://github.com/stevedylandev/bhvr" target="_blank">
-          <img src={beaver} className="logo" alt="beaver logo" />
-        </a>
-      </div>
-      <h1>bhvr</h1>
-      <h2>Bun + Hono + Vite + React</h2>
-      <p>A typesafe fullstack monorepo</p>
-      <div className="card">
-        <button onClick={sendRequest}>
-          Call API
-        </button>
-        {data && (
-          <pre className='response'>
-            <code>
-            Message: {data.message} <br />
-            Success: {data.success.toString()}
-            </code>
-          </pre>
-        )}
-      </div>
-      <p className="read-the-docs">
-        Click the beaver to learn more
-      </p>
-    </>
-  )
-}
-
-export default App
-```
-
-### Shared
-
-The Shared package is used for anything you want to share between the Server and Client. This could be types or libraries that you use in both environments.
-
-```
-shared
-├── package.json
-├── src
-│   ├── index.ts
-│   └── types
-│       └── index.ts
-└── tsconfig.json
-```
-
-Inside the `src/index.ts` we export any of our code from the folders so it's usable in other parts of the monorepo
-
-```typescript
-export * from "./types"
-```
-
-By running `bun run dev` or `bun run build` it will compile and export the packages from `shared` so it can be used in either `client` or `server`
-
-```typescript
-import { ApiResponse } from 'shared'
+├── client/        # Admin dashboard (React)
+├── server/        # API server (Hono)
+├── storefront/    # Customer-facing store (React)
+├── shared/        # Shared TypeScript types
+└── turbo.json
 ```
 
 ## Getting Started
 
-### Quick Start
-
-You can start a new bhvr project using the [CLI](https://github.com/stevedylandev/create-bhvr)
-
 ```bash
-bun create bhvr
-```
-
-### Installation
-
-```bash
-# Install dependencies for all workspaces
+# Install dependencies
 bun install
-```
 
-### Development
-
-```bash
-# Run all workspaces in development mode with Turbo
+# Run all workspaces
 bun run dev
 
-# Or run individual workspaces directly
-bun run dev:client    # Run the Vite dev server for React
-bun run dev:server    # Run the Hono backend
+# Individual workspaces
+bun run dev:client      # Admin dashboard  → http://localhost:5173
+bun run dev:server      # API server       → http://localhost:3000
+bun run dev:storefront  # Storefront       → http://localhost:5174
 ```
 
-### Building
+### Environment Variables
 
-```bash
-# Build all workspaces with Turbo
-bun run build
+Copy `.env.example` to `.env` in the `server/` directory. Required:
 
-# Or build individual workspaces directly
-bun run build:client  # Build the React frontend
-bun run build:server  # Build the Hono backend
+```env
+DATABASE_URL=
+JWT_SECRET=
+JWT_REFRESH_SECRET=
+MINIO_ACCESS_KEY=
+MINIO_SECRET_KEY=
+
+# Optional — SMTP for emails (dev falls back to console.log)
+SMTP_HOST=
+SMTP_PORT=
+SMTP_USER=
+SMTP_PASS=
+EMAIL_FROM=
+CLIENT_URL=http://localhost:5173
+
+# Optional — RabbitMQ (dev falls back to direct send)
+RABBITMQ_URL=amqp://guest:guest@localhost:5672
+
+# Optional — M-Pesa Daraja (required for payment processing)
+MPESA_CONSUMER_KEY=
+MPESA_CONSUMER_SECRET=
+MPESA_SHORTCODE=
+MPESA_PASSKEY=
+MPESA_CALLBACK_URL=https://yourdomain.com/api/payments/mpesa/callback
 ```
 
-### Additional Commands
+---
 
-```bash
-# Lint all workspaces
-bun run lint
+## Features — Implemented ✅
 
-# Type check all workspaces
-bun run type-check
+### Auth
+- JWT access tokens + httpOnly refresh token rotation
+- Customer self-registration
+- Staff invite-by-email flow (admin sends invite → staff sets own password)
+- Accept invite page (`/accept-invite?token=`)
+- Forgot / reset password (email link, separate URLs for staff vs customer)
 
-# Run tests across all workspaces
-bun run test
-```
+### Admin Dashboard (`/dashboard`)
+- Stats: total categories, products, orders, revenue
+- Revenue over time chart
+- Order status breakdown chart
 
-### Deployment
+### Users (`/users`)
+- List / search / filter staff users
+- Create via email invite (no admin-set password)
+- Edit role + active status
+- Delete
 
-Deplying each piece is very versatile and can be done numerous ways, and exploration into automating these will happen at a later date. Here are some references in the meantime.
+### Categories (`/categories`)
+- Hierarchical (parent → subcategory)
+- Admin CRUD with parent selector
+- Storefront: two-level filter tabs
 
-**Client**
-- [Orbiter](https://orbiter.host)
-- [GitHub Pages](https://vite.dev/guide/static-deploy.html#github-pages)
-- [Netlify](https://vite.dev/guide/static-deploy.html#netlify)
-- [Cloudflare Pages](https://vite.dev/guide/static-deploy.html#cloudflare-pages)
+### Products (`/products`)
+- Full CRUD with image upload (MinIO)
+- SKU auto-generation
+- Featured toggle (shown in storefront hero section)
+- Variants per product (size, color, stock, price override, per-variant low stock threshold)
+- Stock lives on variants
 
-**Server**
-- [Cloudflare Worker](https://gist.github.com/stevedylandev/4aa1fc569bcba46b7169193c0498d0b3)
-- [Bun](https://hono.dev/docs/getting-started/bun)
-- [Node.js](https://hono.dev/docs/getting-started/nodejs)
+### Inventory
+- Inventory movements audit trail (`ORDER_PLACED`, `ORDER_CANCELLED`, `ADMIN_ADJUSTMENT`, `RESTOCK`)
+- Admin stock adjustment endpoint with reason + note
+- Per-variant low stock threshold with admin/manager in-app alerts
+- Stock history view per variant in admin dashboard
 
-## Type Sharing
+### Orders (`/orders`)
+- Admin: list, filter by status, view detail, update status
+- Customer: place order, view order history, cancel pending orders
+- Stock decremented on order placement (per variant, with row-level locking)
+- Stock restored on cancel/refund
 
-Types are automatically shared between the client and server thanks to the shared package and TypeScript path aliases. You can import them in your code using:
+### Cart
+- Variant-based cart (size/color aware)
+- Per-user persistent cart
 
-```typescript
-import { ApiResponse } from 'shared/types';
-```
+### Notifications
+- In-app SSE notification bell (admin/manager)
+- New order alerts + low stock / out-of-stock alerts pushed in real time
 
-## Learn More
+### Emails (via RabbitMQ queue)
+- Staff invite, order confirmation, password reset
+- External HTML templates (`server/src/lib/templates/`)
+- RabbitMQ queue (`email.queue`) with DLQ fallback; direct send when queue unavailable
 
-- [Bun Documentation](https://bun.sh/docs)
-- [Vite Documentation](https://vitejs.dev/guide/)
-- [React Documentation](https://react.dev/learn)
-- [Hono Documentation](https://hono.dev/docs)
-- [Turbo Documentation](https://turbo.build/docs)
-- [TypeScript Documentation](https://www.typescriptlang.org/docs/)
+### Storefront
+- Luxury design (Cormorant Garamond + DM Sans, ivory + oxblood palette)
+- Product listing with category filter (parent + subcategory) + search
+- Product detail page with variant selector
+- Cart + Checkout flow
+- Customer order history + account page (profile, password change)
+
+---
+
+## Roadmap 🗺️
+
+### 🔴 Must-Have
+
+- [x] **Forgot / Reset Password** — email link flow for all users
+- [x] **Order Confirmation Email** — transactional email after order placement
+- [ ] **M-Pesa STK Push** — Daraja API; STK Push to customer phone, IPN callback confirms order
+- [ ] **Shipping Locations** — admin-managed location list with flat delivery prices; customer picks at checkout; cost added to order total
+
+### 🔴 Critical Gaps
+
+- [ ] **Order Status Emails** — notify customer when order moves to `SHIPPED` or `DELIVERED`
+- [ ] **VAT / Tax** — 16% VAT line on orders (legal requirement); configurable rate in admin
+- [ ] **Saved Address Book** — customer saves multiple delivery addresses; pre-fill at checkout
+
+### 🟡 Important
+
+- [x] **Low Stock Alerts** — in-app notification when variant stock drops below per-variant threshold
+- [x] **Customer Account Page** — profile management on storefront
+- [x] **Storefront Search** — URL-driven, debounced
+- [ ] **Abandoned Cart Recovery** — scheduled job emails customers with cart items left > 24 hrs
+- [ ] **Admin Sales Reports + CSV Export** — date-range revenue, top products, orders export
+- [ ] **Wishlist** — save products for later (important for luxury repeat-browse behaviour)
+
+### 🟢 Nice-to-Have
+
+- [ ] **Product Reviews & Ratings** — verified-purchase reviews on PDP
+- [ ] **Discount Codes / Promotions** — coupon codes applied at checkout
+- [ ] **Returns / Refunds Module** — structured return request flow (`REFUNDED` status exists)
+- [ ] **Order Shipping Tracking** — tracking number field + customer-visible status timeline
+- [ ] **SMS Notifications** — Africa's Talking; order confirmation + status updates via SMS
+- [ ] **Social Login** — Google OAuth to reduce registration friction
+- [ ] **Product Recommendations** — "You may also like" on PDP (same category / purchase co-occurrence)

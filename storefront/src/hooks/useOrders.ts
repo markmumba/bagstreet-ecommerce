@@ -19,6 +19,8 @@ export function usePlaceOrder() {
     mutationFn: (data: {
       items: { variant_id: number; quantity: number }[];
       shipping_address: Record<string, string>;
+      shipping_location_id: number;
+      phone: string;
       notes?: string;
     }) => apiClient.post<OrderResponse>('/api/orders', data),
     onSuccess: () => {

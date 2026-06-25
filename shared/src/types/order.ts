@@ -42,6 +42,8 @@ export interface OrderItem {
 export interface OrderCreateRequest {
     items: { variant_id: number; quantity: number }[];
     shipping_address: ShippingAddress;
+    shipping_location_id: number;
+    phone: string;
     notes?: string;
 }
 
@@ -63,6 +65,9 @@ export interface OrderResponse {
     user_id: string;
     status: OrderStatus;
     total_amount: number;
+    shipping_cost: number;
+    payment_status: 'UNPAID' | 'PAID' | 'FAILED';
+    shipping_location_id?: string;
     shipping_address: ShippingAddress;
     notes?: string;
     items: OrderItemResponse[];

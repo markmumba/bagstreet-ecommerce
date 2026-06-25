@@ -9,7 +9,7 @@ import {
     NotFoundError,
     ValidationError,
 } from '@server/lib/errors';
-import { sendInviteEmail } from '@server/lib/email';
+import { publishEmail } from '@server/services/messagequeue';
 import { env } from '@server/config/env';
 import type { User, UserResponse } from 'shared/dist';
 
@@ -44,7 +44,7 @@ export const userHandlers = {
     },
 
     get: async (c: Context) => {
-        const id = parseInt(c.req.param('id'));
+        const id = parseInt(c.req.param('id')!);
         const user = await UsersQueries.findById(id);
         if (!user) throw new NotFoundError('User', id);
         return success(c, toUserResponse(user));
@@ -74,13 +74,13 @@ export const userHandlers = {
         await UsersQueries.createInvitation(Number(user.id), tokenHash, expiresAt);
 
         const inviteUrl = `${env.CLIENT_URL}/accept-invite?token=${rawToken}`;
-        await sendInviteEmail(validated.data.email, validated.data.full_name, inviteUrl);
+        await publishEmail({ type: 'INVITE', to: validated.data.email, name: validated.data.full_name, inviteUrl });
 
         return success(c, toUserResponse(user), 'Invite sent successfully', 201);
     },
 
     update: async (c: Context) => {
-        const id = parseInt(c.req.param('id'));
+        const id = parseInt(c.req.param('id')!);
         const body = await c.req.json();
         const validated = userUpdateSchema.safeParse(body);
         if (!validated.success) throw new ValidationError('Invalid user data', validated.error.errors);
@@ -95,7 +95,7 @@ export const userHandlers = {
     },
 
     delete: async (c: Context) => {
-        const id = parseInt(c.req.param('id'));
+        const id = parseInt(c.req.param('id')!);
         const user = await UsersQueries.findById(id);
         if (!user) throw new NotFoundError('User', id);
         await UsersQueries.delete(id);

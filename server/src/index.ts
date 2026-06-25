@@ -16,6 +16,9 @@ import notificationsRoutes from './features/notifications/notifications.routes';
 import { requireAuth, requireRole } from './middleware/auth.middleware';
 import { role } from 'shared/dist';
 import { authRateLimit, generalRateLimit } from './middleware/rate-limit.middleware';
+import { startEmailWorker } from './services/messagequeue';
+import shippingRoutes from './features/shipping/shipping.routes';
+import paymentsRoutes from './features/payments/payments.routes';
 
 
 const app = new Hono()
@@ -50,6 +53,8 @@ app.route('/api/users', userRoutes);
 app.route('/api/orders', ordersRoutes);
 app.route('/api/cart', cartRoutes);
 app.route('/api/notifications', notificationsRoutes);
+app.route('/api/shipping-locations', shippingRoutes);
+app.route('/api/payments', paymentsRoutes);
 
 app.onError(errorHandler);
 
@@ -62,6 +67,7 @@ app.notFound((c) => c.json({
 initDatabase()
   .then(() => {
     console.log('Database ready');
+    return startEmailWorker();
   })
   .catch((error) => {
     console.error('Database initialization failed:', error);

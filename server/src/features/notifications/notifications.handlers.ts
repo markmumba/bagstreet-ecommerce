@@ -82,7 +82,7 @@ export const notificationsHandlers = {
     markRead: async (c: Context) => {
         const user = c.get('user') as JWTPayload;
         const userId = Number(user.sub);
-        const id = parseInt(c.req.param('id'), 10);
+        const id = parseInt(c.req.param('id')!, 10);
 
         const updated = await notificationsQueries.markAsRead(id, userId);
         if (!updated) throw new NotFoundError('Notification', id);

@@ -4,6 +4,7 @@ import type { ProductVariantRequest } from 'shared';
 
 export const variantKeys = {
   all: (productId: string) => ['variants', productId] as const,
+  history: (productId: string, variantId: string) => ['variants', productId, variantId, 'history'] as const,
 };
 
 export function useProductVariants(productId: string) {
@@ -45,5 +46,33 @@ export function useDeleteVariant(productId: string) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: variantKeys.all(productId) });
     },
+  });
+}
+
+export function useAdjustStock(productId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      variantId,
+      data,
+    }: {
+      variantId: string;
+      data: { delta: number; reason: 'ADMIN_ADJUSTMENT' | 'RESTOCK'; note?: string };
+    }) => variantsService.adjustStock(productId, variantId, data),
+    onSuccess: (_res, { variantId }) => {
+      queryClient.invalidateQueries({ queryKey: variantKeys.all(productId) });
+      queryClient.invalidateQueries({ queryKey: variantKeys.history(productId, variantId) });
+    },
+  });
+}
+
+export function useStockHistory(productId: string, variantId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: variantKeys.history(productId, variantId),
+    queryFn: async () => {
+      const res = await variantsService.getStockHistory(productId, variantId);
+      return res.data || [];
+    },
+    enabled: enabled && !!productId && !!variantId,
   });
 }

@@ -3,9 +3,10 @@ import { sign } from 'hono/jwt';
 import { createHash, randomBytes } from 'crypto';
 import { UsersQueries } from '../users/user.queries';
 import { authQueries } from './auth.queries';
-import { loginSchema, registerSchema, acceptInviteSchema } from './auth.schema';
+import { loginSchema, registerSchema, acceptInviteSchema, forgotPasswordSchema, resetPasswordSchema, updateProfileSchema } from './auth.schema';
 import { env } from '../../config/env';
 import { BadRequestError, ConflictError, InternalServerError, NotFoundError, UnauthorizedError, ValidationError } from '@server/lib/errors';
+import { publishEmail } from '@server/services/messagequeue';
 import { success } from '@server/lib/response';
 import { password} from 'bun';
 import {role} from "shared/dist"; 
@@ -202,6 +203,92 @@ export const authHandlers = {
                 role: activated.role as string,
             },
         }, 'Account activated successfully');
+    },
+
+    updateProfile: async (c: Context) => {
+        const { sub } = c.get('user') as { sub: string };
+        const body = await c.req.json();
+        const validated = updateProfileSchema.safeParse(body);
+        if (!validated.success) throw new ValidationError('Invalid data', validated.error.errors);
+
+        // findByEmail returns password_hash; findById does not
+        const fullUser = await UsersQueries.findById(Number(sub));
+        if (!fullUser || !fullUser.is_active) throw new UnauthorizedError('Account not found or inactive');
+
+        let newHash: string | undefined;
+        if (validated.data.new_password) {
+            // Need password_hash — fetch with findByEmail
+            const rawUser = await UsersQueries.findByEmail(fullUser.email);
+            if (!rawUser) throw new UnauthorizedError('Account not found');
+            const valid = await password.verify(validated.data.current_password!, (rawUser as any).password_hash);
+            if (!valid) throw new BadRequestError('Current password is incorrect');
+            newHash = await password.hash(validated.data.new_password);
+        }
+
+        let updated = fullUser;
+        if (validated.data.full_name) {
+            updated = (await UsersQueries.update(Number(sub), { full_name: validated.data.full_name })) ?? updated;
+        }
+        if (newHash) {
+            updated = (await UsersQueries.activateWithPassword(Number(sub), newHash)) ?? updated;
+        }
+
+        return success(c, {
+            id: String(updated.id),
+            email: updated.email,
+            full_name: updated.full_name,
+            role: updated.role as string,
+            is_active: updated.is_active,
+            created_at: updated.created_at,
+            updated_at: updated.updated_at,
+        }, 'Profile updated successfully');
+    },
+
+    forgotPassword: async (c: Context) => {
+        const body = await c.req.json();
+        const validated = forgotPasswordSchema.safeParse(body);
+        if (!validated.success) throw new ValidationError('Invalid data', validated.error.errors);
+
+        const user = await UsersQueries.findByEmail(validated.data.email);
+        // Always return 200 — don't reveal whether email exists
+        if (!user || !user.is_active) {
+            return success(c, null, 'If that email is registered you will receive a reset link shortly');
+        }
+
+        const rawToken = randomBytes(32).toString('hex');
+        const tokenHash = hashToken(rawToken);
+        const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+        await authQueries.createPasswordResetToken(Number(user.id), tokenHash, expiresAt);
+
+        const isCustomer = (user.role as string) === 'CUSTOMER';
+        const baseUrl = isCustomer ? env.STOREFRONT_URL : env.CLIENT_URL;
+        const resetUrl = `${baseUrl}/reset-password?token=${rawToken}`;
+        await publishEmail({ type: 'PASSWORD_RESET', to: validated.data.email, name: user.full_name, resetUrl });
+
+        return success(c, null, 'If that email is registered you will receive a reset link shortly');
+    },
+
+    resetPassword: async (c: Context) => {
+        const body = await c.req.json();
+        const validated = resetPasswordSchema.safeParse(body);
+        if (!validated.success) throw new ValidationError('Invalid data', validated.error.errors);
+
+        const tokenHash = hashToken(validated.data.token);
+        const resetToken = await authQueries.findPasswordResetToken(tokenHash);
+        if (!resetToken) throw new BadRequestError('Invalid or expired reset link');
+
+        const user = await UsersQueries.findById(resetToken.user_id);
+        if (!user) throw new NotFoundError('User', resetToken.user_id);
+
+        const password_hash = await password.hash(validated.data.password);
+        const updated = await UsersQueries.activateWithPassword(Number(user.id), password_hash);
+        if (!updated) throw new InternalServerError('Failed to reset password');
+
+        await authQueries.consumePasswordResetToken(resetToken.id);
+        // Invalidate all existing sessions after password reset
+        await authQueries.deleteAllUserRefreshTokens(Number(user.id));
+
+        return success(c, null, 'Password reset successfully');
     },
 
     logout: async (c: Context) => {

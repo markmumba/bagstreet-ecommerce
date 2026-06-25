@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate } from '@tanstack/react-router';
+import { createFileRoute, useNavigate, Link } from '@tanstack/react-router';
 import { useState, useEffect } from 'react';
 import { z } from 'zod';
 import { useAuth } from '@/context/AuthContext';
@@ -9,14 +9,17 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { ShoppingBag } from 'lucide-react';
 
 export const Route = createFileRoute('/login')({
-  validateSearch: z.object({ activated: z.string().optional() }),
+  validateSearch: z.object({
+    activated: z.string().optional(),
+    reset: z.string().optional(),
+  }),
   component: LoginPage,
 });
 
 function LoginPage() {
   const { login, isAuthenticated, isLoading } = useAuth();
   const navigate = useNavigate();
-  const { activated } = Route.useSearch();
+  const { activated, reset } = Route.useSearch();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -68,6 +71,11 @@ function LoginPage() {
             Account activated — please sign in.
           </div>
         )}
+        {reset && (
+          <div className="mb-4 rounded-md bg-green-50 px-4 py-3 text-sm text-green-800 border border-green-200">
+            Password reset — please sign in with your new password.
+          </div>
+        )}
 
         <Card>
           <CardHeader className="space-y-1">
@@ -98,6 +106,12 @@ function LoginPage() {
                   onChange={(e) => setPassword(e.target.value)}
                   required
                 />
+              </div>
+
+              <div className="flex justify-end">
+                <Link to="/forgot-password" className="text-xs text-muted-foreground hover:text-foreground">
+                  Forgot password?
+                </Link>
               </div>
 
               {error && (

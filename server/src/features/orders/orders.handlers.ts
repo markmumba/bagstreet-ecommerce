@@ -14,6 +14,11 @@ import type { OrderItemResponse, OrderResponse } from 'shared/dist';
 import { role } from 'shared/dist';
 import { notificationsQueries } from '../notifications/notifications.queries';
 import { pushToMany } from '../../lib/sse';
+import { UsersQueries } from '../users/user.queries';
+import { publishEmail } from '../../services/messagequeue';
+import { shippingQueries } from '../shipping/shipping.queries';
+import { stkPush } from '../../services/mpesa';
+import { paymentsQueries } from '../payments/payments.queries';
 
 interface JWTPayload { sub: string; email: string; role: string }
 
@@ -40,6 +45,9 @@ function toOrderResponse(order: any, items: any[]): OrderResponse {
         user_id: String(order.user_id),
         status: order.status,
         total_amount: parseFloat(order.total_amount),
+        shipping_cost: parseFloat(order.shipping_cost ?? '0'),
+        payment_status: order.payment_status ?? 'UNPAID',
+        shipping_location_id: order.shipping_location_id != null ? String(order.shipping_location_id) : undefined,
         shipping_address: order.shipping_address,
         notes: order.notes ?? undefined,
         items: items.map((item): OrderItemResponse => ({
@@ -112,6 +120,12 @@ export const ordersHandlers = {
             throw new ValidationError('Invalid order data', validated.error.errors);
         }
 
+        // Validate shipping location
+        const shippingLocation = await shippingQueries.findById(validated.data.shipping_location_id);
+        if (!shippingLocation) throw new BadRequestError('Invalid shipping location');
+        if (!shippingLocation.is_active) throw new BadRequestError('Selected shipping location is not available');
+        const shippingCost = parseFloat(shippingLocation.price);
+
         const variantIds = validated.data.items.map((i) => i.variant_id);
         const variants = await sql<VariantRow[]>`
             SELECT id, product_id, sku, size, color, stock, price_override, is_active
@@ -153,10 +167,11 @@ export const ordersHandlers = {
             };
         });
 
-        const totalAmount = itemsWithPrice.reduce(
+        const itemsTotal = itemsWithPrice.reduce(
             (sum, item) => sum + item.unit_price * item.quantity,
             0
         );
+        const totalAmount = itemsTotal + shippingCost;
 
         let order;
         try {
@@ -165,6 +180,8 @@ export const ordersHandlers = {
                 itemsWithPrice,
                 totalAmount,
                 validated.data.shipping_address,
+                validated.data.shipping_location_id,
+                shippingCost,
                 validated.data.notes
             );
         } catch (err: any) {
@@ -176,7 +193,7 @@ export const ordersHandlers = {
 
         const items = await ordersQueries.findItemsByOrderId(order.id);
 
-        // Notify all admins/managers
+        // Notify all admins/managers — new order
         const adminIds = await notificationsQueries.findAdminIds();
         if (adminIds.length > 0) {
             const notifRows = adminIds.map((id) => ({
@@ -190,7 +207,58 @@ export const ordersHandlers = {
             pushToMany(adminIds, 'notification', { notifications: created });
         }
 
-        return success(c, toOrderResponse(order, items), 'Order placed successfully', 201);
+        // Low stock alerts — check variants that are now below threshold
+        if (adminIds.length > 0) {
+            const orderedVariantIds = itemsWithPrice.map((i) => i.variant_id);
+            const lowStockVariants = await sql<{ id: number; sku: string; size: string | null; color: string | null; stock: number; low_stock_threshold: number; product_name: string }[]>`
+                SELECT pv.id, pv.sku, pv.size, pv.color, pv.stock, pv.low_stock_threshold, p.name AS product_name
+                FROM product_variants pv
+                JOIN products p ON p.id = pv.product_id
+                WHERE pv.id = ANY(${orderedVariantIds})
+                  AND pv.stock <= pv.low_stock_threshold
+                  AND pv.stock >= 0
+            `;
+            if (lowStockVariants.length > 0) {
+                const lowStockNotifs: { recipient_id: number; type: string; title: string; body: string; data: object }[] = [];
+                for (const variant of lowStockVariants) {
+                    const variantLabel = [variant.size, variant.color].filter(Boolean).join(' / ');
+                    const title = variant.stock === 0 ? `Out of stock: ${variant.product_name}` : `Low stock: ${variant.product_name}`;
+                    const body = `${variantLabel ? `(${variantLabel}) — ` : ''}${variant.stock} unit${variant.stock === 1 ? '' : 's'} remaining`;
+                    for (const adminId of adminIds) {
+                        lowStockNotifs.push({
+                            recipient_id: adminId,
+                            type: variant.stock === 0 ? 'OUT_OF_STOCK' : 'LOW_STOCK',
+                            title,
+                            body,
+                            data: { link: '/products', variant_id: String(variant.id) },
+                        });
+                    }
+                }
+                const lowStockCreated = await notificationsQueries.create(lowStockNotifs);
+                pushToMany(adminIds, 'notification', { notifications: lowStockCreated });
+            }
+        }
+
+        // Initiate STK Push (fire-and-forget; email fires on successful callback)
+        stkPush({ phone: validated.data.phone, amount: totalAmount, orderId: order.id })
+            .then(({ checkoutRequestId, merchantRequestId }) => {
+                return paymentsQueries.createTransaction(
+                    order.id,
+                    checkoutRequestId,
+                    merchantRequestId,
+                    validated.data.phone,
+                    totalAmount
+                );
+            })
+            .catch((err) => console.error('[mpesa] STK Push error:', err));
+
+        const orderResponse = toOrderResponse(order, items);
+        return success(
+            c,
+            { ...orderResponse, message: 'Check your phone for M-Pesa prompt' },
+            'Order placed — check your phone to complete payment',
+            201
+        );
     },
 
     updateStatus: async (c: Context) => {

@@ -15,5 +15,7 @@ productsRoutes.get('/:id/variants', variantsHandlers.list);
 productsRoutes.post('/:id/variants', variantsHandlers.create);
 productsRoutes.put('/:id/variants/:vid', variantsHandlers.update);
 productsRoutes.delete('/:id/variants/:vid', variantsHandlers.delete);
+productsRoutes.post('/:id/variants/:vid/stock', variantsHandlers.adjustStock);
+productsRoutes.get('/:id/variants/:vid/stock/history', variantsHandlers.stockHistory);
 
 export default productsRoutes;

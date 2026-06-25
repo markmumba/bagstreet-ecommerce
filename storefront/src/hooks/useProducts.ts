@@ -2,10 +2,16 @@ import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/services/api';
 import type { ProductResponse } from 'shared';
 
-export function useProducts(params?: { search?: string; categoryId?: string; page?: number; limit?: number ,status?: string}) {
+export function useProducts(params?: { search?: string; categoryId?: string; page?: number; limit?: number; status?: string }) {
   return useQuery({
     queryKey: ['products', params],
-    queryFn: () => apiClient.get<ProductResponse[]>('/api/products', params as any),
+    queryFn: () => {
+      const { search, ...rest } = params ?? {};
+      return apiClient.get<ProductResponse[]>('/api/products', {
+        ...rest,
+        ...(search ? { searchTerm: search } : {}),
+      } as any);
+    },
     staleTime: 1000 * 60 * 2,
   });
 }

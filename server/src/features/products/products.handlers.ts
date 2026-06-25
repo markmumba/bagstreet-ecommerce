@@ -115,7 +115,7 @@ export const productsHandlers = {
                 image_url: imageUrl,
                 sku,
                 slug,
-            } as ProductRequest & { sku: string; slug: string });
+            } as unknown as ProductRequest & { sku: string; slug: string });
             if (!product) {
                 if (uploadedFilename) {
                     await imageUploadService.delete(uploadedFilename);
@@ -147,7 +147,7 @@ export const productsHandlers = {
         }
     },
     update: async (c: Context) => {
-        const id = parseInt(c.req.param('id'));
+        const id = parseInt(c.req.param('id')!);
         const body = await c.req.json<ProductUpdateRequest>();
         const validated = updateProductSchema.safeParse(body);
         if (!validated.success) {
@@ -180,7 +180,7 @@ export const productsHandlers = {
     },
 
     delete: async (c: Context) => {
-        const id = parseInt(c.req.param('id'));
+        const id = parseInt(c.req.param('id')!);
         const product = await productsQueries.findById(id);
         if (!product) {
             throw new NotFoundError('Product', id);

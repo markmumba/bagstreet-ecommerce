@@ -73,7 +73,7 @@ export const cartHandlers = {
 
     update: async (c: Context) => {
         const { sub } = c.get('user') as JWTPayload;
-        const variantId = parseInt(c.req.param('variantId'));
+        const variantId = parseInt(c.req.param('variantId')!);
         const body = await c.req.json();
         const validated = updateCartItemSchema.safeParse(body);
 
@@ -90,7 +90,7 @@ export const cartHandlers = {
 
     remove: async (c: Context) => {
         const { sub } = c.get('user') as JWTPayload;
-        const variantId = parseInt(c.req.param('variantId'));
+        const variantId = parseInt(c.req.param('variantId')!);
 
         const removed = await cartQueries.removeItem(Number(sub), variantId);
         if (!removed) throw new NotFoundError('Cart item', variantId);

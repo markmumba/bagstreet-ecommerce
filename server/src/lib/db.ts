@@ -206,6 +206,94 @@ export async function initDatabase() {
         await sql`CREATE INDEX IF NOT EXISTS idx_user_invitations_token_hash ON user_invitations(token_hash)`;
         await sql`CREATE INDEX IF NOT EXISTS idx_user_invitations_user_id ON user_invitations(user_id)`;
 
+        // Password reset tokens
+        await sql`
+            CREATE TABLE IF NOT EXISTS password_reset_tokens (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                token_hash TEXT NOT NULL UNIQUE,
+                expires_at TIMESTAMP NOT NULL,
+                used_at TIMESTAMP,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        `;
+        await sql`CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_hash ON password_reset_tokens(token_hash)`;
+        await sql`CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_user_id ON password_reset_tokens(user_id)`;
+
+        // Per-variant low stock threshold
+        await sql`ALTER TABLE product_variants ADD COLUMN IF NOT EXISTS low_stock_threshold INTEGER NOT NULL DEFAULT 5`;
+
+        // Inventory movements audit trail
+        await sql`
+            CREATE TABLE IF NOT EXISTS inventory_movements (
+                id SERIAL PRIMARY KEY,
+                variant_id INTEGER NOT NULL REFERENCES product_variants(id) ON DELETE RESTRICT,
+                delta INTEGER NOT NULL,
+                reason VARCHAR(50) NOT NULL CHECK (reason IN ('ORDER_PLACED','ORDER_CANCELLED','ADMIN_ADJUSTMENT','RESTOCK')),
+                reference_id INTEGER,
+                note TEXT,
+                created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        `;
+        await sql`CREATE INDEX IF NOT EXISTS idx_inventory_movements_variant_id ON inventory_movements(variant_id)`;
+        await sql`CREATE INDEX IF NOT EXISTS idx_inventory_movements_created_at ON inventory_movements(created_at DESC)`;
+
+        // Shipping locations
+        await sql`
+            CREATE TABLE IF NOT EXISTS shipping_locations (
+                id SERIAL PRIMARY KEY,
+                name VARCHAR(100) NOT NULL UNIQUE,
+                price DECIMAL(10,2) NOT NULL CHECK (price >= 0),
+                is_active BOOLEAN NOT NULL DEFAULT true,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        `;
+
+        await sql`DROP TRIGGER IF EXISTS update_shipping_locations_updated_at ON shipping_locations`;
+        await sql`
+            CREATE TRIGGER update_shipping_locations_updated_at
+            BEFORE UPDATE ON shipping_locations
+            FOR EACH ROW
+            EXECUTE FUNCTION update_updated_at_column()
+        `;
+
+        // M-Pesa transactions
+        await sql`
+            CREATE TABLE IF NOT EXISTS mpesa_transactions (
+                id SERIAL PRIMARY KEY,
+                order_id INTEGER NOT NULL REFERENCES orders(id) ON DELETE RESTRICT,
+                checkout_request_id TEXT NOT NULL UNIQUE,
+                merchant_request_id TEXT NOT NULL,
+                phone VARCHAR(20) NOT NULL,
+                amount DECIMAL(10,2) NOT NULL,
+                status VARCHAR(20) NOT NULL DEFAULT 'INITIATED'
+                    CHECK (status IN ('INITIATED','COMPLETED','FAILED','CANCELLED')),
+                result_code INTEGER,
+                result_desc TEXT,
+                mpesa_receipt_number TEXT,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        `;
+
+        await sql`CREATE INDEX IF NOT EXISTS idx_mpesa_transactions_order_id ON mpesa_transactions(order_id)`;
+        await sql`CREATE INDEX IF NOT EXISTS idx_mpesa_transactions_checkout_request_id ON mpesa_transactions(checkout_request_id)`;
+
+        await sql`DROP TRIGGER IF EXISTS update_mpesa_transactions_updated_at ON mpesa_transactions`;
+        await sql`
+            CREATE TRIGGER update_mpesa_transactions_updated_at
+            BEFORE UPDATE ON mpesa_transactions
+            FOR EACH ROW
+            EXECUTE FUNCTION update_updated_at_column()
+        `;
+
+        // Alter orders: shipping location, cost, payment status
+        await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS shipping_location_id INTEGER REFERENCES shipping_locations(id) ON DELETE RESTRICT`;
+        await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS shipping_cost DECIMAL(10,2) NOT NULL DEFAULT 0`;
+        await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_status VARCHAR(20) NOT NULL DEFAULT 'UNPAID' CHECK (payment_status IN ('UNPAID','PAID','FAILED'))`;
+
         await sql`DROP TRIGGER IF EXISTS update_product_variants_updated_at ON product_variants`;
         await sql`
             CREATE TRIGGER update_product_variants_updated_at
