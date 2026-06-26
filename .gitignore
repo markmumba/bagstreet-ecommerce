@@ -42,3 +42,4 @@ bun.lockb
 .turbo
 
 .docker-compose.yml
+docs
