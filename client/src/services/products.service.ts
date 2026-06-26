@@ -1,10 +1,21 @@
 import { apiClient } from './api';
-import type { ProductResponse, ProductUpdateRequest } from 'shared';
+import type { ProductDeleteResponse, ProductResponse, ProductUpdateRequest } from 'shared';
+
+export interface ProductListParams {
+  search?: string;
+  page?: number;
+  limit?: number;
+  status?: string;
+}
 
 export const productsService = {
-  getAll: async (search?: string) => {
-    const params = search ? { search } : undefined;
-    return apiClient.get<ProductResponse[]>('/api/products', params);
+  getAll: async (params?: ProductListParams) => {
+    const query: Record<string, unknown> = {};
+    if (params?.search) query.searchTerm = params.search;
+    if (params?.page) query.page = params.page;
+    if (params?.limit) query.limit = params.limit;
+    if (params?.status != null) query.status = params.status;
+    return apiClient.get<ProductResponse[]>('/api/products', query);
   },
 
   getById: async (id: string) => {
@@ -19,8 +30,12 @@ export const productsService = {
     return apiClient.put<ProductResponse>(`/api/products/${id}`, data);
   },
 
+  updateForm: async (id: string, data: FormData) => {
+    return apiClient.putForm<ProductResponse>(`/api/products/${id}`, data);
+  },
+
   delete: async (id: string) => {
-    return apiClient.delete<void>(`/api/products/${id}`);
+    return apiClient.delete<ProductDeleteResponse>(`/api/products/${id}`);
   },
 
   toggleFeatured: async (id: string, is_featured: boolean) => {

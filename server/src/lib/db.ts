@@ -222,6 +222,8 @@ export async function initDatabase() {
 
         // Per-variant low stock threshold
         await sql`ALTER TABLE product_variants ADD COLUMN IF NOT EXISTS low_stock_threshold INTEGER NOT NULL DEFAULT 5`;
+        await sql`ALTER TABLE products ADD COLUMN IF NOT EXISTS sale_price DECIMAL(10,2) CHECK (sale_price IS NULL OR sale_price >= 0)`;
+        await sql`ALTER TABLE products ADD COLUMN IF NOT EXISTS sale_ends_at TIMESTAMP`;
 
         // Inventory movements audit trail
         await sql`
@@ -289,10 +291,85 @@ export async function initDatabase() {
             EXECUTE FUNCTION update_updated_at_column()
         `;
 
+        // C2B payments received through the M-Pesa validation/confirmation callbacks.
+        await sql`
+            CREATE TABLE IF NOT EXISTS mpesa_c2b_payments (
+                id SERIAL PRIMARY KEY,
+                transaction_id TEXT NOT NULL UNIQUE,
+                phone VARCHAR(20) NOT NULL,
+                amount DECIMAL(10,2) NOT NULL,
+                bill_ref_number TEXT,
+                raw_payload JSONB NOT NULL,
+                matched_order_id INTEGER REFERENCES orders(id) ON DELETE SET NULL,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        `;
+
+        await sql`CREATE INDEX IF NOT EXISTS idx_mpesa_c2b_payments_phone_amount ON mpesa_c2b_payments(phone, amount)`;
+        await sql`CREATE INDEX IF NOT EXISTS idx_mpesa_c2b_payments_created_at ON mpesa_c2b_payments(created_at DESC)`;
+
         // Alter orders: shipping location, cost, payment status
         await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS shipping_location_id INTEGER REFERENCES shipping_locations(id) ON DELETE RESTRICT`;
         await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS shipping_cost DECIMAL(10,2) NOT NULL DEFAULT 0`;
         await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_status VARCHAR(20) NOT NULL DEFAULT 'UNPAID' CHECK (payment_status IN ('UNPAID','PAID','FAILED'))`;
+        await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS discount_code VARCHAR(50)`;
+        await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS discount_amount DECIMAL(10,2) NOT NULL DEFAULT 0`;
+        await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS customer_name VARCHAR(100)`;
+        await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS customer_phone VARCHAR(20)`;
+        await sql`ALTER TABLE orders ALTER COLUMN user_id DROP NOT NULL`;
+
+        // Promotions
+        await sql`
+            CREATE TABLE IF NOT EXISTS discount_codes (
+                id SERIAL PRIMARY KEY,
+                code VARCHAR(50) NOT NULL UNIQUE,
+                value DECIMAL(5,2) NOT NULL CHECK (value > 0 AND value <= 100),
+                min_order_amount DECIMAL(10,2) NOT NULL DEFAULT 0,
+                usage_limit INTEGER CHECK (usage_limit IS NULL OR usage_limit > 0),
+                used_count INTEGER NOT NULL DEFAULT 0,
+                expires_at TIMESTAMP,
+                is_active BOOLEAN NOT NULL DEFAULT true,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        `;
+
+        await sql`
+            CREATE TABLE IF NOT EXISTS discount_code_usages (
+                id SERIAL PRIMARY KEY,
+                code_id INTEGER NOT NULL REFERENCES discount_codes(id) ON DELETE RESTRICT,
+                order_id INTEGER NOT NULL REFERENCES orders(id) ON DELETE RESTRICT,
+                phone VARCHAR(20) NOT NULL,
+                discount_amount DECIMAL(10,2) NOT NULL,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE (code_id, phone)
+            )
+        `;
+
+        await sql`
+            CREATE TABLE IF NOT EXISTS settings (
+                key VARCHAR(100) PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        `;
+
+        await sql`
+            INSERT INTO settings (key, value)
+            VALUES ('free_delivery_threshold', '0')
+            ON CONFLICT (key) DO NOTHING
+        `;
+
+        await sql`CREATE INDEX IF NOT EXISTS idx_discount_codes_code ON discount_codes(code)`;
+        await sql`CREATE INDEX IF NOT EXISTS idx_discount_code_usages_phone ON discount_code_usages(phone)`;
+
+        await sql`DROP TRIGGER IF EXISTS update_discount_codes_updated_at ON discount_codes`;
+        await sql`
+            CREATE TRIGGER update_discount_codes_updated_at
+            BEFORE UPDATE ON discount_codes
+            FOR EACH ROW
+            EXECUTE FUNCTION update_updated_at_column()
+        `;
 
         await sql`DROP TRIGGER IF EXISTS update_product_variants_updated_at ON product_variants`;
         await sql`
@@ -343,5 +420,3 @@ process.on('SIGTERM', async () => {
     await sql.end();
     process.exit(0);
 })
-
-

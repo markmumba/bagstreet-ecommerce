@@ -26,9 +26,27 @@ export const cartQueries = {
                 pv.sku AS variant_sku,
                 pv.size AS variant_size,
                 pv.color AS variant_color,
-                COALESCE(pv.price_override, p.price) AS unit_price,
+                COALESCE(
+                    pv.price_override,
+                    CASE
+                        WHEN p.sale_price IS NOT NULL
+                         AND (p.sale_ends_at IS NULL OR p.sale_ends_at > NOW())
+                        THEN p.sale_price
+                        ELSE p.price
+                    END
+                ) AS unit_price,
                 ci.quantity,
-                (COALESCE(pv.price_override, p.price) * ci.quantity)::DECIMAL(10,2) AS subtotal
+                (
+                    COALESCE(
+                        pv.price_override,
+                        CASE
+                            WHEN p.sale_price IS NOT NULL
+                             AND (p.sale_ends_at IS NULL OR p.sale_ends_at > NOW())
+                            THEN p.sale_price
+                            ELSE p.price
+                        END
+                    ) * ci.quantity
+                )::DECIMAL(10,2) AS subtotal
             FROM cart_items ci
             JOIN product_variants pv ON pv.id = ci.variant_id
             JOIN products p ON p.id = pv.product_id

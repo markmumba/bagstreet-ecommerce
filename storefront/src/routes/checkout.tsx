@@ -1,9 +1,11 @@
 import { createFileRoute, useNavigate, Link } from '@tanstack/react-router';
 import { useState } from 'react';
-import { useCart } from '@/hooks/useCart';
-import { usePlaceOrder } from '@/hooks/useOrders';
+import { useCart, useClearCart } from '@/hooks/useCart';
+import { useConfirmMpesaPayment, usePlaceOrder, useResendMpesaPrompt } from '@/hooks/useOrders';
 import { useAuth } from '@/context/AuthContext';
 import { useActiveShippingLocations } from '@/hooks/useShipping';
+import { useFreeDeliveryThreshold, useValidateDiscountCode } from '@/hooks/usePromotions';
+import { PAYMENT_STATUS } from 'shared';
 
 export const Route = createFileRoute('/checkout')({
   component: CheckoutPage,
@@ -17,8 +19,13 @@ function CheckoutPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const { data: cartRes } = useCart();
+  const clearCart = useClearCart();
   const placeOrder = usePlaceOrder();
+  const resendPrompt = useResendMpesaPrompt();
+  const confirmPayment = useConfirmMpesaPayment();
   const { data: locationsRes } = useActiveShippingLocations();
+  const { data: thresholdRes } = useFreeDeliveryThreshold();
+  const validateDiscount = useValidateDiscountCode();
 
   const [form, setForm] = useState({
     full_name: user?.full_name ?? '',
@@ -30,7 +37,12 @@ function CheckoutPage() {
     notes: '',
   });
   const [shippingLocationId, setShippingLocationId] = useState('');
-  const [mpesaPending, setMpesaPending] = useState(false);
+  const [paymentStep, setPaymentStep] = useState<'form' | 'prompt' | 'fallback' | 'paid'>('form');
+  const [pendingOrder, setPendingOrder] = useState<{ id: number; total: number } | null>(null);
+  const [paymentMessage, setPaymentMessage] = useState('');
+  const [discountCode, setDiscountCode] = useState('');
+  const [discountPreview, setDiscountPreview] = useState<{ code: string; discount_amount: number; message: string } | null>(null);
+  const [discountMessage, setDiscountMessage] = useState('');
 
   const cart = (cartRes?.data as any);
   const items = cart?.items ?? [];
@@ -38,8 +50,13 @@ function CheckoutPage() {
 
   const locations = (locationsRes?.data as any[]) ?? [];
   const selectedLocation = locations.find((l: any) => String(l.id) === shippingLocationId);
-  const deliveryCost = selectedLocation ? selectedLocation.price : 0;
-  const grandTotal = itemsTotal + deliveryCost;
+  const freeDeliveryThreshold = thresholdRes?.data?.threshold ?? 0;
+  const discountAmount = discountPreview?.discount_amount ?? 0;
+  const subtotalAfterDiscount = Math.max(0, itemsTotal - discountAmount);
+  const qualifiesForFreeDelivery = freeDeliveryThreshold > 0 && subtotalAfterDiscount >= freeDeliveryThreshold;
+  const deliveryCost = selectedLocation ? (qualifiesForFreeDelivery ? 0 : selectedLocation.price) : 0;
+  const grandTotal = subtotalAfterDiscount + deliveryCost;
+  const tillNumber = import.meta.env.VITE_MPESA_TILL_NUMBER || 'Configure till number';
 
   const set = (k: string, v: string) => setForm((f) => ({ ...f, [k]: v }));
 
@@ -49,28 +66,174 @@ function CheckoutPage() {
 
     const { notes, ...address } = form;
     try {
-      await placeOrder.mutateAsync({
+      const res = await placeOrder.mutateAsync({
         items: items.map((i: any) => ({ variant_id: i.variant_id, quantity: i.quantity })),
         shipping_address: address,
         shipping_location_id: parseInt(shippingLocationId, 10),
         phone: form.phone,
+        discount_code: discountCode.trim() || undefined,
         notes: notes || undefined,
       });
-      setMpesaPending(true);
-      // After 30s navigate to orders with pending banner
+      const order = res.data;
+      setPendingOrder(order ? { id: Number(order.id), total: order.total_amount } : null);
+      clearCart.mutate();
+      setPaymentStep('prompt');
+      setPaymentMessage('');
       setTimeout(() => {
-        navigate({ to: '/orders', search: { payment: 'pending' } as any });
+        setPaymentStep((step) => (step === 'prompt' ? 'fallback' : step));
       }, 30000);
     } catch {
       // error shown below
     }
   };
 
-  if (!user) {
+  const handleValidateDiscount = async () => {
+    setDiscountMessage('');
+    setDiscountPreview(null);
+    if (!discountCode.trim()) return;
+    if (!form.phone.trim()) {
+      setDiscountMessage('Enter your M-Pesa phone number before applying a code.');
+      return;
+    }
+
+    try {
+      const res = await validateDiscount.mutateAsync({
+        code: discountCode.trim(),
+        subtotal: itemsTotal,
+        phone: form.phone,
+      });
+      if (res.data?.valid) {
+        setDiscountPreview({
+          code: res.data.code,
+          discount_amount: res.data.discount_amount,
+          message: res.data.message,
+        });
+        setDiscountCode(res.data.code);
+      } else {
+        setDiscountMessage(res.data?.message || 'Discount code is invalid.');
+      }
+    } catch (err: any) {
+      setDiscountMessage(err?.message || 'Discount code is invalid.');
+    }
+  };
+
+  const handleResendPrompt = async () => {
+    if (!pendingOrder) return;
+    setPaymentMessage('');
+    try {
+      await resendPrompt.mutateAsync({ order_id: pendingOrder.id, phone: form.phone });
+      setPaymentStep('prompt');
+      setPaymentMessage('A new M-Pesa prompt has been sent to your phone.');
+      setTimeout(() => {
+        setPaymentStep((step) => (step === 'prompt' ? 'fallback' : step));
+      }, 30000);
+    } catch (err: any) {
+      setPaymentMessage(err?.message || 'We could not resend the prompt. Please try again shortly.');
+    }
+  };
+
+  const handleConfirmPayment = async () => {
+    if (!pendingOrder) return;
+    setPaymentMessage('');
+    try {
+      const res = await confirmPayment.mutateAsync({ order_id: pendingOrder.id, phone: form.phone });
+      if (res.data?.status === PAYMENT_STATUS.PAID) {
+        setPaymentStep('paid');
+        return;
+      }
+      setPaymentMessage(res.message || 'Payment has not been received yet. Please try again in a moment.');
+    } catch (err: any) {
+      setPaymentMessage(err?.message || 'We could not confirm payment yet. Please try again shortly.');
+    }
+  };
+
+  if (paymentStep === 'prompt' || paymentStep === 'fallback' || paymentStep === 'paid') {
     return (
-      <div className="max-w-2xl mx-auto px-4 py-20 text-center">
-        <h2 className="text-2xl font-semibold mb-4">Sign in to checkout</h2>
-        <Link to="/login" className="inline-block bg-primary text-primary-foreground px-6 py-2.5 rounded-md text-sm font-medium">Sign in</Link>
+      <div className="max-w-xl mx-auto px-4 py-20">
+        <div className="rounded-2xl border border-border bg-card p-6 text-center shadow-sm">
+          {paymentStep === 'paid' ? (
+            <div className="space-y-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-primary">Payment confirmed</p>
+              <h2 className="text-2xl font-semibold">Your order is confirmed</h2>
+              <p className="text-sm text-muted-foreground">
+                We have received your M-Pesa payment for order #{pendingOrder?.id}.
+              </p>
+              <button
+                onClick={() => navigate({ to: user ? '/orders' : '/' })}
+                className="inline-flex h-10 items-center justify-center rounded-md bg-primary px-5 text-sm font-medium text-primary-foreground hover:opacity-90"
+              >
+                {user ? 'View My Orders' : 'Continue Shopping'}
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-5">
+              <div className="space-y-2">
+                <p className="text-xs font-semibold uppercase tracking-wide text-primary">
+                  Order #{pendingOrder?.id}
+                </p>
+                <h2 className="text-2xl font-semibold">
+                  {paymentStep === 'prompt' ? 'Check your phone' : 'Complete your payment'}
+                </h2>
+                <p className="text-sm text-muted-foreground">
+                  We sent an M-Pesa prompt to <strong>{form.phone}</strong> for{' '}
+                  <strong>{formatPrice(pendingOrder?.total ?? grandTotal)}</strong>.
+                </p>
+              </div>
+
+              {paymentStep === 'fallback' && (
+                <div className="rounded-xl border border-dashed border-border bg-muted/30 p-4 text-left">
+                  <p className="text-sm font-semibold">Manual M-Pesa payment</p>
+                  <dl className="mt-3 grid grid-cols-2 gap-3 text-sm">
+                    <div>
+                      <dt className="text-muted-foreground">Till number</dt>
+                      <dd className="font-semibold">{tillNumber}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-muted-foreground">Amount</dt>
+                      <dd className="font-semibold">{formatPrice(pendingOrder?.total ?? grandTotal)}</dd>
+                    </div>
+                    <div className="col-span-2">
+                      <dt className="text-muted-foreground">Reference</dt>
+                      <dd className="font-semibold">Order #{pendingOrder?.id} or {form.phone}</dd>
+                    </div>
+                  </dl>
+                </div>
+              )}
+
+              {paymentMessage && (
+                <p className="rounded-xl bg-muted px-3 py-2 text-sm text-muted-foreground">
+                  {paymentMessage}
+                </p>
+              )}
+
+              <div className="flex flex-col gap-2 sm:flex-row sm:justify-center">
+                <button
+                  onClick={handleResendPrompt}
+                  disabled={resendPrompt.isPending}
+                  className="inline-flex h-10 items-center justify-center rounded-md border border-border px-5 text-sm font-medium hover:bg-muted disabled:opacity-50"
+                >
+                  {resendPrompt.isPending ? 'Sending...' : 'Resend M-Pesa Prompt'}
+                </button>
+                <button
+                  onClick={handleConfirmPayment}
+                  disabled={confirmPayment.isPending}
+                  className="inline-flex h-10 items-center justify-center rounded-md bg-primary px-5 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
+                >
+                  {confirmPayment.isPending ? 'Checking...' : "I've Paid - Confirm"}
+                </button>
+              </div>
+
+              {user && (
+                <button
+                  onClick={() => navigate({ to: '/orders', search: { payment: 'pending' } as any })}
+                  className="text-sm text-primary underline underline-offset-4"
+                >
+                  Go to My Orders
+                </button>
+              )}
+            </div>
+          )}
+        </div>
       </div>
     );
   }
@@ -80,28 +243,6 @@ function CheckoutPage() {
       <div className="max-w-2xl mx-auto px-4 py-20 text-center">
         <h2 className="text-2xl font-semibold mb-4">Your cart is empty</h2>
         <Link to="/" className="inline-block bg-primary text-primary-foreground px-6 py-2.5 rounded-md text-sm font-medium">Shop now</Link>
-      </div>
-    );
-  }
-
-  if (mpesaPending) {
-    return (
-      <div className="max-w-lg mx-auto px-4 py-20 text-center space-y-4">
-        <div className="text-5xl">📱</div>
-        <h2 className="text-2xl font-semibold">Check your phone</h2>
-        <p className="text-muted-foreground text-sm">
-          An M-Pesa prompt has been sent to <strong>{form.phone}</strong> for{' '}
-          <strong>{formatPrice(grandTotal)}</strong>. Enter your M-Pesa PIN to complete payment.
-        </p>
-        <p className="text-xs text-muted-foreground mt-2">
-          Redirecting to your orders in 30 seconds&hellip;
-        </p>
-        <button
-          onClick={() => navigate({ to: '/orders', search: { payment: 'pending' } as any })}
-          className="mt-4 inline-block text-sm underline text-primary cursor-pointer"
-        >
-          Go to My Orders now
-        </button>
       </div>
     );
   }
@@ -191,9 +332,16 @@ function CheckoutPage() {
               <span>{formatPrice(itemsTotal)}</span>
             </div>
 
+            {discountPreview && (
+              <div className="flex justify-between text-sm text-muted-foreground">
+                <span>Discount ({discountPreview.code})</span>
+                <span>-{formatPrice(discountPreview.discount_amount)}</span>
+              </div>
+            )}
+
             <div className="flex justify-between text-sm">
               <span className="text-muted-foreground">Delivery</span>
-              <span>{shippingLocationId ? formatPrice(deliveryCost) : '—'}</span>
+              <span>{shippingLocationId ? (deliveryCost === 0 ? 'FREE' : formatPrice(deliveryCost)) : '—'}</span>
             </div>
 
             <div className="border-t border-border pt-3 flex justify-between font-semibold">
@@ -205,6 +353,39 @@ function CheckoutPage() {
           <p className="text-xs text-muted-foreground mb-4 text-center">
             You will receive an M-Pesa prompt on your phone to complete payment.
           </p>
+
+          <div className="mb-4 rounded-lg border border-border bg-muted/20 p-3">
+            <label className="block text-xs font-medium mb-2">Promo code</label>
+            <div className="flex gap-2">
+              <input
+                value={discountCode}
+                onChange={(e) => {
+                  setDiscountCode(e.target.value.toUpperCase());
+                  setDiscountPreview(null);
+                  setDiscountMessage('');
+                }}
+                placeholder="INSTA10"
+                className="h-10 flex-1 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              />
+              <button
+                type="button"
+                onClick={handleValidateDiscount}
+                disabled={validateDiscount.isPending || !discountCode.trim()}
+                className="h-10 rounded-md border border-border px-4 text-sm font-medium hover:bg-muted disabled:opacity-50"
+              >
+                {validateDiscount.isPending ? 'Checking...' : 'Apply'}
+              </button>
+            </div>
+            {discountPreview && <p className="mt-2 text-xs text-primary">{discountPreview.message}</p>}
+            {discountMessage && <p className="mt-2 text-xs text-destructive">{discountMessage}</p>}
+            {freeDeliveryThreshold > 0 && (
+              <p className="mt-2 text-xs text-muted-foreground">
+                {qualifiesForFreeDelivery
+                  ? 'Free delivery applied.'
+                  : `${formatPrice(Math.max(0, freeDeliveryThreshold - subtotalAfterDiscount))} away from free delivery.`}
+              </p>
+            )}
+          </div>
 
           <button
             type="submit"

@@ -122,6 +122,13 @@ class ApiClient {
     return response.data;
   }
 
+  async putForm<T>(url: string, data: FormData) {
+    const response = await this.client.put<ApiResponse<T>>(url, data, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return response.data;
+  }
+
   async patch<T>(url: string, data?: unknown) {
     const response = await this.client.patch<ApiResponse<T>>(url, data);
     return response.data;

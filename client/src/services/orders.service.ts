@@ -1,10 +1,11 @@
 import { apiClient } from './api';
-import type { OrderResponse, OrderStatus } from 'shared';
+import type { OrderResponse, OrderStatus, PaymentStatus } from 'shared';
 
 export interface OrderListParams {
   page?: number;
   limit?: number;
   status?: string;
+  payment_status?: PaymentStatus;
 }
 
 export const ordersService = {
@@ -15,4 +16,7 @@ export const ordersService = {
 
   updateStatus: (id: string, status: OrderStatus) =>
     apiClient.patch<OrderResponse>(`/api/orders/${id}/status`, { status }),
+
+  confirmPayment: (id: string) =>
+    apiClient.patch<OrderResponse>(`/api/orders/${id}/confirm-payment`),
 };

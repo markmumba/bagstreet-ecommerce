@@ -1,11 +1,11 @@
 import { apiClient } from './api';
-import type { UserResponse } from 'shared';
+import type { UserResponse, UserRole } from 'shared';
 
 export interface AuthUser {
   id: string;
   email: string;
   full_name: string;
-  role: string;
+  role: UserRole;
 }
 
 export interface AuthResponse {

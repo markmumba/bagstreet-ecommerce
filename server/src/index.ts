@@ -14,11 +14,13 @@ import ordersRoutes from './features/orders/orders.routes';
 import cartRoutes from './features/cart/cart.routes';
 import notificationsRoutes from './features/notifications/notifications.routes';
 import { requireAuth, requireRole } from './middleware/auth.middleware';
-import { role } from 'shared/dist';
+import { USER_ROLE } from 'shared/dist';
 import { authRateLimit, generalRateLimit } from './middleware/rate-limit.middleware';
 import { startEmailWorker } from './services/messagequeue';
 import shippingRoutes from './features/shipping/shipping.routes';
 import paymentsRoutes from './features/payments/payments.routes';
+import discountsRoutes from './features/discounts/discounts.routes';
+import settingsRoutes from './features/settings/settings.routes';
 
 
 const app = new Hono()
@@ -48,13 +50,15 @@ app.use('/api/*', generalRateLimit);
 app.route('/api/auth', authRoutes);
 app.route('/api/categories', categoriesRoutes);
 app.route('/api/products', productsRoutes);
-app.use('/api/users/*', requireAuth, requireRole(role.ADMIN));
+app.use('/api/users/*', requireAuth, requireRole(USER_ROLE.ADMIN));
 app.route('/api/users', userRoutes);
 app.route('/api/orders', ordersRoutes);
 app.route('/api/cart', cartRoutes);
 app.route('/api/notifications', notificationsRoutes);
 app.route('/api/shipping-locations', shippingRoutes);
 app.route('/api/payments', paymentsRoutes);
+app.route('/api/discounts', discountsRoutes);
+app.route('/api/settings', settingsRoutes);
 
 app.onError(errorHandler);
 

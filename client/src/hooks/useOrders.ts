@@ -29,3 +29,13 @@ export function useUpdateOrderStatus() {
     },
   });
 }
+
+export function useConfirmOrderPayment() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id }: { id: string }) => ordersService.confirmPayment(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: orderKeys.lists() });
+    },
+  });
+}

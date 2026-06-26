@@ -52,7 +52,7 @@ function ForgotPasswordPage() {
           <CardContent>
             {submitted ? (
               <div className="space-y-4">
-                <p className="rounded-md bg-green-50 px-4 py-3 text-sm text-green-800 border border-green-200">
+                <p className="rounded-xl border border-[var(--color-success-border)] bg-[var(--color-success-bg)] px-4 py-3 text-sm text-[var(--color-success-text)]">
                   If that email is registered you will receive a reset link shortly.
                 </p>
                 <Link to="/login" className="block text-center text-sm text-muted-foreground hover:text-foreground">

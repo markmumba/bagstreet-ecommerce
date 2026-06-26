@@ -8,7 +8,7 @@
     "target": "ESNext",
     "module": "ESNext",
     // Silence deprecation errors for TS 6.x (prepares for TS 7.0)
-    "ignoreDeprecations": "5.0",
+    "ignoreDeprecations": "6.0",
     // Output configuration
     "declaration": true,
     "outDir": "./dist",

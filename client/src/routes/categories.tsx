@@ -147,22 +147,23 @@ function CategoriesPage() {
       <div className="flex flex-col gap-6 p-6">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-semibold tracking-tight">Categories</h1>
-            <p className="text-muted-foreground mt-1">Manage product categories and organize your inventory</p>
+            <h1 className="text-2xl font-semibold leading-tight">Categories</h1>
+            <p className="mt-1 text-sm text-muted-foreground">Manage product categories and organize your inventory</p>
           </div>
         </div>
 
         {isLoading && (
-          <div className="flex items-center justify-center p-12 border rounded-lg">
+          <div className="rounded-xl border bg-card p-6">
             <div className="flex flex-col items-center gap-3">
-              <div className="h-8 w-8 animate-spin rounded-full border-4 border-solid border-primary border-r-transparent" />
+              <div className="skeleton h-8 w-32" />
+              <div className="skeleton h-4 w-48" />
               <p className="text-sm text-muted-foreground">Loading categories...</p>
             </div>
           </div>
         )}
 
         {error && (
-          <div className="p-4 border border-destructive/50 bg-destructive/10 rounded-lg">
+          <div className="rounded-xl border border-destructive/50 bg-destructive/10 p-4">
             <p className="text-sm font-medium text-destructive">Failed to load categories</p>
             <p className="text-sm text-destructive/80 mt-1">
               {(error as { message?: string })?.message || 'An error occurred'}

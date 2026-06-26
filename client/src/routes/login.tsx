@@ -67,12 +67,12 @@ function LoginPage() {
         </div>
 
         {activated && (
-          <div className="mb-4 rounded-md bg-green-50 px-4 py-3 text-sm text-green-800 border border-green-200">
+          <div className="mb-4 rounded-xl border border-[var(--color-success-border)] bg-[var(--color-success-bg)] px-4 py-3 text-sm text-[var(--color-success-text)]">
             Account activated — please sign in.
           </div>
         )}
         {reset && (
-          <div className="mb-4 rounded-md bg-green-50 px-4 py-3 text-sm text-green-800 border border-green-200">
+          <div className="mb-4 rounded-xl border border-[var(--color-success-border)] bg-[var(--color-success-bg)] px-4 py-3 text-sm text-[var(--color-success-text)]">
             Password reset — please sign in with your new password.
           </div>
         )}

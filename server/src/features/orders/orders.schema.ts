@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { ORDER_STATUS } from 'shared/dist';
 
 const shippingAddressSchema = z.object({
     full_name: z.string().min(2).max(200),
@@ -23,9 +24,17 @@ export const createOrderSchema = z.object({
     shipping_address: shippingAddressSchema,
     shipping_location_id: z.number().int().positive(),
     phone: z.string().min(9).max(15),
+    discount_code: z.string().max(50).optional(),
     notes: z.string().max(500).optional(),
 });
 
 export const updateOrderStatusSchema = z.object({
-    status: z.enum(['CONFIRMED', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'CANCELLED', 'REFUNDED']),
+    status: z.enum([
+        ORDER_STATUS.CONFIRMED,
+        ORDER_STATUS.PROCESSING,
+        ORDER_STATUS.SHIPPED,
+        ORDER_STATUS.DELIVERED,
+        ORDER_STATUS.CANCELLED,
+        ORDER_STATUS.REFUNDED,
+    ]),
 });

@@ -10,6 +10,7 @@ import { useState } from 'react';
 import type { Category } from 'shared';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Plus, Tag } from 'lucide-react';
 import {
   Table,
   TableBody,
@@ -56,24 +57,25 @@ export function CategoriesDataTable({
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-4">
+      <div className="flex flex-wrap items-center gap-3">
         <Input
           placeholder="Search categories..."
           value={search}
           onChange={(e) => onSearchChange(e.target.value)}
-          className="max-w-sm"
+          className="h-9 w-full max-w-[240px]"
         />
+        <span className="ml-auto text-sm text-muted-foreground">
+          {total} categor{total === 1 ? 'y' : 'ies'}
+        </span>
         {onCreateNew && (
           <Button onClick={onCreateNew}>
-            <svg className="mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-            </svg>
+            <Plus className="h-4 w-4" />
             New Category
           </Button>
         )}
       </div>
 
-      <div className="rounded-md border">
+      <div className="overflow-hidden rounded-xl border bg-card">
         <Table>
           <TableHeader>
             {table.getHeaderGroups().map((hg) => (
@@ -99,8 +101,15 @@ export function CategoriesDataTable({
               ))
             ) : (
               <TableRow>
-                <TableCell colSpan={columns.length} className="h-24 text-center text-muted-foreground">
-                  No categories found.
+                <TableCell colSpan={columns.length} className="h-[200px] text-center text-muted-foreground">
+                  <div className="flex flex-col items-center gap-3">
+                    <Tag className="h-6 w-6" strokeWidth={1.5} />
+                    <div>
+                      <p className="font-medium text-foreground">No categories yet</p>
+                      <p className="mt-1 text-sm text-muted-foreground">Create a category to organize your catalogue.</p>
+                    </div>
+                    {onCreateNew && <Button onClick={onCreateNew}>Add category</Button>}
+                  </div>
                 </TableCell>
               </TableRow>
             )}
@@ -109,7 +118,7 @@ export function CategoriesDataTable({
       </div>
 
       <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">
+        <p className="text-sm text-muted-foreground tabular-nums">
           Page {page} of {totalPages} · {total} total
         </p>
         <div className="flex gap-2">

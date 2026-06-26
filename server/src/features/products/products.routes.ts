@@ -5,9 +5,12 @@ import { variantsHandlers } from "./variants.handlers";
 const productsRoutes = new Hono();
 
 productsRoutes.get('/', productsHandlers.list);
+productsRoutes.get('/low-stock', variantsHandlers.lowStock);
+productsRoutes.get('/on-sale', productsHandlers.onSale);
 productsRoutes.get('/:id', productsHandlers.get);
 productsRoutes.post('/', productsHandlers.create);
 productsRoutes.put('/:id', productsHandlers.update);
+productsRoutes.patch('/:id/sale', productsHandlers.setSale);
 productsRoutes.delete('/:id', productsHandlers.delete);
 
 // Variant sub-routes

@@ -1,23 +1,23 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { productsService } from '@/services/products.service';
+import { productsService, type ProductListParams } from '@/services/products.service';
 import type { ProductUpdateRequest } from 'shared';
 
 export const productKeys = {
   all: ['products'] as const,
   lists: () => [...productKeys.all, 'list'] as const,
-  list: (search?: string) => [...productKeys.lists(), { search }] as const,
+  list: (params?: ProductListParams) => [...productKeys.lists(), params] as const,
   details: () => [...productKeys.all, 'detail'] as const,
   detail: (id: string) => [...productKeys.details(), id] as const,
 };
 
-export function useProducts(search?: string) {
+export function useProducts(params?: ProductListParams) {
   return useQuery({
-    queryKey: productKeys.list(search),
+    queryKey: productKeys.list(params),
     queryFn: async () => {
-      const response = await productsService.getAll(search);
-      return response.data || [];
+      const response = await productsService.getAll(params);
+      return response;
     },
-    staleTime: 1000 * 60 * 5,
+    staleTime: 1000 * 60 * 2,
   });
 }
 
@@ -52,6 +52,18 @@ export function useUpdateProduct() {
       productsService.update(id, data),
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: productKeys.detail(variables.id) });
+      queryClient.invalidateQueries({ queryKey: productKeys.lists() });
+    },
+  });
+}
+
+export function useUpdateProductForm() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: FormData }) =>
+      productsService.updateForm(id, data),
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: productKeys.lists() });
     },
   });

@@ -176,7 +176,7 @@ export function VariantsSheet({ open, onOpenChange, product }: VariantsSheetProp
                         <td className="py-1 pr-3 text-muted-foreground whitespace-nowrap">
                           {new Date(m.created_at).toLocaleDateString()}
                         </td>
-                        <td className={`py-1 pr-3 font-mono font-medium ${m.delta > 0 ? 'text-green-600' : 'text-red-500'}`}>
+                        <td className={`py-1 pr-3 font-mono font-medium tabular-nums ${m.delta > 0 ? 'text-[var(--color-success-text)]' : 'text-[var(--color-danger-text)]'}`}>
                           {m.delta > 0 ? `+${m.delta}` : m.delta}
                         </td>
                         <td className="py-1 pr-3">{m.reason.replace(/_/g, ' ')}</td>

@@ -16,6 +16,9 @@ function formatPrice(price: number) {
 }
 
 function ProductCard({ product }: { product: ProductResponse }) {
+  const saleIsActive = product.sale_price != null
+    && (!product.sale_ends_at || new Date(product.sale_ends_at).getTime() > Date.now());
+
   return (
     <Link to="/products/$productId" params={{ productId: product.id }}>
       <article className="group cursor-pointer">
@@ -31,6 +34,12 @@ function ProductCard({ product }: { product: ProductResponse }) {
             <div className="w-full h-full flex items-center justify-center text-[var(--foreground-faint)] text-xs tracking-[0.18em] uppercase">
               No Image
             </div>
+          )}
+
+          {saleIsActive && (
+            <span className="absolute left-3 top-3 bg-foreground px-2 py-1 text-[10px] font-medium uppercase tracking-[0.18em] text-background">
+              Sale
+            </span>
           )}
 
           {/* Slide-up quick view */}
@@ -60,7 +69,14 @@ function ProductCard({ product }: { product: ProductResponse }) {
             className="text-sm font-light text-[var(--foreground-muted)] mt-1.5"
             style={{ fontFamily: 'var(--font-mono)' }}
           >
-            {formatPrice(product.price)}
+            {saleIsActive ? (
+              <>
+                <span className="text-foreground">{formatPrice(product.sale_price!)}</span>
+                <span className="ml-2 text-[var(--foreground-faint)] line-through">{formatPrice(product.price)}</span>
+              </>
+            ) : (
+              formatPrice(product.price)
+            )}
           </p>
         </div>
       </article>

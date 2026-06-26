@@ -1,9 +1,11 @@
 import { sql } from '../../lib/db';
 import { adjustStock } from '../../lib/inventory';
+import { ORDER_STATUS } from 'shared/dist';
 import type { Order, OrderStatus, ShippingAddress } from 'shared/dist';
 
 interface OrderRow extends Omit<Order, 'id' | 'created_at' | 'updated_at'> {
     id: number;
+    user_id: number | null;
     created_at: string;
     updated_at: string;
 }
@@ -24,40 +26,44 @@ interface OrderItemRow {
 }
 
 export const ordersQueries = {
-    findAll: async (page: number, limit: number, status: string | null): Promise<OrderRow[]> => {
+    findAll: async (page: number, limit: number, status: string | null, paymentStatus: string | null): Promise<OrderRow[]> => {
         const offset = (page - 1) * limit;
         return await sql<OrderRow[]>`
             SELECT * FROM orders
             WHERE (${status}::text IS NULL OR status = ${status}::text)
+              AND (${paymentStatus}::text IS NULL OR payment_status = ${paymentStatus}::text)
             ORDER BY created_at DESC
             LIMIT ${limit} OFFSET ${offset}
         `;
     },
 
-    countAll: async (status: string | null): Promise<number> => {
+    countAll: async (status: string | null, paymentStatus: string | null): Promise<number> => {
         const [result] = await sql<[{ count: string }]>`
             SELECT COUNT(*) as count FROM orders
             WHERE (${status}::text IS NULL OR status = ${status}::text)
+              AND (${paymentStatus}::text IS NULL OR payment_status = ${paymentStatus}::text)
         `;
         return parseInt(result.count, 10);
     },
 
-    findByUserId: async (userId: number, page: number, limit: number, status: string | null): Promise<OrderRow[]> => {
+    findByUserId: async (userId: number, page: number, limit: number, status: string | null, paymentStatus: string | null): Promise<OrderRow[]> => {
         const offset = (page - 1) * limit;
         return await sql<OrderRow[]>`
             SELECT * FROM orders
             WHERE user_id = ${userId}
               AND (${status}::text IS NULL OR status = ${status}::text)
+              AND (${paymentStatus}::text IS NULL OR payment_status = ${paymentStatus}::text)
             ORDER BY created_at DESC
             LIMIT ${limit} OFFSET ${offset}
         `;
     },
 
-    countByUserId: async (userId: number, status: string | null): Promise<number> => {
+    countByUserId: async (userId: number, status: string | null, paymentStatus: string | null): Promise<number> => {
         const [result] = await sql<[{ count: string }]>`
             SELECT COUNT(*) as count FROM orders
             WHERE user_id = ${userId}
               AND (${status}::text IS NULL OR status = ${status}::text)
+              AND (${paymentStatus}::text IS NULL OR payment_status = ${paymentStatus}::text)
         `;
         return parseInt(result.count, 10);
     },
@@ -75,9 +81,23 @@ export const ordersQueries = {
             WHERE oi.order_id = ${orderId}
         `;
     },
+    findProductInOrders: async (productId:number):Promise<boolean> => {
+        interface QueryResult {
+            is_in_order: boolean;
+        }
+
+        const result = await sql<QueryResult[]>`
+            SELECT EXISTS (
+                SELECT 1
+                FROM order_items
+                WHERE product_id = ${productId}
+            ) AS is_in_order;
+        `;
+        return result[0]?.is_in_order ?? false;
+    },
 
     create: async (
-        userId: number,
+        userId: number | null,
         items: {
             variant_id: number;
             product_id: number;
@@ -91,7 +111,11 @@ export const ordersQueries = {
         shippingAddress: ShippingAddress,
         shippingLocationId: number,
         shippingCost: number,
-        notes?: string
+        notes: string | undefined,
+        discountCode: string | null,
+        discountAmount: number,
+        customerName: string,
+        customerPhone: string
     ): Promise<OrderRow> => {
         return await sql.begin(async (tx: typeof sql) => {
             for (const item of items) {
@@ -107,8 +131,15 @@ export const ordersQueries = {
             }
 
             const [order] = await tx<OrderRow[]>`
-                INSERT INTO orders(user_id, total_amount, shipping_address, shipping_location_id, shipping_cost, notes)
-                VALUES (${userId}, ${totalAmount}, ${JSON.stringify(shippingAddress)}::jsonb, ${shippingLocationId}, ${shippingCost}, ${notes ?? null})
+                INSERT INTO orders(
+                    user_id, total_amount, shipping_address, shipping_location_id, shipping_cost,
+                    notes, discount_code, discount_amount, customer_name, customer_phone
+                )
+                VALUES (
+                    ${userId}, ${totalAmount}, ${JSON.stringify(shippingAddress)}::jsonb,
+                    ${shippingLocationId}, ${shippingCost}, ${notes ?? null},
+                    ${discountCode}, ${discountAmount}, ${customerName}, ${customerPhone}
+                )
                 RETURNING *
             `;
 
@@ -156,7 +187,7 @@ export const ordersQueries = {
                 TO_CHAR(created_at::date, 'YYYY-MM-DD') AS date,
                 COALESCE(SUM(total_amount), 0) AS revenue
             FROM orders
-            WHERE status NOT IN ('CANCELLED', 'REFUNDED')
+            WHERE status NOT IN (${ORDER_STATUS.CANCELLED}, ${ORDER_STATUS.REFUNDED})
               AND created_at >= NOW() - INTERVAL '30 days'
             GROUP BY created_at::date
             ORDER BY created_at::date ASC

@@ -1,5 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import type { ColumnDef } from '@tanstack/react-table';
 import {
   flexRender,
@@ -11,7 +11,9 @@ import {
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { OrderSheet } from '@/components/orders/OrderSheet';
 import { useOrders } from '@/hooks/useOrders';
+import { ordersService } from '@/services/orders.service';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import {
   Select,
   SelectContent,
@@ -27,7 +29,9 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import type { OrderResponse, OrderStatus } from 'shared';
+import { ClipboardList, Download } from 'lucide-react';
+import { ORDER_STATUS, PAYMENT_STATUS } from 'shared';
+import type { OrderResponse, OrderStatus, PaymentStatus } from 'shared';
 
 export const Route = createFileRoute('/orders')({
   component: OrdersPage,
@@ -35,14 +39,14 @@ export const Route = createFileRoute('/orders')({
 
 const LIMIT = 20;
 
-const STATUS_COLORS: Record<OrderStatus, string> = {
-  PENDING: 'bg-yellow-100 text-yellow-800',
-  CONFIRMED: 'bg-blue-100 text-blue-800',
-  PROCESSING: 'bg-indigo-100 text-indigo-800',
-  SHIPPED: 'bg-purple-100 text-purple-800',
-  DELIVERED: 'bg-green-100 text-green-800',
-  CANCELLED: 'bg-red-100 text-red-800',
-  REFUNDED: 'bg-gray-100 text-gray-700',
+const STATUS_VARIANTS: Record<OrderStatus, React.ComponentProps<typeof Badge>['variant']> = {
+  PENDING: 'warning',
+  CONFIRMED: 'info',
+  PROCESSING: 'info',
+  SHIPPED: 'info',
+  DELIVERED: 'success',
+  CANCELLED: 'danger',
+  REFUNDED: 'neutral',
 };
 
 function formatDate(d: string) {
@@ -56,15 +60,17 @@ function OrdersPage() {
 
   // Server-side filter state
   const [statusFilter, setStatusFilter] = useState('');
+  const [paymentFilter, setPaymentFilter] = useState('');
   const [page, setPage] = useState(1);
 
   // Reset page on filter change
-  useEffect(() => { setPage(1); }, [statusFilter]);
+  useEffect(() => { setPage(1); }, [statusFilter, paymentFilter]);
 
   const { data: res, isLoading, error } = useOrders({
     page,
     limit: LIMIT,
     status: statusFilter || undefined,
+    payment_status: (paymentFilter || undefined) as PaymentStatus | undefined,
   });
 
   const orders: OrderResponse[] = res?.data ?? [];
@@ -75,6 +81,44 @@ function OrdersPage() {
     setSelectedOrder(order);
     setSheetOpen(true);
   };
+
+  const [isExporting, setIsExporting] = useState(false);
+
+  const exportCsv = useCallback(async () => {
+    setIsExporting(true);
+    try {
+      const res = await ordersService.getAll({
+        limit: 5000,
+        status: statusFilter || undefined,
+        payment_status: (paymentFilter || undefined) as PaymentStatus | undefined,
+      });
+      const rows: OrderResponse[] = (res as any)?.data ?? [];
+
+      const headers = ['Order ID', 'Status', 'Payment', 'Items', 'Shipping (KES)', 'Total (KES)', 'Date'];
+      const lines = [
+        headers.join(','),
+        ...rows.map((o) => [
+          `#${o.id.slice(-8).toUpperCase()}`,
+          o.status,
+          (o as any).payment_status ?? '',
+          o.items.length,
+          ((o as any).shipping_cost ?? 0).toFixed(2),
+          o.total_amount.toFixed(2),
+          new Date(o.created_at).toISOString().slice(0, 10),
+        ].join(',')),
+      ];
+
+      const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `orders${statusFilter ? `-${statusFilter.toLowerCase()}` : ''}${paymentFilter ? `-${paymentFilter.toLowerCase()}` : ''}-${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } finally {
+      setIsExporting(false);
+    }
+  }, [statusFilter, paymentFilter]);
 
   const columns: ColumnDef<OrderResponse>[] = [
     {
@@ -90,12 +134,22 @@ function OrdersPage() {
       accessorKey: 'status',
       header: 'Status',
       cell: ({ row }) => (
-        <span
-          className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${STATUS_COLORS[row.original.status]}`}
-        >
-          {row.original.status}
-        </span>
+        <Badge variant={STATUS_VARIANTS[row.original.status]}>
+          {row.original.status.toLowerCase()}
+        </Badge>
       ),
+    },
+    {
+      accessorKey: 'payment_status',
+      header: 'Payment',
+      cell: ({ row }) => {
+        const paymentStatus = (row.original as any).payment_status ?? PAYMENT_STATUS.UNPAID;
+        return (
+          <Badge variant={paymentStatus === PAYMENT_STATUS.PAID ? 'success' : paymentStatus === PAYMENT_STATUS.FAILED ? 'danger' : 'warning'}>
+            {paymentStatus.toLowerCase()}
+          </Badge>
+        );
+      },
     },
     {
       id: 'items',
@@ -110,7 +164,7 @@ function OrdersPage() {
       accessorKey: 'total_amount',
       header: 'Total',
       cell: ({ row }) => (
-        <span className="font-medium">KES {row.original.total_amount.toFixed(2)}</span>
+        <span className="block text-right font-medium tabular-nums">KES {row.original.total_amount.toFixed(2)}</span>
       ),
     },
     {
@@ -146,18 +200,22 @@ function OrdersPage() {
     <DashboardLayout>
       <div className="flex flex-col gap-6 p-6">
         <div>
-          <h1 className="text-3xl font-semibold tracking-tight">Orders</h1>
-          <p className="mt-1 text-muted-foreground">Track and manage customer orders</p>
+          <h1 className="text-2xl font-semibold leading-tight">Orders</h1>
+          <p className="mt-1 text-sm text-muted-foreground">Track and manage customer orders</p>
         </div>
 
         {isLoading && (
-          <div className="flex items-center justify-center p-12 border rounded-lg">
-            <div className="h-8 w-8 animate-spin rounded-full border-4 border-solid border-primary border-r-transparent" />
+          <div className="rounded-xl border bg-card p-6">
+            <div className="space-y-3">
+              <div className="skeleton h-8 w-36" />
+              <div className="skeleton h-4 w-52" />
+              <div className="skeleton h-28 w-full" />
+            </div>
           </div>
         )}
 
         {error && (
-          <div className="p-4 border border-destructive/50 bg-destructive/10 rounded-lg">
+          <div className="rounded-xl border border-destructive/50 bg-destructive/10 p-4">
             <p className="text-sm font-medium text-destructive">Failed to load orders</p>
           </div>
         )}
@@ -172,21 +230,48 @@ function OrdersPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All statuses</SelectItem>
-                  <SelectItem value="PENDING">Pending</SelectItem>
-                  <SelectItem value="CONFIRMED">Confirmed</SelectItem>
-                  <SelectItem value="PROCESSING">Processing</SelectItem>
-                  <SelectItem value="SHIPPED">Shipped</SelectItem>
-                  <SelectItem value="DELIVERED">Delivered</SelectItem>
-                  <SelectItem value="CANCELLED">Cancelled</SelectItem>
-                  <SelectItem value="REFUNDED">Refunded</SelectItem>
+                  <SelectItem value={ORDER_STATUS.PENDING}>Pending</SelectItem>
+                  <SelectItem value={ORDER_STATUS.CONFIRMED}>Confirmed</SelectItem>
+                  <SelectItem value={ORDER_STATUS.PROCESSING}>Processing</SelectItem>
+                  <SelectItem value={ORDER_STATUS.SHIPPED}>Shipped</SelectItem>
+                  <SelectItem value={ORDER_STATUS.DELIVERED}>Delivered</SelectItem>
+                  <SelectItem value={ORDER_STATUS.CANCELLED}>Cancelled</SelectItem>
+                  <SelectItem value={ORDER_STATUS.REFUNDED}>Refunded</SelectItem>
                 </SelectContent>
               </Select>
-              <div className="ml-auto text-sm text-muted-foreground">
-                {total} order{total !== 1 ? 's' : ''}
+              <Select value={paymentFilter} onValueChange={(v) => setPaymentFilter(v === 'all' ? '' : v)}>
+                <SelectTrigger className="w-44">
+                  <SelectValue placeholder="All payments" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All payments</SelectItem>
+                  <SelectItem value={PAYMENT_STATUS.UNPAID}>Unpaid</SelectItem>
+                  <SelectItem value={PAYMENT_STATUS.PAID}>Paid</SelectItem>
+                  <SelectItem value={PAYMENT_STATUS.FAILED}>Failed</SelectItem>
+                </SelectContent>
+              </Select>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setStatusFilter(ORDER_STATUS.PENDING);
+                  setPaymentFilter(PAYMENT_STATUS.UNPAID);
+                }}
+              >
+                Pending unpaid
+              </Button>
+              <div className="ml-auto flex items-center gap-3">
+                <span className="text-sm text-muted-foreground">
+                  {total} order{total !== 1 ? 's' : ''}
+                </span>
+                <Button variant="outline" size="sm" onClick={exportCsv} disabled={isExporting || total === 0}>
+                  <Download className="mr-1.5 h-3.5 w-3.5" />
+                  {isExporting ? 'Exporting...' : 'Export CSV'}
+                </Button>
               </div>
             </div>
 
-            <div className="rounded-md border">
+            <div className="overflow-hidden rounded-xl border bg-card">
               <Table>
                 <TableHeader>
                   {table.getHeaderGroups().map((hg) => (
@@ -216,8 +301,18 @@ function OrdersPage() {
                     ))
                   ) : (
                     <TableRow>
-                      <TableCell colSpan={columns.length} className="h-24 text-center text-muted-foreground">
-                        No orders found.
+                      <TableCell colSpan={columns.length} className="h-[200px] text-center text-muted-foreground">
+                        <div className="flex flex-col items-center gap-3">
+                          <ClipboardList className="h-6 w-6" strokeWidth={1.5} />
+                          <div>
+                            <p className="font-medium text-foreground">
+                              {statusFilter ? `No ${statusFilter} orders right now` : 'No orders yet'}
+                            </p>
+                            <p className="mt-1 text-sm text-muted-foreground">
+                              {statusFilter ? 'All caught up.' : 'Share your store link on Instagram to get started.'}
+                            </p>
+                          </div>
+                        </div>
                       </TableCell>
                     </TableRow>
                   )}
@@ -227,7 +322,7 @@ function OrdersPage() {
 
             {/* Pagination */}
             <div className="flex items-center justify-between">
-              <p className="text-sm text-muted-foreground">
+              <p className="text-sm text-muted-foreground tabular-nums">
                 Page {page} of {totalPages} · {total} total
               </p>
               <div className="flex gap-2">

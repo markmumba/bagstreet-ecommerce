@@ -57,12 +57,17 @@ export const productsQueries = {
     },
 
     findById: async (id: number): Promise<Product | undefined> => {
+        const [product] = await sql<Product[]>`SELECT * FROM products WHERE id = ${id} AND is_active=true`;
+        return product;
+    },
+
+    findByIdAnyStatus: async (id: number): Promise<Product | undefined> => {
         const [product] = await sql<Product[]>`SELECT * FROM products WHERE id = ${id}`;
         return product;
     },
 
     findBySlug: async (slug: string): Promise<Product | undefined> => {
-        const [product] = await sql<Product[]>`SELECT * FROM products WHERE slug = ${slug}`;
+        const [product] = await sql<Product[]>`SELECT * FROM products WHERE slug = ${slug} AND is_active=true`;
         return product;
     },
 
@@ -75,11 +80,34 @@ export const productsQueries = {
         return newProduct;
     },
 
-    update: async (id: number, product: { name?: string; description?: string; price?: number }): Promise<Product | undefined> => {
+    update: async (id: number, product: { name?: string; description?: string; price?: number; image_url?: string; is_active?: boolean; is_featured?: boolean; sale_price?: number | null; sale_ends_at?: string | null }): Promise<Product | undefined> => {
         const [updatedProduct] = await sql<Product[]>`UPDATE products SET ${sql(product)} WHERE id = ${id} RETURNING *`;
         return updatedProduct;
     },
 
+    setSale: async (id: number, data: { sale_price: number | null; sale_ends_at?: string | null }): Promise<Product | undefined> => {
+        const [updatedProduct] = await sql<Product[]>`
+            UPDATE products
+            SET sale_price = ${data.sale_price}, sale_ends_at = ${data.sale_price == null ? null : data.sale_ends_at ?? null}
+            WHERE id = ${id}
+            RETURNING *
+        `;
+        return updatedProduct;
+    },
+
+    findOnSale: async (): Promise<Product[]> => {
+        return await sql<Product[]>`
+            SELECT * FROM products
+            WHERE is_active = true
+              AND sale_price IS NOT NULL
+              AND (sale_ends_at IS NULL OR sale_ends_at > NOW())
+            ORDER BY sale_ends_at ASC NULLS LAST, name ASC
+        `;
+    },
+
+    deactivate: async(id:number): Promise<void> => {
+        await sql`UPDATE products SET is_active=false WHERE id=${id}`;
+    },
     delete: async (id: number): Promise<void> => {
         await sql`DELETE FROM products WHERE id = ${id}`;
     },

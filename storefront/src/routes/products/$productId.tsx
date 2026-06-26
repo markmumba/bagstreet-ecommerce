@@ -3,7 +3,6 @@ import { useState, useEffect } from 'react';
 import { ShoppingBag, ArrowLeft } from 'lucide-react';
 import { useProduct, useProductVariants } from '@/hooks/useProducts';
 import { useAddToCart } from '@/hooks/useCart';
-import { useAuth } from '@/context/AuthContext';
 import type { ProductVariantResponse } from 'shared';
 
 export const Route = createFileRoute('/products/$productId')({
@@ -17,7 +16,6 @@ function formatPrice(price: number) {
 function ProductDetailPage() {
   const { productId } = Route.useParams();
   const navigate = useNavigate();
-  const { user } = useAuth();
 
   const [selectedColor, setSelectedColor] = useState<string | null>(null);
   const [selectedSize, setSelectedSize] = useState<string | null>(null);
@@ -88,12 +86,23 @@ function ProductDetailPage() {
     }
   }, [selectedColor]);
 
-  const effectivePrice = selectedVariant?.price_override ?? product?.price ?? 0;
+  const saleIsActive = product?.sale_price != null
+    && (!product.sale_ends_at || new Date(product.sale_ends_at).getTime() > Date.now());
+  const effectivePrice = selectedVariant?.price_override ?? (saleIsActive ? product?.sale_price : product?.price) ?? 0;
 
   const handleAddToCart = async () => {
-    if (!user) { navigate({ to: '/login' }); return; }
-    if (!selectedVariant) return;
-    await addToCart.mutateAsync({ variant_id: Number(selectedVariant.id), quantity });
+    if (!selectedVariant || !product) return;
+    await addToCart.mutateAsync({
+      variant_id: Number(selectedVariant.id),
+      product_id: product.id,
+      product_name: product.name,
+      product_image_url: product.image_url,
+      variant_sku: selectedVariant.sku,
+      variant_size: selectedVariant.size,
+      variant_color: selectedVariant.color,
+      unit_price: effectivePrice,
+      quantity,
+    });
     setAdded(true);
     setTimeout(() => setAdded(false), 2000);
   };
@@ -160,7 +169,15 @@ function ProductDetailPage() {
               className="text-lg font-light text-[var(--foreground-muted)] mt-3"
               style={{ fontFamily: 'var(--font-mono)' }}
             >
-              {formatPrice(effectivePrice)}
+              {saleIsActive && selectedVariant?.price_override == null ? (
+                <>
+                  <span className="text-foreground">{formatPrice(effectivePrice)}</span>
+                  <span className="ml-3 text-sm text-[var(--foreground-faint)] line-through">{formatPrice(product.price)}</span>
+                  <span className="ml-3 align-middle text-[10px] uppercase tracking-[0.18em] text-foreground">Sale</span>
+                </>
+              ) : (
+                formatPrice(effectivePrice)
+              )}
             </p>
           </div>
 

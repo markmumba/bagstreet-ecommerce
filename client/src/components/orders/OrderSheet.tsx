@@ -1,6 +1,7 @@
 import { useState } from 'react';
+import { ORDER_STATUS, PAYMENT_STATUS, USER_ROLE } from 'shared';
 import type { OrderResponse, OrderStatus } from 'shared';
-import { useUpdateOrderStatus } from '@/hooks/useOrders';
+import { useConfirmOrderPayment, useUpdateOrderStatus } from '@/hooks/useOrders';
 import { useAuth } from '@/context/AuthContext';
 import {
   Sheet,
@@ -21,23 +22,26 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 
 const ORDER_STATUSES: OrderStatus[] = [
-  'PENDING',
-  'CONFIRMED',
-  'PROCESSING',
-  'SHIPPED',
-  'DELIVERED',
-  'CANCELLED',
-  'REFUNDED',
+  ORDER_STATUS.PENDING,
+  ORDER_STATUS.CONFIRMED,
+  ORDER_STATUS.PROCESSING,
+  ORDER_STATUS.SHIPPED,
+  ORDER_STATUS.DELIVERED,
+  ORDER_STATUS.CANCELLED,
+  ORDER_STATUS.REFUNDED,
 ];
 
-const STATUS_COLORS: Record<OrderStatus, string> = {
-  PENDING: 'bg-yellow-100 text-yellow-800',
-  CONFIRMED: 'bg-blue-100 text-blue-800',
-  PROCESSING: 'bg-indigo-100 text-indigo-800',
-  SHIPPED: 'bg-purple-100 text-purple-800',
-  DELIVERED: 'bg-green-100 text-green-800',
-  CANCELLED: 'bg-red-100 text-red-800',
-  REFUNDED: 'bg-gray-100 text-gray-700',
+const LOCKED_STATUS_UPDATES: OrderStatus[] = [ORDER_STATUS.DELIVERED, ORDER_STATUS.REFUNDED];
+const PAYMENT_CONFIRM_BLOCKED_STATUSES: OrderStatus[] = [ORDER_STATUS.CANCELLED, ORDER_STATUS.REFUNDED];
+
+const STATUS_VARIANTS: Record<OrderStatus, React.ComponentProps<typeof Badge>['variant']> = {
+  PENDING: 'warning',
+  CONFIRMED: 'info',
+  PROCESSING: 'info',
+  SHIPPED: 'info',
+  DELIVERED: 'success',
+  CANCELLED: 'danger',
+  REFUNDED: 'neutral',
 };
 
 function formatDate(d: string) {
@@ -58,11 +62,12 @@ interface OrderSheetProps {
 
 export function OrderSheet({ order, open, onOpenChange }: OrderSheetProps) {
   const { user } = useAuth();
-  const isStaff = user?.role === 'ADMIN' || user?.role === 'MANAGER';
+  const isStaff = user?.role === USER_ROLE.ADMIN || user?.role === USER_ROLE.MANAGER;
 
   const [selectedStatus, setSelectedStatus] = useState<OrderStatus | ''>('');
   const [error, setError] = useState<string | null>(null);
   const updateStatus = useUpdateOrderStatus();
+  const confirmPayment = useConfirmOrderPayment();
 
   const handleStatusUpdate = async () => {
     if (!order || !selectedStatus) return;
@@ -72,6 +77,17 @@ export function OrderSheet({ order, open, onOpenChange }: OrderSheetProps) {
       setSelectedStatus('');
     } catch (err: any) {
       setError(err?.message || 'Failed to update status');
+    }
+  };
+
+  const handleConfirmPayment = async () => {
+    if (!order) return;
+    setError(null);
+    try {
+      await confirmPayment.mutateAsync({ id: order.id });
+      onOpenChange(false);
+    } catch (err: any) {
+      setError(err?.message || 'Failed to confirm payment');
     }
   };
 
@@ -92,14 +108,12 @@ export function OrderSheet({ order, open, onOpenChange }: OrderSheetProps) {
           <div className="flex flex-col gap-3">
             <div className="flex items-center gap-2">
               <span className="text-sm font-medium">Status</span>
-              <span
-                className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${STATUS_COLORS[order.status]}`}
-              >
-                {order.status}
-              </span>
+              <Badge variant={STATUS_VARIANTS[order.status]}>
+                {order.status.toLowerCase()}
+              </Badge>
             </div>
 
-            {isStaff && !['DELIVERED', 'REFUNDED'].includes(order.status) && (
+            {isStaff && !LOCKED_STATUS_UPDATES.includes(order.status) && (
               <div className="flex gap-2">
                 <Select
                   value={selectedStatus}
@@ -127,7 +141,7 @@ export function OrderSheet({ order, open, onOpenChange }: OrderSheetProps) {
             )}
 
             {error && (
-              <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              <p className="rounded-xl bg-destructive/10 px-3 py-2 text-sm text-destructive">
                 {error}
               </p>
             )}
@@ -138,7 +152,7 @@ export function OrderSheet({ order, open, onOpenChange }: OrderSheetProps) {
           {/* Shipping Address */}
           <div className="flex flex-col gap-2">
             <h3 className="text-sm font-semibold">Shipping Address</h3>
-            <div className="rounded-md border p-3 text-sm text-muted-foreground space-y-0.5">
+            <div className="space-y-0.5 rounded-xl border p-3 text-sm text-muted-foreground">
               <p className="font-medium text-foreground">{addr.full_name}</p>
               <p>{addr.address_line1}</p>
               {addr.address_line2 && <p>{addr.address_line2}</p>}
@@ -162,24 +176,65 @@ export function OrderSheet({ order, open, onOpenChange }: OrderSheetProps) {
           {/* Items */}
           <div className="flex flex-col gap-3">
             <h3 className="text-sm font-semibold">Items ({order.items.length})</h3>
-            <div className="rounded-md border divide-y">
-              {order.items.map((item) => (
-                <div key={item.id} className="flex items-center justify-between px-3 py-2 text-sm">
-                  <div>
-                    <p className="font-medium">{item.product_name}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {item.quantity} × KES {item.unit_price.toFixed(2)}
-                    </p>
+            <div className="divide-y rounded-xl border">
+              {order.items.map((item) => {
+                const variantLabel = [item.variant_size, item.variant_color].filter(Boolean).join(' / ');
+                return (
+                  <div key={item.id} className="flex items-start justify-between px-3 py-2.5 text-sm gap-2">
+                    <div className="min-w-0">
+                      <p className="font-medium">{item.product_name}</p>
+                      {variantLabel && (
+                        <p className="text-xs text-muted-foreground">{variantLabel}</p>
+                      )}
+                      {item.variant_sku && (
+                        <p className="text-xs font-mono text-muted-foreground/70">SKU: {item.variant_sku}</p>
+                      )}
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {item.quantity} × KES {item.unit_price.toFixed(2)}
+                      </p>
+                    </div>
+                    <span className="font-medium shrink-0">KES {item.subtotal.toFixed(2)}</span>
                   </div>
-                  <span className="font-medium">KES {item.subtotal.toFixed(2)}</span>
-                </div>
-              ))}
+                );
+              })}
             </div>
 
+            {(order as any).shipping_cost > 0 && (
+              <div className="flex justify-between text-sm text-muted-foreground pt-2">
+                <span>Delivery</span>
+                <span>KES {(order as any).shipping_cost.toFixed(2)}</span>
+              </div>
+            )}
+            {(order as any).discount_amount > 0 && (
+              <div className="flex justify-between text-sm text-muted-foreground">
+                <span>Discount{(order as any).discount_code ? ` (${(order as any).discount_code})` : ''}</span>
+                <span>-KES {(order as any).discount_amount.toFixed(2)}</span>
+              </div>
+            )}
             <div className="flex justify-between border-t pt-3 font-semibold text-sm">
               <span>Total</span>
               <span>KES {order.total_amount.toFixed(2)}</span>
             </div>
+            {(order as any).payment_status && (
+              <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+                <span>Payment</span>
+                <div className="flex items-center gap-2">
+                  <Badge variant={(order as any).payment_status === PAYMENT_STATUS.PAID ? 'default' : (order as any).payment_status === PAYMENT_STATUS.FAILED ? 'destructive' : 'secondary'} className="text-xs">
+                    {(order as any).payment_status}
+                  </Badge>
+                  {isStaff && (order as any).payment_status !== PAYMENT_STATUS.PAID && !PAYMENT_CONFIRM_BLOCKED_STATUSES.includes(order.status) && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={handleConfirmPayment}
+                      disabled={confirmPayment.isPending}
+                    >
+                      {confirmPayment.isPending ? 'Confirming...' : 'Mark as Paid'}
+                    </Button>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </SheetContent>

@@ -26,6 +26,15 @@ function toVariantResponse(v: any): ProductVariantResponse & { low_stock_thresho
 }
 
 export const variantsHandlers = {
+    lowStock: async (c: Context) => {
+        const variants = await variantsQueries.findLowStock();
+        return success(c, variants.map((v) => ({
+            ...toVariantResponse(v),
+            product_name: v.product_name,
+            product_id: String(v.product_id),
+        })));
+    },
+
     list: async (c: Context) => {
         const productId = parseInt(c.req.param('id')!);
         const product = await productsQueries.findById(productId);

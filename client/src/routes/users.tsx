@@ -30,8 +30,9 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { USER_ROLE } from 'shared';
 import type { UserResponse } from 'shared';
-import { Plus } from 'lucide-react';
+import { Plus, Users } from 'lucide-react';
 
 export const Route = createFileRoute('/users')({
   component: UsersPage,
@@ -81,7 +82,7 @@ function UsersPage() {
   const deleteMutation = useDeleteUser();
 
   useEffect(() => {
-    if (currentUser && currentUser.role !== 'ADMIN') {
+    if (currentUser && currentUser.role !== USER_ROLE.ADMIN) {
       navigate({ to: '/dashboard' });
     }
   }, [currentUser, navigate]);
@@ -119,8 +120,8 @@ function UsersPage() {
       accessorKey: 'role',
       header: 'Role',
       cell: ({ row }) => (
-        <Badge variant={row.original.role === 'ADMIN' ? 'default' : 'secondary'}>
-          {row.original.role}
+        <Badge variant={row.original.role === USER_ROLE.ADMIN ? 'default' : 'neutral'}>
+          {row.original.role.toLowerCase()}
         </Badge>
       ),
     },
@@ -129,9 +130,9 @@ function UsersPage() {
       header: 'Status',
       cell: ({ row }) =>
         row.original.is_active ? (
-          <Badge className="bg-green-100 text-green-800">Active</Badge>
+          <Badge variant="success">active</Badge>
         ) : (
-          <Badge variant="outline" className="text-muted-foreground">Inactive</Badge>
+          <Badge variant="neutral">inactive</Badge>
         ),
     },
     {
@@ -177,19 +178,23 @@ function UsersPage() {
       <div className="flex flex-col gap-6 p-6">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-semibold tracking-tight">Users</h1>
-            <p className="mt-1 text-muted-foreground">Manage staff accounts</p>
+            <h1 className="text-2xl font-semibold leading-tight">Users</h1>
+            <p className="mt-1 text-sm text-muted-foreground">Manage staff accounts</p>
           </div>
         </div>
 
         {isLoading && (
-          <div className="flex items-center justify-center p-12 border rounded-lg">
-            <div className="h-8 w-8 animate-spin rounded-full border-4 border-solid border-primary border-r-transparent" />
+          <div className="rounded-xl border bg-card p-6">
+            <div className="space-y-3">
+              <div className="skeleton h-8 w-32" />
+              <div className="skeleton h-4 w-48" />
+              <div className="skeleton h-28 w-full" />
+            </div>
           </div>
         )}
 
         {error && (
-          <div className="p-4 border border-destructive/50 bg-destructive/10 rounded-lg">
+          <div className="rounded-xl border border-destructive/50 bg-destructive/10 p-4">
             <p className="text-sm font-medium text-destructive">Failed to load users</p>
           </div>
         )}
@@ -202,7 +207,7 @@ function UsersPage() {
                 placeholder="Search name or email…"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="max-w-xs"
+                className="h-9 w-full max-w-[240px]"
               />
               <Select value={roleFilter} onValueChange={(v) => setRoleFilter(v === 'all' ? '' : v)}>
                 <SelectTrigger className="w-36">
@@ -210,9 +215,9 @@ function UsersPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All roles</SelectItem>
-                  <SelectItem value="ADMIN">Admin</SelectItem>
-                  <SelectItem value="MANAGER">Manager</SelectItem>
-                  <SelectItem value="CUSTOMER">Customer</SelectItem>
+                  <SelectItem value={USER_ROLE.ADMIN}>Admin</SelectItem>
+                  <SelectItem value={USER_ROLE.MANAGER}>Manager</SelectItem>
+                  <SelectItem value={USER_ROLE.CUSTOMER}>Customer</SelectItem>
                 </SelectContent>
               </Select>
               <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v === 'all' ? '' : v)}>
@@ -229,12 +234,12 @@ function UsersPage() {
                 {total} user{total !== 1 ? 's' : ''}
               </div>
               <Button onClick={() => { setEditingUser(null); setDialogOpen(true); }}>
-                <Plus className="mr-2 h-4 w-4" />
+                <Plus className="h-4 w-4" />
                 New User
               </Button>
             </div>
 
-            <div className="rounded-md border">
+            <div className="overflow-hidden rounded-xl border bg-card">
               <Table>
                 <TableHeader>
                   {table.getHeaderGroups().map((hg) => (
@@ -260,8 +265,17 @@ function UsersPage() {
                     ))
                   ) : (
                     <TableRow>
-                      <TableCell colSpan={columns.length} className="h-24 text-center text-muted-foreground">
-                        No users found.
+                      <TableCell colSpan={columns.length} className="h-[200px] text-center text-muted-foreground">
+                        <div className="flex flex-col items-center gap-3">
+                          <Users className="h-6 w-6" strokeWidth={1.5} />
+                          <div>
+                            <p className="font-medium text-foreground">No users found</p>
+                            <p className="mt-1 text-sm text-muted-foreground">Invite a staff member to manage the admin.</p>
+                          </div>
+                          <Button onClick={() => { setEditingUser(null); setDialogOpen(true); }}>
+                            Invite user
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   )}
@@ -271,7 +285,7 @@ function UsersPage() {
 
             {/* Pagination */}
             <div className="flex items-center justify-between">
-              <p className="text-sm text-muted-foreground">
+              <p className="text-sm text-muted-foreground tabular-nums">
                 Page {page} of {totalPages} · {total} total
               </p>
               <div className="flex gap-2">

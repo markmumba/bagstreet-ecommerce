@@ -9,7 +9,7 @@ import { BadRequestError, ConflictError, InternalServerError, NotFoundError, Una
 import { publishEmail } from '@server/services/messagequeue';
 import { success } from '@server/lib/response';
 import { password} from 'bun';
-import {role} from "shared/dist"; 
+import { USER_ROLE } from "shared/dist";
 
 const ACCESS_TOKEN_TTL = 15 * 60;          // 15 minutes in seconds
 const REFRESH_TOKEN_TTL = 7 * 24 * 60 * 60; // 7 days in seconds
@@ -94,7 +94,6 @@ export const authHandlers = {
         const user = await UsersQueries.findById(stored.user_id);
         if (!user || !user.is_active) throw new UnauthorizedError('Account not found or inactive');
 
-        // Rotate: delete old token, issue new one
         await authQueries.deleteRefreshToken(tokenHash);
 
         const newRawToken = randomBytes(32).toString('hex');
@@ -126,7 +125,7 @@ export const authHandlers = {
             email: validated.data.email,
             full_name: validated.data.full_name,
             password_hash,
-            role: role.CUSTOMER,
+            role: USER_ROLE.CUSTOMER,
         });
 
         if (!user) throw new InternalServerError('Failed to create account');
@@ -260,7 +259,7 @@ export const authHandlers = {
         const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
         await authQueries.createPasswordResetToken(Number(user.id), tokenHash, expiresAt);
 
-        const isCustomer = (user.role as string) === 'CUSTOMER';
+        const isCustomer = (user.role as string) === USER_ROLE.CUSTOMER;
         const baseUrl = isCustomer ? env.STOREFRONT_URL : env.CLIENT_URL;
         const resetUrl = `${baseUrl}/reset-password?token=${rawToken}`;
         await publishEmail({ type: 'PASSWORD_RESET', to: validated.data.email, name: user.full_name, resetUrl });

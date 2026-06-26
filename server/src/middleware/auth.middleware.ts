@@ -29,6 +29,25 @@ export async function requireAuth(c: Context, next: Next) {
     await next();
 }
 
+export async function optionalAuth(c: Context, next: Next) {
+    const authHeader = c.req.header('Authorization');
+    if (!authHeader?.startsWith('Bearer ')) {
+        await next();
+        return;
+    }
+
+    const token = authHeader.slice(7);
+
+    try {
+        const payload = await verify(token, env.JWT_SECRET, 'HS256') as unknown as JWTPayload;
+        c.set('user', payload);
+    } catch {
+        // Guest-capable routes should continue without auth when a stale token is present.
+    }
+
+    await next();
+}
+
 export function requireRole(...roles: string[]) {
     return async (c: Context, next: Next) => {
         const user = c.get('user') as JWTPayload;

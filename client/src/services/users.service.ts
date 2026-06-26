@@ -1,15 +1,16 @@
 import { apiClient } from './api';
-import type { UserResponse } from 'shared';
+import { USER_ROLE } from 'shared';
+import type { UserResponse, UserRole } from 'shared';
 
 export interface AdminUserCreateRequest {
   email: string;
   full_name: string;
-  role: 'ADMIN' | 'MANAGER';
+  role: typeof USER_ROLE.ADMIN | typeof USER_ROLE.MANAGER;
 }
 
 export interface UserUpdateRequest {
   full_name?: string;
-  role?: string;
+  role?: UserRole;
   is_active?: boolean;
 }
 

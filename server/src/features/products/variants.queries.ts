@@ -88,4 +88,17 @@ export const variantsQueries = {
         `;
         return parseInt(count, 10) > 0;
     },
+
+    findLowStock: async (): Promise<(ProductVariantRow & { product_name: string; product_id: number })[]> => {
+        return sql<(ProductVariantRow & { product_name: string; product_id: number })[]>`
+            SELECT pv.*, p.name AS product_name, p.id AS product_id
+            FROM product_variants pv
+            JOIN products p ON p.id = pv.product_id
+            WHERE pv.is_active = true
+              AND p.is_active = true
+              AND pv.stock <= pv.low_stock_threshold
+            ORDER BY pv.stock ASC, p.name ASC
+            LIMIT 50
+        `;
+    },
 };

@@ -35,7 +35,7 @@ export const categoriesHandlers = {
     },
 
     get: async (c: Context) => {
-        const id = parseInt(c.req.param('id'));
+        const id = parseInt(c.req.param('id')!);
         const category = await categoriesQueries.findById(id);
         if (!category) throw new NotFoundError('Category', id);
         return success(c, toCategoryResponse(category));
@@ -63,7 +63,7 @@ export const categoriesHandlers = {
     },
 
     update: async (c: Context) => {
-        const id = parseInt(c.req.param('id'));
+        const id = parseInt(c.req.param('id')!);
         const body = await c.req.json<CategoryRequest>();
         const validated = updateCategorySchema.safeParse(body);
         if (!validated.success) throw new ValidationError('Invalid category data', validated.error.errors);
@@ -102,7 +102,7 @@ export const categoriesHandlers = {
     },
 
     delete: async (c: Context) => {
-        const id = parseInt(c.req.param('id'));
+        const id = parseInt(c.req.param('id')!);
         const category = await categoriesQueries.findById(id);
         if (!category) throw new NotFoundError('Category', id);
 
@@ -119,7 +119,7 @@ export const categoriesHandlers = {
     tree: async (c: Context) => {
         const all = await categoriesQueries.findAllFlat();
         const map = new Map<number, CategoryTreeNode>(
-            all.map(cat => [cat.id, { ...toCategoryResponse(cat), children: [] }])
+            all.map(cat => [Number(cat.id), { ...toCategoryResponse(cat), children: [] }])
         );
         const roots: CategoryTreeNode[] = [];
         for (const node of map.values()) {

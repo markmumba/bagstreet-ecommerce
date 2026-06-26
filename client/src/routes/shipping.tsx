@@ -10,7 +10,7 @@ import {
     useDeleteShippingLocation,
 } from '@/hooks/useShipping';
 import type { ShippingLocationResponse } from 'shared';
-import { Truck, Pencil, Trash2 } from 'lucide-react';
+import { Plus, Truck, Pencil, Trash2 } from 'lucide-react';
 
 export const Route = createFileRoute('/shipping')({
     component: ShippingPage,
@@ -88,20 +88,21 @@ function ShippingPage() {
                     <div className="flex items-center gap-3">
                         <Truck className="h-6 w-6 text-muted-foreground" />
                         <div>
-                            <h1 className="text-2xl font-bold">Shipping Locations</h1>
+                            <h1 className="text-2xl font-semibold leading-tight">Shipping Locations</h1>
                             <p className="text-sm text-muted-foreground">
                                 Manage delivery areas and flat-rate prices
                             </p>
                         </div>
                     </div>
                     <Button onClick={() => { resetForm(); setShowForm(true); }}>
-                        + Add Location
+                        <Plus className="h-4 w-4" />
+                        Add Location
                     </Button>
                 </div>
 
                 {/* Inline form */}
                 {showForm && (
-                    <div className="border border-border rounded-lg p-4 bg-card space-y-4">
+                    <div className="space-y-4 rounded-xl border border-border bg-card p-5">
                         <h2 className="font-semibold text-sm">
                             {editingId ? 'Edit Location' : 'New Location'}
                         </h2>
@@ -113,7 +114,7 @@ function ShippingPage() {
                                     value={form.name}
                                     onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
                                     placeholder="Nairobi CBD"
-                                    className="w-full px-3 py-2 text-sm border border-input rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring"
+                                    className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-[3px] focus:ring-ring/15"
                                     required
                                 />
                             </div>
@@ -126,7 +127,7 @@ function ShippingPage() {
                                     value={form.price}
                                     onChange={(e) => setForm((f) => ({ ...f, price: e.target.value }))}
                                     placeholder="150"
-                                    className="w-full px-3 py-2 text-sm border border-input rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring"
+                                    className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm tabular-nums focus:outline-none focus:ring-[3px] focus:ring-ring/15"
                                     required
                                 />
                             </div>
@@ -160,40 +161,51 @@ function ShippingPage() {
 
                 {/* Table */}
                 {isLoading ? (
-                    <div className="text-sm text-muted-foreground py-8 text-center">Loading...</div>
+                    <div className="rounded-xl border bg-card p-6">
+                        <div className="space-y-3">
+                            <div className="skeleton h-8 w-36" />
+                            <div className="skeleton h-4 w-52" />
+                            <div className="skeleton h-28 w-full" />
+                        </div>
+                    </div>
                 ) : locations.length === 0 ? (
-                    <div className="text-sm text-muted-foreground py-8 text-center">
-                        No shipping locations yet. Add one above.
+                    <div className="flex h-[200px] flex-col items-center justify-center gap-3 rounded-xl border bg-card text-sm text-muted-foreground">
+                        <Truck className="h-6 w-6" strokeWidth={1.5} />
+                        <div className="text-center">
+                            <p className="font-medium text-foreground">No shipping locations yet</p>
+                            <p className="mt-1">Add a delivery area and flat-rate price.</p>
+                        </div>
+                        <Button onClick={() => { resetForm(); setShowForm(true); }}>Add location</Button>
                     </div>
                 ) : (
-                    <div className="border border-border rounded-lg overflow-hidden">
-                        <table className="w-full text-sm">
-                            <thead className="bg-muted/50">
+                    <div className="overflow-hidden rounded-xl border border-border bg-card">
+                        <table className="w-full text-[13px]">
+                            <thead className="sticky top-0 z-10 bg-card">
                                 <tr>
-                                    <th className="px-4 py-3 text-left font-medium text-muted-foreground">Name</th>
-                                    <th className="px-4 py-3 text-left font-medium text-muted-foreground">Price</th>
-                                    <th className="px-4 py-3 text-left font-medium text-muted-foreground">Status</th>
-                                    <th className="px-4 py-3 text-left font-medium text-muted-foreground">Actions</th>
+                                    <th className="table-header px-4 py-2.5 text-left">Name</th>
+                                    <th className="table-header px-4 py-2.5 text-right">Price</th>
+                                    <th className="table-header px-4 py-2.5 text-left">Status</th>
+                                    <th className="table-header px-4 py-2.5 text-right">Actions</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-border">
                                 {locations.map((loc) => (
-                                    <tr key={loc.id} className="hover:bg-muted/20 transition-colors">
-                                        <td className="px-4 py-3 font-medium">{loc.name}</td>
-                                        <td className="px-4 py-3 font-mono">{formatPrice(loc.price)}</td>
-                                        <td className="px-4 py-3">
+                                    <tr key={loc.id} className="transition-colors hover:bg-[var(--color-bg-hover)]">
+                                        <td className="px-4 py-2.5 font-medium">{loc.name}</td>
+                                        <td className="px-4 py-2.5 text-right font-medium tabular-nums">{formatPrice(loc.price)}</td>
+                                        <td className="px-4 py-2.5">
                                             <button
                                                 onClick={() => handleToggleActive(loc)}
                                                 disabled={updateMutation.isPending}
                                                 className="cursor-pointer"
                                             >
-                                                <Badge variant={loc.is_active ? 'default' : 'secondary'}>
-                                                    {loc.is_active ? 'Active' : 'Inactive'}
+                                                <Badge variant={loc.is_active ? 'success' : 'neutral'}>
+                                                    {loc.is_active ? 'active' : 'inactive'}
                                                 </Badge>
                                             </button>
                                         </td>
-                                        <td className="px-4 py-3">
-                                            <div className="flex items-center gap-2">
+                                        <td className="px-4 py-2.5">
+                                            <div className="flex items-center justify-end gap-2">
                                                 <Button
                                                     variant="ghost"
                                                     size="sm"

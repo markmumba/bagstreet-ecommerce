@@ -21,7 +21,7 @@ function formatDate(dateStr: string) {
 function CustomTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null;
   return (
-    <div className="rounded border bg-background px-3 py-2 shadow text-sm">
+    <div className="rounded-lg border bg-background px-3 py-2 text-sm shadow-[var(--shadow-dropdown)]">
       <p className="font-medium">{formatDate(label)}</p>
       <p className="text-muted-foreground">KES {payload[0].value.toLocaleString('en-KE', { minimumFractionDigits: 2 })}</p>
     </div>
@@ -32,18 +32,18 @@ export function RevenueChart({ data }: Props) {
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle className="text-sm font-medium text-muted-foreground">Revenue — Last 30 Days</CardTitle>
+        <CardTitle className="table-header">Revenue - Last 30 Days</CardTitle>
       </CardHeader>
       <CardContent>
         <ResponsiveContainer width="100%" height={220}>
           <AreaChart data={data} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
             <defs>
               <linearGradient id="revenueGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.25} />
-                <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0} />
+                <stop offset="5%" stopColor="var(--chart-1)" stopOpacity={0.25} />
+                <stop offset="95%" stopColor="var(--chart-1)" stopOpacity={0} />
               </linearGradient>
             </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+            <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
             <XAxis
               dataKey="date"
               tickFormatter={formatDate}
@@ -63,7 +63,7 @@ export function RevenueChart({ data }: Props) {
             <Area
               type="monotone"
               dataKey="revenue"
-              stroke="hsl(var(--primary))"
+              stroke="var(--chart-1)"
               strokeWidth={2}
               fill="url(#revenueGrad)"
               dot={false}

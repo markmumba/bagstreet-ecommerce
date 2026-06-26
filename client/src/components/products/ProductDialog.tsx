@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import type { ProductResponse } from 'shared';
 
 type Product = ProductResponse;
-import { useCreateProduct, useUpdateProduct } from '@/hooks/useProducts';
+import { useCreateProduct, useUpdateProduct, useUpdateProductForm } from '@/hooks/useProducts';
 import { useCategoryTree } from '@/hooks/useCategories';
 import type { CategoryTreeNode } from 'shared';
 import {
@@ -41,9 +41,10 @@ export function ProductDialog({ open, onOpenChange, product }: ProductDialogProp
   const { data: categoryTree } = useCategoryTree();
   const createMutation = useCreateProduct();
   const updateMutation = useUpdateProduct();
+  const updateFormMutation = useUpdateProductForm();
 
   const isEditing = !!product;
-  const isLoading = createMutation.isPending || updateMutation.isPending;
+  const isLoading = createMutation.isPending || updateMutation.isPending || updateFormMutation.isPending;
 
   useEffect(() => {
     if (product) {
@@ -68,14 +69,21 @@ export function ProductDialog({ open, onOpenChange, product }: ProductDialogProp
 
     try {
       if (isEditing) {
-        await updateMutation.mutateAsync({
-          id: product.id,
-          data: {
-            name: name.trim(),
-            description: description.trim(),
-            price: parseFloat(price),
-          },
-        });
+        if (imageFile) {
+          // Image selected — use multipart update
+          const formData = new FormData();
+          formData.append('name', name.trim());
+          formData.append('description', description.trim());
+          formData.append('price', price);
+          formData.append('is_active', String(isActive));
+          formData.append('image_file', imageFile);
+          await updateFormMutation.mutateAsync({ id: product.id, data: formData });
+        } else {
+          await updateMutation.mutateAsync({
+            id: product.id,
+            data: { name: name.trim(), description: description.trim(), price: parseFloat(price), is_active: isActive },
+          });
+        }
       } else {
         const formData = new FormData();
         formData.append('name', name.trim());
@@ -204,24 +212,28 @@ export function ProductDialog({ open, onOpenChange, product }: ProductDialogProp
             />
           </div>
 
-          {!isEditing && (
-            <div className="space-y-2">
+          <div className="space-y-2">
               <Label htmlFor="imageFile">
-                Image <span className="text-destructive">*</span>
+                Image {!isEditing && <span className="text-destructive">*</span>}
+                {isEditing && <span className="text-muted-foreground font-normal"> (leave blank to keep current)</span>}
               </Label>
+              {isEditing && product?.image_url && !imageFile && (
+                <div className="h-16 w-16 overflow-hidden rounded-md bg-muted">
+                  <img src={product.image_url} alt="Current" className="h-full w-full object-cover" />
+                </div>
+              )}
               <Input
                 id="imageFile"
                 type="file"
                 accept="image/jpeg,image/png,image/jpg,image/webp"
                 onChange={(e) => setImageFile(e.target.files?.[0] ?? null)}
-                required
+                required={!isEditing}
                 disabled={isLoading}
               />
               {imageFile && (
                 <p className="text-xs text-muted-foreground">{imageFile.name}</p>
               )}
             </div>
-          )}
 
           <div className="flex items-center space-x-2">
             <input
@@ -229,7 +241,7 @@ export function ProductDialog({ open, onOpenChange, product }: ProductDialogProp
               id="isActive"
               checked={isActive}
               onChange={(e) => setIsActive(e.target.checked)}
-              disabled={isLoading || isEditing}
+              disabled={isLoading}
               className="h-4 w-4 rounded border-gray-300"
             />
             <Label htmlFor="isActive" className="font-normal">
@@ -248,7 +260,7 @@ export function ProductDialog({ open, onOpenChange, product }: ProductDialogProp
             </Button>
             <Button
               type="submit"
-              disabled={isLoading || !name.trim() || !price || (!isEditing && (!categoryId || !imageFile))}
+              disabled={isLoading || !name.trim() || !price || (!isEditing && !categoryId)}
             >
               {isLoading ? 'Saving...' : isEditing ? 'Update' : 'Create'}
             </Button>

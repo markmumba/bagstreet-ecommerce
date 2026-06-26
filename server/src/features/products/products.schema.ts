@@ -14,5 +14,7 @@ export const updateProductSchema = z.object({
     name: z.string().min(1,"Name is required").max(200,'Name to long').optional(),
     description: z.string().max(500,'Description to long').optional(),
     price: z.number().min(0,'Price must be greater than 0').optional(),
+    sale_price: z.number().min(0).nullable().optional(),
+    sale_ends_at: z.string().datetime().nullable().optional(),
     is_featured: z.boolean().optional(),
 })

@@ -29,7 +29,7 @@ async function getAccessToken(): Promise<string> {
 }
 
 // Normalise phone: 07XX → 2547XX, +254... → 254..., 254... stays
-function normalisePhone(phone: string): string {
+export function normalisePhone(phone: string): string {
     const digits = phone.replace(/\D/g, '');
     if (digits.startsWith('0')) return '254' + digits.slice(1);
     if (digits.startsWith('254')) return digits;
@@ -109,6 +109,79 @@ export async function stkPush(params: {
     return {
         checkoutRequestId: data.CheckoutRequestID,
         merchantRequestId: data.MerchantRequestID,
+    };
+}
+
+export async function queryStkPushStatus(checkoutRequestId: string): Promise<{
+    checkoutRequestId: string;
+    merchantRequestId?: string;
+    responseCode?: string;
+    responseDescription?: string;
+    resultCode?: number;
+    resultDesc?: string;
+    status: 'COMPLETED' | 'PENDING' | 'FAILED' | 'CANCELLED';
+}> {
+    if (!env.MPESA_CONSUMER_KEY) {
+        console.log(`[DEV] STK status query skipped — no M-Pesa credentials: ${checkoutRequestId}`);
+        return {
+            checkoutRequestId,
+            responseCode: '0',
+            responseDescription: 'Development mode pending payment',
+            resultCode: 1032,
+            resultDesc: 'Development mode payment still pending',
+            status: 'PENDING',
+        };
+    }
+
+    const token = await getAccessToken();
+    const { password, timestamp } = buildPassword();
+
+    const body = {
+        BusinessShortCode: env.MPESA_SHORTCODE,
+        Password: password,
+        Timestamp: timestamp,
+        CheckoutRequestID: checkoutRequestId,
+    };
+
+    const res = await fetch(`${BASE_URL}/mpesa/stkpushquery/v1/query`, {
+        method: 'POST',
+        headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+    });
+
+    if (!res.ok) {
+        const err = await res.text();
+        throw new Error(`STK status query failed: ${res.status} — ${err}`);
+    }
+
+    const data = (await res.json()) as {
+        CheckoutRequestID?: string;
+        MerchantRequestID?: string;
+        ResponseCode?: string;
+        ResponseDescription?: string;
+        ResultCode?: string | number;
+        ResultDesc?: string;
+    };
+
+    const resultCode =
+        typeof data.ResultCode === 'string' ? Number(data.ResultCode) : data.ResultCode;
+    let status: 'COMPLETED' | 'PENDING' | 'FAILED' | 'CANCELLED' = 'PENDING';
+
+    if (resultCode === 0) status = 'COMPLETED';
+    else if (resultCode === 1032) status = 'CANCELLED';
+    else if (typeof resultCode === 'number' && !Number.isNaN(resultCode)) status = 'FAILED';
+
+    return {
+        checkoutRequestId: data.CheckoutRequestID ?? checkoutRequestId,
+        merchantRequestId: data.MerchantRequestID,
+        responseCode: data.ResponseCode,
+        responseDescription: data.ResponseDescription,
+        resultCode,
+        resultDesc: data.ResultDesc,
+        status,
     };
 }
 

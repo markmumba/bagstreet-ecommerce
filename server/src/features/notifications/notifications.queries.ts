@@ -1,4 +1,5 @@
 import { sql } from '../../lib/db';
+import { USER_ROLE } from 'shared/dist';
 
 export interface NotificationRow {
     id: number;
@@ -69,7 +70,7 @@ export const notificationsQueries = {
 
     findAdminIds: async (): Promise<number[]> => {
         const rows = await sql<{ id: number }[]>`
-            SELECT id FROM users WHERE role IN ('ADMIN', 'MANAGER') AND is_active = true
+            SELECT id FROM users WHERE role IN (${USER_ROLE.ADMIN}, ${USER_ROLE.MANAGER}) AND is_active = true
         `;
         return rows.map((r) => r.id);
     },

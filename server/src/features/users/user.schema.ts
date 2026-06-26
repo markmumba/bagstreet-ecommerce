@@ -1,7 +1,7 @@
 import { z } from 'zod';
-import { role } from 'shared/dist';
+import { USER_ROLE } from 'shared/dist';
 
-const staffRoles = [role.ADMIN, role.MANAGER] as const;
+const staffRoles = [USER_ROLE.ADMIN, USER_ROLE.MANAGER] as const;
 
 export const userCreateSchema = z.object({
     email: z.string().email('Invalid email address').max(200, 'Email too long'),

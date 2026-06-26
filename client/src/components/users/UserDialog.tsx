@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { USER_ROLE } from 'shared';
 import type { UserResponse } from 'shared';
 import { useCreateUser, useUpdateUser } from '@/hooks/useUsers';
 import {
@@ -30,7 +31,7 @@ export function UserDialog({ open, onOpenChange, user }: UserDialogProps) {
 
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
-  const [role, setRole] = useState<'ADMIN' | 'MANAGER'>('MANAGER');
+  const [role, setRole] = useState<typeof USER_ROLE.ADMIN | typeof USER_ROLE.MANAGER>(USER_ROLE.MANAGER);
   const [isActive, setIsActive] = useState<'true' | 'false'>('true');
   const [error, setError] = useState<string | null>(null);
 
@@ -43,12 +44,12 @@ export function UserDialog({ open, onOpenChange, user }: UserDialogProps) {
       if (user) {
         setFullName(user.full_name);
         setEmail(user.email);
-        setRole((user.role as 'ADMIN' | 'MANAGER') ?? 'MANAGER');
+        setRole((user.role as typeof USER_ROLE.ADMIN | typeof USER_ROLE.MANAGER) ?? USER_ROLE.MANAGER);
         setIsActive(user.is_active ? 'true' : 'false');
       } else {
         setFullName('');
         setEmail('');
-        setRole('MANAGER');
+        setRole(USER_ROLE.MANAGER);
         setIsActive('true');
       }
       setError(null);
@@ -124,13 +125,13 @@ export function UserDialog({ open, onOpenChange, user }: UserDialogProps) {
 
           <div className="flex flex-col gap-1.5">
             <Label>Role</Label>
-            <Select value={role} onValueChange={(v) => setRole(v as 'ADMIN' | 'MANAGER')} disabled={isPending}>
+            <Select value={role} onValueChange={(v) => setRole(v as typeof USER_ROLE.ADMIN | typeof USER_ROLE.MANAGER)} disabled={isPending}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="MANAGER">Manager</SelectItem>
-                <SelectItem value="ADMIN">Admin</SelectItem>
+                <SelectItem value={USER_ROLE.MANAGER}>Manager</SelectItem>
+                <SelectItem value={USER_ROLE.ADMIN}>Admin</SelectItem>
               </SelectContent>
             </Select>
           </div>

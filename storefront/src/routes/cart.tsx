@@ -1,7 +1,7 @@
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
 import { Trash2 } from 'lucide-react';
 import { useCart, useUpdateCartItem, useRemoveCartItem } from '@/hooks/useCart';
-import { useAuth } from '@/context/AuthContext';
+import { useFreeDeliveryThreshold } from '@/hooks/usePromotions';
 
 export const Route = createFileRoute('/cart')({
   component: CartPage,
@@ -12,26 +12,17 @@ function formatPrice(price: number) {
 }
 
 function CartPage() {
-  const { user } = useAuth();
   const navigate = useNavigate();
   const { data: cartRes, isLoading } = useCart();
+  const { data: thresholdRes } = useFreeDeliveryThreshold();
   const updateItem = useUpdateCartItem();
   const removeItem = useRemoveCartItem();
 
   const cart = (cartRes?.data as any);
   const items = cart?.items ?? [];
   const total = cart?.total ?? items.reduce((sum: number, i: any) => sum + i.subtotal, 0);
-
-  if (!user) {
-    return (
-      <div className="max-w-2xl mx-auto px-4 py-20 text-center">
-        <h2 className="text-2xl font-semibold mb-4">Sign in to view your cart</h2>
-        <Link to="/login" className="inline-block bg-primary text-primary-foreground px-6 py-2.5 rounded-md text-sm font-medium hover:opacity-90">
-          Sign in
-        </Link>
-      </div>
-    );
-  }
+  const freeDeliveryThreshold = thresholdRes?.data?.threshold ?? 0;
+  const amountToFreeDelivery = Math.max(0, freeDeliveryThreshold - total);
 
   if (isLoading) return <div className="max-w-2xl mx-auto px-4 py-10 text-muted-foreground">Loading cart...</div>;
 
@@ -99,6 +90,17 @@ function CartPage() {
         <div className="lg:col-span-1">
           <div className="border border-border rounded-lg p-6 bg-card sticky top-24">
             <h2 className="text-lg font-semibold mb-4">Order Summary</h2>
+            {freeDeliveryThreshold > 0 && (
+              <div className="mb-4 rounded-lg border border-border bg-muted/30 p-3 text-sm">
+                {amountToFreeDelivery > 0 ? (
+                  <p className="text-muted-foreground">
+                    Spend <span className="font-semibold text-foreground">{formatPrice(amountToFreeDelivery)}</span> more for free delivery.
+                  </p>
+                ) : (
+                  <p className="font-medium text-foreground">You qualify for free delivery.</p>
+                )}
+              </div>
+            )}
             <div className="flex justify-between text-sm mb-2">
               <span className="text-muted-foreground">Subtotal ({items.length} item{items.length !== 1 ? 's' : ''})</span>
               <span className="font-medium">{formatPrice(total)}</span>
