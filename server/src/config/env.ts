@@ -1,11 +1,22 @@
 import { z } from 'zod';
 
+const rawEnv = {
+    ...process.env,
+    SMTP_HOST: process.env.SMTP_HOST ?? process.env.MAIL_HOST,
+    SMTP_PORT: process.env.SMTP_PORT ?? process.env.MAIL_PORT,
+    SMTP_USER: process.env.SMTP_USER ?? process.env.MAIL_USERNAME,
+    SMTP_PASS: process.env.SMTP_PASS ?? process.env.MAIL_PASSWORD,
+};
+
 const envSchema = z.object({
     NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
     PORT: z.coerce.number().default(3000),
     DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
     SERVER_URL: z.string().min(1, 'SERVER_URL is required'),
-    CORS_ORIGIN: z.string().min(1, 'CORS_ORIGIN is required').default('http://localhost:5173').transform(v => v.split(',').map(s => s.trim())),
+    CORS_ORIGIN: z.string()
+        .min(1, 'CORS_ORIGIN is required')
+        .default('http://localhost:5173,http://localhost:5174,http://localhost:4173,http://localhost:4174')
+        .transform((value) => value.split(',').map((origin) => origin.trim()).filter(Boolean)),
     JWT_SECRET: z.string().min(32, 'JWT_SECRET must be at least 32 characters'),
     JWT_REFRESH_SECRET: z.string().min(32, 'JWT_REFRESH_SECRET must be at least 32 characters'),
     MINIO_ENDPOINT: z.string().default('localhost'),
@@ -38,7 +49,7 @@ const envSchema = z.object({
 });
 
 
-export const env = envSchema.parse(process.env);
+export const env = envSchema.parse(rawEnv);
 
 if (env.NODE_ENV === 'production') {
     const insecureDefaults = [

@@ -7,6 +7,8 @@ import type { AppEnv } from '@server/lib/hono';
 const ordersRoutes = new Hono<AppEnv>();
 
 ordersRoutes.get('/stats', requireAuth, requireRole(USER_ROLE.ADMIN), ordersHandlers.stats);
+ordersRoutes.get('/walk-in/catalog', requireAuth, requireRole(USER_ROLE.ADMIN, USER_ROLE.MANAGER), ordersHandlers.walkInCatalog);
+ordersRoutes.post('/walk-in', requireAuth, requireRole(USER_ROLE.ADMIN, USER_ROLE.MANAGER), ordersHandlers.createWalkInSale);
 ordersRoutes.get('/', requireAuth, ordersHandlers.list);
 ordersRoutes.post('/', optionalAuth, ordersHandlers.create);
 ordersRoutes.post('/:id/confirm-received', ordersHandlers.confirmReceived);

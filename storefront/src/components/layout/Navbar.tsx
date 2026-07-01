@@ -1,4 +1,4 @@
-import { Link, useNavigate } from '@tanstack/react-router';
+import { Link, useLocation, useNavigate } from '@tanstack/react-router';
 import { ShoppingBag, User, Package, Search, X } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useCart } from '@/hooks/useCart';
@@ -8,12 +8,18 @@ export function Navbar() {
   const { user } = useAuth();
   const { data: cart } = useCart();
   const navigate = useNavigate();
+  const location = useLocation();
   const headerRef = useRef<HTMLElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const liveSearchStartedRef = useRef(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchValue, setSearchValue] = useState('');
 
   const itemCount = cart?.data?.items?.reduce((sum: number, i: any) => sum + i.quantity, 0) ?? 0;
+  const cartLabel = itemCount > 0 ? `Cart, ${itemCount} ${itemCount === 1 ? 'item' : 'items'}` : 'Cart';
+  const currentRouteSearch = typeof (location.search as Record<string, unknown>).search === 'string'
+    ? ((location.search as Record<string, unknown>).search as string)
+    : '';
 
   useEffect(() => {
     const header = headerRef.current;
@@ -24,8 +30,11 @@ export function Navbar() {
   }, []);
 
   useEffect(() => {
-    if (searchOpen) searchInputRef.current?.focus();
-  }, [searchOpen]);
+    if (!searchOpen) return;
+    liveSearchStartedRef.current = currentRouteSearch.trim().length > 0;
+    setSearchValue(location.pathname === '/' ? currentRouteSearch : '');
+    searchInputRef.current?.focus();
+  }, [searchOpen, currentRouteSearch, location.pathname]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setSearchOpen(false); };
@@ -33,11 +42,30 @@ export function Navbar() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  useEffect(() => {
+    if (!searchOpen) return;
+
+    const nextSearch = searchValue.trim();
+    if (nextSearch) liveSearchStartedRef.current = true;
+    if (!nextSearch && !liveSearchStartedRef.current && currentRouteSearch === '') return;
+
+    const timer = window.setTimeout(() => {
+      if (location.pathname === '/' && currentRouteSearch === nextSearch) return;
+      navigate({
+        to: '/',
+        search: nextSearch ? { search: nextSearch } : {},
+        replace: true,
+      });
+    }, 350);
+
+    return () => window.clearTimeout(timer);
+  }, [searchValue, searchOpen, currentRouteSearch, location.pathname, navigate]);
+
   const submitSearch = (e: React.FormEvent) => {
     e.preventDefault();
+    const nextSearch = searchValue.trim();
     setSearchOpen(false);
-    navigate({ to: '/', search: searchValue.trim() ? { search: searchValue.trim() } : {} });
-    setSearchValue('');
+    navigate({ to: '/', search: nextSearch ? { search: nextSearch } : {}, replace: true });
   };
 
   return (
@@ -53,7 +81,7 @@ export function Navbar() {
         {/* Search overlay */}
         {searchOpen && (
           <form onSubmit={submitSearch} className="absolute inset-0 flex items-center px-4 sm:px-8 lg:px-20 bg-background/95 backdrop-blur-sm z-10">
-            <Search strokeWidth={1} className="h-4 w-4 text-[var(--foreground-faint)] flex-shrink-0 mr-3" />
+            <Search strokeWidth={1} className="h-4 w-4 text-[var(--foreground-faint)] flex-shrink-0 mr-3" aria-hidden="true" />
             <input
               ref={searchInputRef}
               type="text"
@@ -67,8 +95,9 @@ export function Navbar() {
               type="button"
               onClick={() => setSearchOpen(false)}
               className="ml-4 text-[var(--foreground-faint)] hover:text-foreground transition-colors"
+              aria-label="Close search"
             >
-              <X strokeWidth={1} className="h-5 w-5" />
+              <X strokeWidth={1} className="h-5 w-5" aria-hidden="true" />
             </button>
           </form>
         )}
@@ -100,7 +129,7 @@ export function Navbar() {
                 className="text-xs tracking-[0.15em] uppercase font-normal text-foreground-muted hover:text-foreground transition-colors duration-200 flex items-center gap-1.5"
                 style={{ fontFamily: 'var(--font-sans)' }}
               >
-                <Package strokeWidth={1} className="h-4 w-4" />
+                <Package strokeWidth={1} className="h-4 w-4" aria-hidden="true" />
                 Orders
               </Link>
             )}
@@ -113,11 +142,16 @@ export function Navbar() {
               onClick={() => setSearchOpen(true)}
               className="text-foreground-muted hover:text-foreground transition-colors duration-200"
               title="Search"
+              aria-label="Search products"
             >
-              <Search strokeWidth={1} className="h-5 w-5" />
+              <Search strokeWidth={1} className="h-5 w-5" aria-hidden="true" />
             </button>
-            <Link to="/cart" className="relative text-foreground-muted hover:text-foreground transition-colors duration-200">
-              <ShoppingBag strokeWidth={1} className="h-5 w-5" />
+            <Link
+              to="/cart"
+              className="relative text-foreground-muted hover:text-foreground transition-colors duration-200"
+              aria-label={cartLabel}
+            >
+              <ShoppingBag strokeWidth={1} className="h-5 w-5" aria-hidden="true" />
               {itemCount > 0 && (
                 <span
                   className="absolute -top-1.5 -right-1.5 rounded-full bg-primary text-primary-foreground
@@ -128,6 +162,17 @@ export function Navbar() {
               )}
             </Link>
 
+            {user && (
+              <Link
+                to="/orders"
+                className="text-foreground-muted hover:text-foreground transition-colors duration-200 sm:hidden"
+                title="My orders"
+                aria-label="My orders"
+              >
+                <Package strokeWidth={1} className="h-5 w-5" aria-hidden="true" />
+              </Link>
+            )}
+
             {user ? (
               <div className="flex items-center gap-4">
                 <Link
@@ -135,6 +180,7 @@ export function Navbar() {
                   className="text-xs tracking-[0.12em] uppercase text-foreground-muted hover:text-foreground transition-colors duration-200 hidden sm:block"
                   style={{ fontFamily: 'var(--font-sans)' }}
                   title="My account"
+                  aria-label="My account"
                 >
                   {user.full_name.split(' ')[0]}
                 </Link>
@@ -142,8 +188,9 @@ export function Navbar() {
                   to="/account"
                   className="text-foreground-muted hover:text-foreground transition-colors duration-200 sm:hidden"
                   title="My account"
+                  aria-label="My account"
                 >
-                  <User strokeWidth={1} className="h-5 w-5" />
+                  <User strokeWidth={1} className="h-5 w-5" aria-hidden="true" />
                 </Link>
               </div>
             ) : (
@@ -151,8 +198,9 @@ export function Navbar() {
                 to="/login"
                 className="text-foreground-muted hover:text-foreground transition-colors duration-200"
                 title="Sign in"
+                aria-label="Sign in"
               >
-                <User strokeWidth={1} className="h-5 w-5" />
+                <User strokeWidth={1} className="h-5 w-5" aria-hidden="true" />
               </Link>
             )}
           </div>

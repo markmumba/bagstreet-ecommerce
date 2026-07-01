@@ -78,6 +78,37 @@ export const productsQueries = {
         return parseInt(result.count, 10);
     },
 
+    findFeatured: async (limit: number): Promise<(Product & {
+        total_stock: number | null;
+        low_stock_variant_count: number;
+        out_of_stock_variant_count: number;
+    })[]> => {
+        return await sql<(Product & {
+            total_stock: number | null;
+            low_stock_variant_count: number;
+            out_of_stock_variant_count: number;
+        })[]>`
+            SELECT p.*,
+                COALESCE(SUM(pv.stock) FILTER (WHERE pv.is_active = true), 0) AS total_stock,
+                COUNT(*) FILTER (
+                    WHERE pv.is_active = true
+                      AND pv.stock > 0
+                      AND pv.stock <= pv.low_stock_threshold
+                ) AS low_stock_variant_count,
+                COUNT(*) FILTER (
+                    WHERE pv.is_active = true
+                      AND pv.stock = 0
+                ) AS out_of_stock_variant_count
+            FROM products p
+            LEFT JOIN product_variants pv ON pv.product_id = p.id
+            WHERE p.is_active = true
+              AND p.is_featured = true
+            GROUP BY p.id
+            ORDER BY p.created_at DESC, p.name ASC
+            LIMIT ${limit}
+        `;
+    },
+
     findById: async (id: number): Promise<Product | undefined> => {
         const [product] = await sql<Product[]>`SELECT * FROM products WHERE id = ${id} AND is_active=true`;
         return product;

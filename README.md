@@ -50,33 +50,53 @@ checks for pending migrations and exits instead of changing the schema at boot.
 
 ### Environment Variables
 
-Copy `.env.example` to `.env` in the `server/` directory. Required:
+Create a root `.env` for Docker Compose:
+
+```env
+POSTGRES_USER=administrator
+POSTGRES_PASSWORD=qwerty1234
+POSTGRES_DB=bagstreet
+MINIO_ACCESS_KEY=minioadmin
+MINIO_SECRET_KEY=minioadmin
+RABBITMQ_DEFAULT_USER=guest
+RABBITMQ_DEFAULT_PASS=guest
+REDIS_REST_TOKEN=change-me
+```
+
+Create `server/.env` for the API:
 
 ```env
 DATABASE_URL=
 JWT_SECRET=
 JWT_REFRESH_SECRET=
+CORS_ORIGIN=http://localhost:5173,http://localhost:5174,http://localhost:4173,http://localhost:4174
 MINIO_ACCESS_KEY=
 MINIO_SECRET_KEY=
 
-# Optional — SMTP for emails (dev falls back to console.log)
-SMTP_HOST=
-SMTP_PORT=
-SMTP_USER=
-SMTP_PASS=
+# Gmail SMTP. SMTP_* is also supported, but MAIL_* matches Spring Boot naming.
+MAIL_HOST=smtp.gmail.com
+MAIL_PORT=587
+MAIL_USERNAME=
+MAIL_PASSWORD=
 EMAIL_FROM=
 CLIENT_URL=http://localhost:5173
+STOREFRONT_URL=http://localhost:5174
 
-# Optional — RabbitMQ (dev falls back to direct send)
+# RabbitMQ email queue
 RABBITMQ_URL=amqp://guest:guest@localhost:5672
 
-# Optional — Pesapal API 3.0 (required for live payment processing)
+# Redis-backed rate limiting through the local Redis REST bridge
+RATE_LIMIT_STORE=redis
+REDIS_REST_URL=http://localhost:8079
+REDIS_REST_TOKEN=change-me
+
+# Pesapal API 3.0. Use sandbox in dev; set PESAPAL_ENV=production for live payments.
 PESAPAL_ENV=sandbox
 PESAPAL_CONSUMER_KEY=
 PESAPAL_CONSUMER_SECRET=
 PESAPAL_IPN_ID=
-PESAPAL_CALLBACK_URL=https://yourdomain.com/api/payments/pesapal/callback
-PESAPAL_CANCELLATION_URL=https://yourdomain.com/checkout
+PESAPAL_CALLBACK_URL=http://localhost:3000/api/payments/pesapal/callback
+PESAPAL_CANCELLATION_URL=http://localhost:5174/checkout
 PESAPAL_CURRENCY=KES
 ```
 

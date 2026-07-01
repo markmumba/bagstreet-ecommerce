@@ -2,8 +2,7 @@ import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
 import { useState, useEffect } from 'react';
 import { z } from 'zod';
 import { Search } from 'lucide-react';
-import { useProducts } from '@/hooks/useProducts';
-import { useCategoryTree } from '@/hooks/useCategories';
+import { useStorefrontHome } from '@/hooks/useStorefrontHome';
 import { useSeo } from '@/hooks/useSeo';
 import type { ProductResponse, CategoryTreeNode } from 'shared';
 
@@ -15,6 +14,9 @@ export const Route = createFileRoute('/')({
 function formatPrice(price: number) {
   return new Intl.NumberFormat('en-KE', { style: 'currency', currency: 'KES' }).format(price);
 }
+
+const FEATURED_SKELETON_COUNT = 4;
+const PRODUCT_SKELETON_COUNT = 8;
 
 function ProductCard({ product, priority = false }: { product: ProductResponse; priority?: boolean }) {
   const saleIsActive = product.sale_price != null
@@ -29,8 +31,11 @@ function ProductCard({ product, priority = false }: { product: ProductResponse; 
             <img
               src={product.image_url}
               alt={product.name}
+              width={600}
+              height={800}
               loading={priority ? 'eager' : 'lazy'}
               decoding="async"
+              fetchPriority={priority ? 'high' : 'auto'}
               sizes="(min-width: 1280px) 25vw, (min-width: 1024px) 33vw, 50vw"
               className="w-full h-full object-cover transition-transform duration-700 ease-out group-hover:scale-[1.04]"
             />
@@ -62,9 +67,9 @@ function ProductCard({ product, priority = false }: { product: ProductResponse; 
         </div>
 
         {/* Info */}
-        <div className="pt-4 pb-2">
+        <div className="min-h-[4.5rem] pt-4 pb-2">
           <p
-            className="text-sm font-light tracking-wide text-foreground leading-snug"
+            className="line-clamp-2 text-sm font-light tracking-wide text-foreground leading-snug"
             style={{ fontFamily: 'var(--font-sans)' }}
           >
             {product.name}
@@ -88,6 +93,28 @@ function ProductCard({ product, priority = false }: { product: ProductResponse; 
   );
 }
 
+function ProductCardSkeleton() {
+  return (
+    <article className="product-card" aria-hidden="true">
+      <div className="aspect-[3/4] bg-[var(--surface)] animate-pulse" />
+      <div className="min-h-[4.5rem] pt-4 pb-2">
+        <div className="h-4 w-3/4 bg-[var(--surface)] animate-pulse" />
+        <div className="mt-3 h-3 w-1/3 bg-[var(--surface)] animate-pulse" />
+      </div>
+    </article>
+  );
+}
+
+function ProductGridSkeleton({ count = PRODUCT_SKELETON_COUNT }: { count?: number }) {
+  return (
+    <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-x-6 gap-y-12">
+      {Array.from({ length: count }).map((_, i) => (
+        <ProductCardSkeleton key={i} />
+      ))}
+    </div>
+  );
+}
+
 function HomePage() {
   const { search: urlSearch } = Route.useSearch();
   const navigate = useNavigate();
@@ -101,36 +128,36 @@ function HomePage() {
   const [selectedParentId, setSelectedParentId] = useState('');
   const [categoryId, setCategoryId] = useState('');
 
-  // Sync URL search param → local state on first load
+  // Sync URL search param → local state, including when the param is cleared.
   useEffect(() => {
-    if (urlSearch !== undefined) {
-      setSearch(urlSearch);
-      setDebouncedSearch(urlSearch);
-    }
+    const nextSearch = urlSearch ?? '';
+    setSearch(nextSearch);
+    setDebouncedSearch(nextSearch);
   }, [urlSearch]);
 
   useEffect(() => {
     const t = setTimeout(() => {
-      setDebouncedSearch(search);
+      const nextSearch = search.trim();
+      setDebouncedSearch(nextSearch);
       // Keep URL in sync so search is shareable
-      navigate({ to: '/', search: search ? { search } : {}, replace: true });
+      if ((urlSearch ?? '') !== nextSearch) {
+        navigate({ to: '/', search: nextSearch ? { search: nextSearch } : {}, replace: true });
+      }
     }, 350);
     return () => clearTimeout(t);
-  }, [search]);
+  }, [search, urlSearch, navigate]);
 
-  const { data: featuredRes } = useProducts({ limit: 8, status: 'true' });
-  const featuredProducts = ((featuredRes?.data as ProductResponse[]) ?? []).filter(p => p.is_featured);
-
-  const { data: productsRes, isLoading } = useProducts({
+  const homeQuery = useStorefrontHome({
     search: debouncedSearch || undefined,
     categoryId: categoryId || undefined,
     limit: 48,
   });
 
-  const { data: categoryTreeRes } = useCategoryTree();
-
-  const products = (productsRes?.data as ProductResponse[]) ?? [];
-  const tree = (categoryTreeRes?.data as CategoryTreeNode[]) ?? [];
+  const hasSearchInput = search.trim().length > 0;
+  const isLoading = homeQuery.isLoading;
+  const featuredProducts = hasSearchInput ? [] : ((homeQuery.data?.data?.featured_products as ProductResponse[]) ?? []);
+  const products = (homeQuery.data?.data?.products as ProductResponse[]) ?? [];
+  const tree = (homeQuery.data?.data?.category_tree as CategoryTreeNode[]) ?? [];
 
   const selectedParent = tree.find((p) => p.id === selectedParentId) ?? null;
 
@@ -164,7 +191,7 @@ function HomePage() {
           New Arrivals
         </p>
         <h1
-          className="text-5xl sm:text-6xl lg:text-7xl font-light italic text-foreground mb-6 leading-tight"
+          className="mb-6 min-h-[7.5rem] text-5xl font-light italic leading-tight text-foreground sm:min-h-[9rem] sm:text-6xl lg:min-h-[10.5rem] lg:text-7xl"
           style={{ fontFamily: 'var(--font-display)' }}
         >
           Crafted for<br />the discerning eye
@@ -178,7 +205,7 @@ function HomePage() {
       </div>
 
       {/* Featured */}
-      {featuredProducts.length > 0 && (
+      {!hasSearchInput && (isLoading || featuredProducts.length > 0) && (
         <section className="mb-24">
           <div className="flex items-baseline justify-between mb-10 border-b border-(--border-subtle) pb-4">
             <h2
@@ -188,11 +215,15 @@ function HomePage() {
               Featured
             </h2>
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-x-6 gap-y-12">
-            {featuredProducts.map((product, index) => (
-              <ProductCard key={product.id} product={product} priority={index < 2} />
-            ))}
-          </div>
+          {isLoading ? (
+            <ProductGridSkeleton count={FEATURED_SKELETON_COUNT} />
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-x-6 gap-y-12">
+              {featuredProducts.map((product, index) => (
+                <ProductCard key={product.id} product={product} priority={index < 2} />
+              ))}
+            </div>
+          )}
         </section>
       )}
 
@@ -268,10 +299,8 @@ function HomePage() {
 
       {/* Product grid */}
       {isLoading ? (
-        <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-x-6 gap-y-12 pb-24">
-          {Array.from({ length: 8 }).map((_, i) => (
-            <div key={i} className="aspect-[3/4] bg-[var(--surface)] animate-pulse" />
-          ))}
+        <div className="pb-24">
+          <ProductGridSkeleton />
         </div>
       ) : products.length === 0 ? (
         <div

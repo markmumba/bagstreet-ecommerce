@@ -83,6 +83,7 @@ function SettingsPage() {
                 type="button"
                 role="switch"
                 aria-checked={handoverEnabled}
+                aria-label="Toggle order handover alerts"
                 onClick={() => setHandoverEnabled((enabled) => !enabled)}
                 disabled={handoverLoading || updateHandover.isPending}
                 className={`relative h-7 w-12 shrink-0 rounded-full border transition-colors focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/20 disabled:opacity-50 ${
@@ -90,8 +91,8 @@ function SettingsPage() {
                 }`}
               >
                 <span
-                  className={`absolute top-1 h-5 w-5 rounded-full bg-background shadow-sm transition-transform ${
-                    handoverEnabled ? 'translate-x-5' : 'translate-x-1'
+                  className={`absolute left-1 top-1 h-5 w-5 rounded-full bg-background shadow-sm transition-transform ${
+                    handoverEnabled ? 'translate-x-5' : 'translate-x-0'
                   }`}
                 />
               </button>

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { ORDER_STATUS } from 'shared/dist';
+import { ORDER_STATUS, WALK_IN_PAYMENT_METHOD } from 'shared/dist';
 
 const shippingAddressSchema = z.object({
     full_name: z.string().trim().min(2).max(200),
@@ -41,4 +41,29 @@ export const updateOrderStatusSchema = z.object({
         ORDER_STATUS.CANCELLED,
         ORDER_STATUS.REFUNDED,
     ]),
+});
+
+export const createWalkInSaleSchema = z.object({
+    items: z
+        .array(
+            z.object({
+                variant_id: z.number().int().positive(),
+                quantity: z.number().int().positive('Quantity must be at least 1'),
+            })
+        )
+        .min(1, 'Sale must have at least one item'),
+    payment_method: z.enum([
+        WALK_IN_PAYMENT_METHOD.CASH,
+        WALK_IN_PAYMENT_METHOD.CARD,
+        WALK_IN_PAYMENT_METHOD.BANK_TRANSFER,
+        WALK_IN_PAYMENT_METHOD.PESAPAL,
+        WALK_IN_PAYMENT_METHOD.OTHER,
+    ]),
+    customer_name: z.string().trim().max(100).optional(),
+    customer_phone: z.string().trim().max(20).optional(),
+    customer_email: z
+        .union([z.string().trim().email(), z.literal('')])
+        .optional()
+        .transform((value) => value || undefined),
+    notes: z.string().trim().max(500).optional(),
 });

@@ -36,6 +36,31 @@
       ],
       "env": ["NODE_ENV", "PORT", "VITE_*"]
     },
+    "preview": {
+      "dependsOn": ["build"],
+      "cache": false,
+      "persistent": true,
+      "env": [
+        "NODE_ENV",
+        "PORT",
+        "DATABASE_URL",
+        "SERVER_URL",
+        "CORS_ORIGIN",
+        "JWT_SECRET",
+        "JWT_REFRESH_SECRET",
+        "MINIO_*",
+        "SMTP_*",
+        "MAIL_*",
+        "EMAIL_FROM",
+        "CLIENT_URL",
+        "STOREFRONT_URL",
+        "RABBITMQ_URL",
+        "REDIS_*",
+        "RATE_LIMIT_STORE",
+        "PESAPAL_*",
+        "VITE_*"
+      ]
+    },
     "lint": {
       "dependsOn": ["^build"],
       "inputs": [

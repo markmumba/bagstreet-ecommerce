@@ -25,6 +25,7 @@ import { healthHandlers } from './features/health/health.handlers';
 import { assertDatabaseMigrated, migrateDatabase } from './lib/migrations';
 import type { AppEnv } from './lib/hono';
 import auditRoutes from './features/audit/audit.routes';
+import storefrontRoutes from './features/storefront/storefront.routes';
 
 
 const app = new Hono<AppEnv>()
@@ -52,6 +53,7 @@ app.use('/api/*', generalRateLimit);
 
 app.route('/api/auth', authRoutes);
 app.route('/api/dashboard', dashboardRoutes);
+app.route('/api/storefront', storefrontRoutes);
 app.route('/api/categories', categoriesRoutes);
 app.route('/api/products', productsRoutes);
 app.use('/api/users/*', requireAuth, requireRole(USER_ROLE.ADMIN));

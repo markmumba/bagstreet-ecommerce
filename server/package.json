@@ -4,8 +4,9 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && bun build src/preview.ts --target=bun --outfile=dist/server.js",
     "dev": "bun --watch run src/index.ts",
+    "preview": "RUN_MIGRATIONS_ON_STARTUP=true NODE_ENV=production bun dist/server.js",
     "db:migrate": "bun run src/scripts/migrate.ts",
     "seed:demo": "bun run src/scripts/seed-products.ts",
     "seed:products": "bun run src/scripts/seed-products.ts"

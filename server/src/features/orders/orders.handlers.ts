@@ -1,5 +1,5 @@
 import { ordersQueries } from './orders.queries';
-import { createOrderSchema, updateOrderStatusSchema } from './orders.schema';
+import { createOrderSchema, createWalkInSaleSchema, updateOrderStatusSchema } from './orders.schema';
 import { sql } from '../../lib/db';
 import { success, paginated } from '@server/lib/response';
 import {
@@ -9,8 +9,8 @@ import {
     NotFoundError,
     ValidationError,
 } from '@server/lib/errors';
-import type { OrderItemResponse, OrderReceiptResponse, OrderResponse, OrderStatus } from 'shared/dist';
-import { ORDER_STATUS, PAYMENT_STATUS, USER_ROLE } from 'shared/dist';
+import type { OrderItemResponse, OrderReceiptResponse, OrderResponse, OrderStatus, WalkInCatalogItemResponse } from 'shared/dist';
+import { ORDER_SOURCE, ORDER_STATUS, PAYMENT_STATUS, USER_ROLE } from 'shared/dist';
 import { notificationsQueries } from '../notifications/notifications.queries';
 import { pushToMany } from '../../lib/sse';
 import { UsersQueries } from '../users/user.queries';
@@ -29,6 +29,7 @@ import { env } from '../../config/env';
 import { verifyOrderReceivedToken } from '../../lib/order-received-token';
 import { normalizeShippingAddress } from '../../lib/shipping-address';
 import { auditFromContext } from '@server/lib/audit';
+import { randomUUID } from 'node:crypto';
 
 interface VariantRow {
     id: number;
@@ -43,6 +44,16 @@ interface VariantRow {
 
 interface ProductRow { id: number; price: string; name: string; is_active: boolean }
 interface ProductPricingRow extends ProductRow { sale_price: string | null; sale_ends_at: string | null }
+type OrderLineInput = { variant_id: number; quantity: number };
+type PricedOrderItem = {
+    variant_id: number;
+    product_id: number;
+    quantity: number;
+    unit_price: number;
+    variant_sku: string;
+    variant_size: string | null;
+    variant_color: string | null;
+};
 
 function getAuthUser(c: AppContext): AuthUser {
     return getRequiredUser(c);
@@ -65,6 +76,7 @@ function toOrderResponse(order: any, items: any[]): OrderResponse {
         order_number: order.order_number ?? undefined,
         user_id: order.user_id != null ? String(order.user_id) : '',
         status: order.status,
+        order_source: order.order_source ?? ORDER_SOURCE.ONLINE,
         total_amount: parseFloat(order.total_amount),
         shipping_cost: parseFloat(order.shipping_cost ?? '0'),
         discount_code: order.discount_code ?? undefined,
@@ -89,6 +101,117 @@ function toOrderResponse(order: any, items: any[]): OrderResponse {
         created_at: order.created_at,
         updated_at: order.updated_at,
     };
+}
+
+function saleIsActive(product: ProductPricingRow) {
+    return product.sale_price != null
+        && (!product.sale_ends_at || new Date(product.sale_ends_at).getTime() > Date.now());
+}
+
+function resolveUnitPrice(product: ProductPricingRow, variant: Pick<VariantRow, 'price_override'>) {
+    if (variant.price_override != null) return parseFloat(variant.price_override);
+    if (saleIsActive(product)) return parseFloat(product.sale_price!);
+    return parseFloat(product.price);
+}
+
+async function buildPricedOrderItems(items: OrderLineInput[]): Promise<PricedOrderItem[]> {
+    const variantMap = new Map<number, VariantRow>();
+    for (const item of items) {
+        if (variantMap.has(item.variant_id)) continue;
+        const [variant] = await sql<VariantRow[]>`
+            SELECT id, product_id, sku, size, color, stock, price_override, is_active
+            FROM product_variants WHERE id = ${item.variant_id}
+        `;
+        if (variant) variantMap.set(variant.id, variant);
+    }
+
+    const productMap = new Map<number, ProductPricingRow>();
+    for (const variant of variantMap.values()) {
+        if (productMap.has(variant.product_id)) continue;
+        const [product] = await sql<ProductPricingRow[]>`
+            SELECT id, price, name, is_active, sale_price, sale_ends_at
+            FROM products WHERE id = ${variant.product_id}
+        `;
+        if (product) productMap.set(product.id, product);
+    }
+
+    return items.map((item) => {
+        const variant = variantMap.get(item.variant_id);
+        if (!variant) throw new BadRequestError(`Variant ${item.variant_id} not found`);
+        if (!variant.is_active) throw new BadRequestError(`Variant ${item.variant_id} is not available`);
+
+        const product = productMap.get(variant.product_id);
+        if (!product) throw new BadRequestError(`Product for variant ${item.variant_id} not found`);
+        if (!product.is_active) throw new BadRequestError(`Product "${product.name}" is not available`);
+
+        return {
+            variant_id: item.variant_id,
+            product_id: variant.product_id,
+            quantity: item.quantity,
+            unit_price: resolveUnitPrice(product, variant),
+            variant_sku: variant.sku,
+            variant_size: variant.size,
+            variant_color: variant.color,
+        };
+    });
+}
+
+async function notifyLowStockAlerts(items: Pick<PricedOrderItem, 'variant_id'>[]) {
+    const adminIds = await notificationsQueries.findAdminIds();
+    if (adminIds.length === 0) return;
+
+    const lowStockVariants: { id: number; sku: string; size: string | null; color: string | null; stock: number; low_stock_threshold: number; product_name: string }[] = [];
+    const seenVariantIds = new Set<number>();
+    for (const item of items) {
+        if (seenVariantIds.has(item.variant_id)) continue;
+        seenVariantIds.add(item.variant_id);
+        const rows = await sql<{ id: number; sku: string; size: string | null; color: string | null; stock: number; low_stock_threshold: number; product_name: string }[]>`
+            SELECT pv.id, pv.sku, pv.size, pv.color, pv.stock, pv.low_stock_threshold, p.name AS product_name
+            FROM product_variants pv
+            JOIN products p ON p.id = pv.product_id
+            WHERE pv.id = ${item.variant_id}
+              AND pv.stock <= pv.low_stock_threshold
+              AND pv.stock >= 0
+        `;
+        lowStockVariants.push(...rows);
+    }
+
+    if (lowStockVariants.length === 0) return;
+
+    const lowStockNotifs: { recipient_id: number; type: string; title: string; body: string; data: object }[] = [];
+    for (const variant of lowStockVariants) {
+        const variantLabel = [variant.size, variant.color].filter(Boolean).join(' / ');
+        const title = variant.stock === 0 ? `Out of stock: ${variant.product_name}` : `Low stock: ${variant.product_name}`;
+        const body = `${variantLabel ? `(${variantLabel}) — ` : ''}${variant.stock} unit${variant.stock === 1 ? '' : 's'} remaining`;
+        for (const adminId of adminIds) {
+            lowStockNotifs.push({
+                recipient_id: adminId,
+                type: variant.stock === 0 ? 'OUT_OF_STOCK' : 'LOW_STOCK',
+                title,
+                body,
+                data: { link: '/products', variant_id: String(variant.id) },
+            });
+        }
+    }
+
+    const lowStockCreated = await notificationsQueries.create(lowStockNotifs);
+    pushToMany(adminIds, 'notification', { notifications: lowStockCreated });
+
+    const staff = await UsersQueries.findActiveAdmins();
+    for (const variant of lowStockVariants) {
+        const variantLabel = [variant.size, variant.color].filter(Boolean).join(' / ');
+        for (const user of staff) {
+            publishEmail({
+                type: 'LOW_STOCK_ALERT',
+                to: user.email,
+                name: user.full_name,
+                productName: variant.product_name,
+                variantLabel,
+                stock: variant.stock,
+                threshold: variant.low_stock_threshold,
+            }).catch((err) => console.error('[email] low stock alert failed:', err));
+        }
+    }
 }
 
 async function findOrderByParam(param: string) {
@@ -154,7 +277,7 @@ export const ordersHandlers = {
         }
 
         const items = await ordersQueries.findItemsByOrderId(order.id);
-        const payment = await paymentsQueries.findProviderTransactionByOrderId(order.id, 'pesapal');
+        const payment = await paymentsQueries.findProviderTransactionByOrderId(order.id);
         const shippingAddress = normalizeShippingAddress(order.shipping_address, {
             fullName: (order as any).customer_name,
             phone: (order as any).customer_phone,
@@ -188,6 +311,186 @@ export const ordersHandlers = {
         return success(c, receipt);
     },
 
+    walkInCatalog: async (c: AppContext) => {
+        const searchTerm = c.req.query('search')?.trim() ?? '';
+        const limit = Math.min(100, Math.max(1, parseInt(c.req.query('limit') ?? '40', 10)));
+        const pattern = searchTerm ? `%${searchTerm}%` : null;
+
+        const rows = await sql<{
+            product_id: number;
+            product_name: string;
+            product_sku: string;
+            product_slug: string | null;
+            image_url: string | null;
+            product_price: string;
+            sale_price: string | null;
+            sale_ends_at: string | null;
+            variant_id: number;
+            variant_sku: string;
+            variant_size: string | null;
+            variant_color: string | null;
+            stock: number;
+            price_override: string | null;
+        }[]>`
+            SELECT
+                p.id AS product_id,
+                p.name AS product_name,
+                p.sku AS product_sku,
+                p.slug AS product_slug,
+                p.image_url,
+                p.price AS product_price,
+                p.sale_price,
+                p.sale_ends_at,
+                pv.id AS variant_id,
+                pv.sku AS variant_sku,
+                pv.size AS variant_size,
+                pv.color AS variant_color,
+                pv.stock,
+                pv.price_override
+            FROM product_variants pv
+            JOIN products p ON p.id = pv.product_id
+            WHERE p.is_active = true
+              AND pv.is_active = true
+              AND pv.stock > 0
+              AND (
+                ${pattern}::text IS NULL
+                OR p.name ILIKE ${pattern}::text
+                OR p.sku ILIKE ${pattern}::text
+                OR pv.sku ILIKE ${pattern}::text
+              )
+            ORDER BY p.name ASC, pv.color ASC NULLS LAST, pv.size ASC NULLS LAST
+            LIMIT ${limit}
+        `;
+
+        const catalog: WalkInCatalogItemResponse[] = rows.map((row) => {
+            const product: ProductPricingRow = {
+                id: row.product_id,
+                name: row.product_name,
+                price: row.product_price,
+                sale_price: row.sale_price,
+                sale_ends_at: row.sale_ends_at,
+                is_active: true,
+            };
+            const unitPrice = resolveUnitPrice(product, { price_override: row.price_override });
+            return {
+                product_id: String(row.product_id),
+                product_name: row.product_name,
+                product_sku: row.product_sku,
+                product_slug: row.product_slug ?? undefined,
+                image_url: row.image_url ?? undefined,
+                variant_id: String(row.variant_id),
+                variant_sku: row.variant_sku,
+                variant_size: row.variant_size ?? undefined,
+                variant_color: row.variant_color ?? undefined,
+                stock: row.stock,
+                unit_price: unitPrice,
+                is_on_sale: row.price_override == null && saleIsActive(product),
+            };
+        });
+
+        return success(c, catalog);
+    },
+
+    createWalkInSale: async (c: AppContext) => {
+        const actor = getAuthUser(c);
+        const body = await c.req.json();
+        const validated = createWalkInSaleSchema.safeParse(body);
+
+        if (!validated.success) {
+            throw new ValidationError('Invalid walk-in sale data', validated.error.errors);
+        }
+
+        const itemsWithPrice = await buildPricedOrderItems(validated.data.items);
+        const totalAmount = itemsWithPrice.reduce(
+            (sum, item) => sum + item.unit_price * item.quantity,
+            0
+        );
+        const customerName = validated.data.customer_name?.trim() || 'Walk-in customer';
+        const customerPhone = validated.data.customer_phone?.trim()
+            ? normalisePhone(validated.data.customer_phone)
+            : '';
+        const customerEmail = validated.data.customer_email?.toLowerCase() ?? null;
+        const shippingAddress = {
+            full_name: customerName,
+            email: customerEmail ?? undefined,
+            phone: customerPhone || undefined,
+            address_line1: 'In-store purchase',
+            address_line2: '',
+            city: 'Nairobi',
+            state: 'Nairobi',
+            postal_code: '',
+            country: 'Kenya',
+        };
+        const paymentReference = `walk-in-${randomUUID()}`;
+
+        let order;
+        try {
+            order = await ordersQueries.create(
+                null,
+                itemsWithPrice,
+                totalAmount,
+                shippingAddress,
+                null,
+                0,
+                validated.data.notes,
+                null,
+                0,
+                customerName,
+                customerPhone,
+                customerEmail,
+                {
+                    status: ORDER_STATUS.DELIVERED,
+                    paymentStatus: PAYMENT_STATUS.PAID,
+                    orderSource: ORDER_SOURCE.WALK_IN,
+                    paidAt: new Date(),
+                    inventoryCreatedBy: Number(actor.sub),
+                    inventoryNote: `Walk-in sale recorded by ${actor.email}`,
+                    payment: {
+                        provider: 'walk_in',
+                        providerReference: paymentReference,
+                        merchantReference: paymentReference,
+                        paymentMethod: validated.data.payment_method,
+                        amount: totalAmount,
+                        currency: env.PESAPAL_CURRENCY,
+                        reference: paymentReference,
+                        metadata: {
+                            source: ORDER_SOURCE.WALK_IN,
+                            payment_method: validated.data.payment_method,
+                            recorded_by: actor.email,
+                        },
+                        rawPayload: {
+                            source: ORDER_SOURCE.WALK_IN,
+                            payment_method: validated.data.payment_method,
+                        },
+                    },
+                }
+            );
+        } catch (err: any) {
+            if (err.message?.includes('Insufficient stock') || err.message?.includes('not found')) {
+                throw new BadRequestError(err.message);
+            }
+            throw new InternalServerError('Failed to record walk-in sale');
+        }
+
+        const items = await ordersQueries.findItemsByOrderId(order.id);
+        const response = toOrderResponse(order, items);
+        await notifyLowStockAlerts(itemsWithPrice);
+        await auditFromContext(c, {
+            action: 'WALK_IN_SALE_CREATED',
+            entityType: 'order',
+            entityId: order.id,
+            after: response,
+            metadata: {
+                order_source: ORDER_SOURCE.WALK_IN,
+                payment_method: validated.data.payment_method,
+                item_count: items.reduce((sum, item) => sum + Number(item.quantity), 0),
+                total_amount: totalAmount,
+            },
+        });
+
+        return success(c, response, 'Walk-in sale recorded', 201);
+    },
+
     create: async (c: AppContext) => {
         const authUser = getOptionalAuthUser(c);
         const body = await c.req.json();
@@ -215,56 +518,7 @@ export const ordersHandlers = {
             phone: shippingAddressBase.phone ?? validated.data.phone,
         };
 
-        const variantMap = new Map<number, VariantRow>();
-        for (const item of validated.data.items) {
-            if (variantMap.has(item.variant_id)) continue;
-            const [variant] = await sql<VariantRow[]>`
-                SELECT id, product_id, sku, size, color, stock, price_override, is_active
-                FROM product_variants WHERE id = ${item.variant_id}
-            `;
-            if (variant) variantMap.set(variant.id, variant);
-        }
-
-        const productMap = new Map<number, ProductPricingRow>();
-        for (const variant of variantMap.values()) {
-            if (productMap.has(variant.product_id)) continue;
-            const [product] = await sql<ProductPricingRow[]>`
-                SELECT id, price, name, is_active, sale_price, sale_ends_at
-                FROM products WHERE id = ${variant.product_id}
-            `;
-            if (product) productMap.set(product.id, product);
-        }
-
-        for (const item of validated.data.items) {
-            const variant = variantMap.get(item.variant_id);
-            if (!variant) throw new BadRequestError(`Variant ${item.variant_id} not found`);
-            if (!variant.is_active) throw new BadRequestError(`Variant ${item.variant_id} is not available`);
-
-            const product = productMap.get(variant.product_id);
-            if (!product) throw new BadRequestError(`Product for variant ${item.variant_id} not found`);
-            if (!product.is_active) throw new BadRequestError(`Product "${product.name}" is not available`);
-        }
-
-        const itemsWithPrice = validated.data.items.map((item) => {
-            const variant = variantMap.get(item.variant_id)!;
-            const product = productMap.get(variant.product_id)!;
-            const saleIsActive = product.sale_price != null
-                && (!product.sale_ends_at || new Date(product.sale_ends_at).getTime() > Date.now());
-            const unitPrice = variant.price_override != null
-                ? parseFloat(variant.price_override)
-                : saleIsActive
-                ? parseFloat(product.sale_price!)
-                : parseFloat(product.price);
-            return {
-                variant_id: item.variant_id,
-                product_id: variant.product_id,
-                quantity: item.quantity,
-                unit_price: unitPrice,
-                variant_sku: variant.sku,
-                variant_size: variant.size,
-                variant_color: variant.color,
-            };
-        });
+        const itemsWithPrice = await buildPricedOrderItems(validated.data.items);
 
         const itemsTotal = itemsWithPrice.reduce(
             (sum, item) => sum + item.unit_price * item.quantity,
@@ -337,60 +591,7 @@ export const ordersHandlers = {
             pushToMany(staffIds, 'notification', { notifications: created });
         }
 
-        // Low stock alerts — check variants that are now below threshold
-        const adminIds = await notificationsQueries.findAdminIds();
-        if (adminIds.length > 0) {
-            const lowStockVariants: { id: number; sku: string; size: string | null; color: string | null; stock: number; low_stock_threshold: number; product_name: string }[] = [];
-            const seenVariantIds = new Set<number>();
-            for (const item of itemsWithPrice) {
-                if (seenVariantIds.has(item.variant_id)) continue;
-                seenVariantIds.add(item.variant_id);
-                const rows = await sql<{ id: number; sku: string; size: string | null; color: string | null; stock: number; low_stock_threshold: number; product_name: string }[]>`
-                    SELECT pv.id, pv.sku, pv.size, pv.color, pv.stock, pv.low_stock_threshold, p.name AS product_name
-                    FROM product_variants pv
-                    JOIN products p ON p.id = pv.product_id
-                    WHERE pv.id = ${item.variant_id}
-                      AND pv.stock <= pv.low_stock_threshold
-                      AND pv.stock >= 0
-                `;
-                lowStockVariants.push(...rows);
-            }
-            if (lowStockVariants.length > 0) {
-                const lowStockNotifs: { recipient_id: number; type: string; title: string; body: string; data: object }[] = [];
-                for (const variant of lowStockVariants) {
-                    const variantLabel = [variant.size, variant.color].filter(Boolean).join(' / ');
-                    const title = variant.stock === 0 ? `Out of stock: ${variant.product_name}` : `Low stock: ${variant.product_name}`;
-                    const body = `${variantLabel ? `(${variantLabel}) — ` : ''}${variant.stock} unit${variant.stock === 1 ? '' : 's'} remaining`;
-                    for (const adminId of adminIds) {
-                        lowStockNotifs.push({
-                            recipient_id: adminId,
-                            type: variant.stock === 0 ? 'OUT_OF_STOCK' : 'LOW_STOCK',
-                            title,
-                            body,
-                            data: { link: '/products', variant_id: String(variant.id) },
-                        });
-                    }
-                }
-                const lowStockCreated = await notificationsQueries.create(lowStockNotifs);
-                pushToMany(adminIds, 'notification', { notifications: lowStockCreated });
-
-                const staff = await UsersQueries.findActiveAdmins();
-                for (const variant of lowStockVariants) {
-                    const variantLabel = [variant.size, variant.color].filter(Boolean).join(' / ');
-                    for (const user of staff) {
-                        publishEmail({
-                            type: 'LOW_STOCK_ALERT',
-                            to: user.email,
-                            name: user.full_name,
-                            productName: variant.product_name,
-                            variantLabel,
-                            stock: variant.stock,
-                            threshold: variant.low_stock_threshold,
-                        }).catch((err) => console.error('[email] low stock alert failed:', err));
-                    }
-                }
-            }
-        }
+        await notifyLowStockAlerts(itemsWithPrice);
 
         let paymentRedirectUrl: string | null = null;
         let paymentReference: string | null = null;

@@ -20,6 +20,23 @@ export const PAYMENT_STATUS = {
 
 export type PaymentStatus = typeof PAYMENT_STATUS[keyof typeof PAYMENT_STATUS];
 
+export const ORDER_SOURCE = {
+    ONLINE: 'ONLINE',
+    WALK_IN: 'WALK_IN',
+} as const;
+
+export type OrderSource = typeof ORDER_SOURCE[keyof typeof ORDER_SOURCE];
+
+export const WALK_IN_PAYMENT_METHOD = {
+    CASH: 'CASH',
+    CARD: 'CARD',
+    BANK_TRANSFER: 'BANK_TRANSFER',
+    PESAPAL: 'PESAPAL',
+    OTHER: 'OTHER',
+} as const;
+
+export type WalkInPaymentMethod = typeof WALK_IN_PAYMENT_METHOD[keyof typeof WALK_IN_PAYMENT_METHOD];
+
 export interface ShippingAddress {
     full_name: string;
     email?: string;
@@ -35,6 +52,7 @@ export interface ShippingAddress {
 export interface Order extends BaseType {
     user_id: number | null;
     status: OrderStatus;
+    order_source?: OrderSource;
     total_amount: number;
     shipping_address: ShippingAddress;
     notes?: string;
@@ -61,6 +79,30 @@ export interface OrderCreateRequest {
     notes?: string;
 }
 
+export interface WalkInSaleRequest {
+    items: { variant_id: number; quantity: number }[];
+    payment_method: WalkInPaymentMethod;
+    customer_name?: string;
+    customer_phone?: string;
+    customer_email?: string;
+    notes?: string;
+}
+
+export interface WalkInCatalogItemResponse {
+    product_id: string;
+    product_name: string;
+    product_sku: string;
+    product_slug?: string;
+    image_url?: string;
+    variant_id: string;
+    variant_sku: string;
+    variant_size?: string;
+    variant_color?: string;
+    stock: number;
+    unit_price: number;
+    is_on_sale: boolean;
+}
+
 export interface OrderItemResponse {
     id: string;
     product_id: string;
@@ -81,6 +123,7 @@ export interface OrderResponse {
     order_number?: string;
     user_id: string;
     status: OrderStatus;
+    order_source?: OrderSource;
     total_amount: number;
     shipping_cost: number;
     discount_code?: string;

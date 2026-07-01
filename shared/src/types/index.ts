@@ -6,6 +6,7 @@ export * from "./order";
 export * from "./cart";
 export * from "./variant";
 export * from "./shipping";
+export * from "./storefront";
 
 export interface ApiResponse<T = unknown> {
   success: boolean;

@@ -1,5 +1,12 @@
 import { apiClient } from './api';
-import type { OrderReceiptResponse, OrderResponse, OrderStatus, PaymentStatus } from 'shared';
+import type {
+  OrderReceiptResponse,
+  OrderResponse,
+  OrderStatus,
+  PaymentStatus,
+  WalkInCatalogItemResponse,
+  WalkInSaleRequest,
+} from 'shared';
 
 export interface OrderListParams {
   page?: number;
@@ -21,4 +28,13 @@ export const ordersService = {
 
   confirmPayment: (id: string) =>
     apiClient.patch<OrderResponse>(`/api/orders/${id}/confirm-payment`),
+
+  getWalkInCatalog: (search?: string) =>
+    apiClient.get<WalkInCatalogItemResponse[]>('/api/orders/walk-in/catalog', {
+      search: search || undefined,
+      limit: 80,
+    }),
+
+  createWalkInSale: (data: WalkInSaleRequest) =>
+    apiClient.post<OrderResponse>('/api/orders/walk-in', data),
 };

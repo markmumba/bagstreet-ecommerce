@@ -18,8 +18,37 @@ services:
       - 15672:15672
       - 5672:5672
     environment:
-      RABBITMQ_DEFAULT_USER: guest
-      RABBITMQ_DEFAULT_PASS: guest
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    command: redis-server --appendonly yes
+    ports:
+      - 6379:6379
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  redis-rest:
+    image: hiett/serverless-redis-http:latest
+    container_name: redis-rest
+    depends_on:
+      redis:
+        condition: service_healthy
+    ports:
+      - 8079:80
+    environment:
+      SRH_MODE: env
+      SRH_TOKEN: ${REDIS_REST_TOKEN}
+      SRH_CONNECTION_STRING: redis://redis:6379
     restart: unless-stopped
 
   minio:
@@ -39,4 +68,5 @@ services:
 volumes:
   postgres_data:
   rabbitmq_data:
+  redis_data:
   minio_data:

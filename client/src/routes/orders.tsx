@@ -11,8 +11,10 @@ import {
 } from '@tanstack/react-table';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { OrderSheet } from '@/components/orders/OrderSheet';
+import { WalkInSaleDialog } from '@/components/orders/WalkInSaleDialog';
 import { useOrders } from '@/hooks/useOrders';
 import { ordersService } from '@/services/orders.service';
+import { useAuth } from '@/context/AuthContext';
 import { Button } from '@/components/ui/button';
 import {
   Select,
@@ -29,8 +31,8 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { ArrowUpDown, Check, ClipboardList, Copy, Download, Eye, MapPin, PackageCheck, PackageX, Timer, Truck, Wallet, X } from 'lucide-react';
-import { ORDER_STATUS, PAYMENT_STATUS } from 'shared';
+import { ArrowUpDown, Check, ClipboardList, Copy, Download, Eye, MapPin, PackageCheck, PackageX, Plus, ShoppingBag, Timer, Truck, Wallet, X } from 'lucide-react';
+import { ORDER_SOURCE, ORDER_STATUS, PAYMENT_STATUS, USER_ROLE } from 'shared';
 import type { OrderResponse, OrderStatus, PaymentStatus } from 'shared';
 import { cn } from '@/lib/utils';
 
@@ -46,6 +48,7 @@ const LIMIT = 20;
 const columnClasses: Record<string, string> = {
   id: 'w-[280px]',
   customer: 'w-[220px]',
+  source: 'w-[130px]',
   delivery: 'w-[320px]',
   status: 'w-[150px]',
   payment_status: 'w-[140px]',
@@ -117,6 +120,23 @@ function PaymentChip({ status }: { status: PaymentStatus }) {
   );
 }
 
+function SourceChip({ source }: { source?: OrderResponse['order_source'] }) {
+  const isWalkIn = source === ORDER_SOURCE.WALK_IN;
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-xs font-medium',
+        isWalkIn
+          ? 'bg-[var(--color-info-bg)] text-[var(--color-info-text)]'
+          : 'bg-muted text-muted-foreground'
+      )}
+    >
+      {isWalkIn ? <ShoppingBag className="h-3 w-3" strokeWidth={2} /> : <Truck className="h-3 w-3" strokeWidth={2} />}
+      {isWalkIn ? 'Walk-in' : 'Online'}
+    </span>
+  );
+}
+
 function copyOrderRef(order: OrderResponse) {
   navigator.clipboard?.writeText(formatOrderRef(order)).catch(() => undefined);
 }
@@ -164,6 +184,7 @@ function OrderCard({ order, onOpen }: { order: OrderResponse; onOpen: (order: Or
       </div>
 
       <div className="mt-4 flex flex-wrap gap-2">
+        <SourceChip source={order.order_source} />
         <StatusChip status={order.status} />
         <PaymentChip status={order.payment_status ?? PAYMENT_STATUS.UNPAID} />
       </div>
@@ -188,10 +209,12 @@ function OrderCard({ order, onOpen }: { order: OrderResponse; onOpen: (order: Or
 
 function OrdersPage() {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const search = Route.useSearch();
   const openedSearchOrderRef = useRef<string | null>(null);
   const [selectedOrder, setSelectedOrder] = useState<OrderResponse | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [walkInOpen, setWalkInOpen] = useState(false);
   const [sorting, setSorting] = useState<SortingState>([]);
 
   // Server-side filter state
@@ -212,6 +235,7 @@ function OrdersPage() {
   const orders: OrderResponse[] = res?.data ?? [];
   const total = (res as any)?.pagination?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / LIMIT));
+  const canCreateWalkInSale = user?.role === USER_ROLE.ADMIN || user?.role === USER_ROLE.MANAGER;
 
   const openOrder = (order: OrderResponse) => {
     setSelectedOrder(order);
@@ -265,12 +289,13 @@ function OrdersPage() {
       });
       const rows: OrderResponse[] = (res as any)?.data ?? [];
 
-      const headers = ['Order ID', 'Customer', 'Phone', 'Delivery Address', 'Status', 'Payment', 'Items', 'Shipping (KES)', 'Total (KES)', 'Date'];
+      const headers = ['Order ID', 'Source', 'Customer', 'Phone', 'Delivery Address', 'Status', 'Payment', 'Items', 'Shipping (KES)', 'Total (KES)', 'Date'];
       const lines = [
         headers.join(','),
         ...rows.map((o) => {
           const csvValues = [
             formatOrderRef(o),
+            o.order_source ?? ORDER_SOURCE.ONLINE,
             o.shipping_address.full_name ?? '',
             o.shipping_address.phone ?? '',
             addressLine(o.shipping_address),
@@ -340,6 +365,11 @@ function OrdersPage() {
           </div>
         );
       },
+    },
+    {
+      id: 'source',
+      header: 'Source',
+      cell: ({ row }) => <SourceChip source={row.original.order_source} />,
     },
     {
       id: 'delivery',
@@ -504,6 +534,12 @@ function OrdersPage() {
                 <span className="text-sm text-muted-foreground">
                   {total} order{total !== 1 ? 's' : ''}
                 </span>
+                {canCreateWalkInSale && (
+                  <Button size="sm" onClick={() => setWalkInOpen(true)}>
+                    <Plus className="mr-1.5 h-3.5 w-3.5" />
+                    Walk-in sale
+                  </Button>
+                )}
                 <Button variant="outline" size="sm" onClick={exportCsv} disabled={isExporting || total === 0}>
                   <Download className="mr-1.5 h-3.5 w-3.5" />
                   {isExporting ? 'Exporting...' : 'Export CSV'}
@@ -601,6 +637,11 @@ function OrdersPage() {
       </div>
 
       <OrderSheet order={selectedOrder} open={sheetOpen} onOpenChange={handleSheetOpenChange} />
+      <WalkInSaleDialog
+        open={walkInOpen}
+        onOpenChange={setWalkInOpen}
+        onCreated={(order) => openOrder(order)}
+      />
     </DashboardLayout>
   );
 }

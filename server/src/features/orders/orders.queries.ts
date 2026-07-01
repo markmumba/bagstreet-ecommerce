@@ -1,7 +1,7 @@
 import { sql } from '../../lib/db';
 import { adjustStock } from '../../lib/inventory';
-import { ORDER_STATUS } from 'shared/dist';
-import type { Order, OrderStatus, ShippingAddress } from 'shared/dist';
+import { ORDER_SOURCE, ORDER_STATUS, PAYMENT_STATUS } from 'shared/dist';
+import type { Order, OrderSource, OrderStatus, PaymentStatus, ShippingAddress } from 'shared/dist';
 import { randomBytes } from 'node:crypto';
 
 interface OrderRow extends Omit<Order, 'id' | 'created_at' | 'updated_at'> {
@@ -9,6 +9,8 @@ interface OrderRow extends Omit<Order, 'id' | 'created_at' | 'updated_at'> {
     public_id: string;
     order_number: string;
     user_id: number | null;
+    order_source: OrderSource;
+    payment_status: PaymentStatus;
     created_at: string;
     updated_at: string;
 }
@@ -143,38 +145,72 @@ export const ordersQueries = {
         }[],
         totalAmount: number,
         shippingAddress: ShippingAddress,
-        shippingLocationId: number,
+        shippingLocationId: number | null,
         shippingCost: number,
         notes: string | undefined,
         discountCode: string | null,
         discountAmount: number,
         customerName: string,
         customerPhone: string,
-        customerEmail: string | null
+        customerEmail: string | null,
+        options?: {
+            status?: OrderStatus;
+            paymentStatus?: PaymentStatus;
+            orderSource?: OrderSource;
+            paidAt?: Date | null;
+            inventoryCreatedBy?: number | null;
+            inventoryNote?: string | null;
+            payment?: {
+                provider: string;
+                providerReference?: string | null;
+                merchantReference: string;
+                paymentMethod?: string | null;
+                amount: number;
+                currency: string;
+                reference: string;
+                metadata?: unknown;
+                rawPayload?: unknown;
+            };
+        }
     ): Promise<OrderRow> => {
         return await sql.begin(async (tx: typeof sql) => {
             const orderNumber = await uniqueOrderNumber(tx);
+            const quantityByVariant = new Map<number, number>();
             for (const item of items) {
+                quantityByVariant.set(
+                    item.variant_id,
+                    (quantityByVariant.get(item.variant_id) ?? 0) + item.quantity
+                );
+            }
+
+            for (const [variantId, quantity] of quantityByVariant) {
                 const [variant] = await tx<{ id: number; stock: number; size: string | null; color: string | null }[]>`
-                    SELECT id, stock, size, color FROM product_variants WHERE id = ${item.variant_id} FOR UPDATE
+                    SELECT id, stock, size, color FROM product_variants WHERE id = ${variantId} FOR UPDATE
                 `;
-                if (!variant) throw new Error(`Variant ${item.variant_id} not found`);
-                if (variant.stock < item.quantity) {
+                if (!variant) throw new Error(`Variant ${variantId} not found`);
+                if (variant.stock < quantity) {
                     throw new Error(
                         `Insufficient stock for variant (size: ${variant.size ?? 'N/A'}, color: ${variant.color ?? 'N/A'}) (available: ${variant.stock})`
                     );
                 }
             }
 
+            const paymentStatus = options?.paymentStatus ?? PAYMENT_STATUS.UNPAID;
+            const orderStatus = options?.status ?? ORDER_STATUS.PENDING;
+            const orderSource = options?.orderSource ?? ORDER_SOURCE.ONLINE;
+            const paidAt = options?.paidAt ?? null;
+
             const [order] = await tx<OrderRow[]>`
                 INSERT INTO orders(
                     user_id, order_number, total_amount, shipping_address, shipping_location_id, shipping_cost,
-                    notes, discount_code, discount_amount, customer_name, customer_phone, customer_email
+                    notes, discount_code, discount_amount, customer_name, customer_phone, customer_email,
+                    status, payment_status, order_source, paid_at
                 )
                 VALUES (
                     ${userId}, ${orderNumber}, ${totalAmount}, ${JSON.stringify(shippingAddress)}::jsonb,
                     ${shippingLocationId}, ${shippingCost}, ${notes ?? null},
-                    ${discountCode}, ${discountAmount}, ${customerName}, ${customerPhone}, ${customerEmail}
+                    ${discountCode}, ${discountAmount}, ${customerName}, ${customerPhone}, ${customerEmail},
+                    ${orderStatus}, ${paymentStatus}, ${orderSource}, ${paidAt ? paidAt.toISOString() : null}
                 )
                 RETURNING *
             `;
@@ -191,7 +227,79 @@ export const ordersQueries = {
                         ${item.quantity}, ${item.unit_price}, ${subtotal}
                     )
                 `;
-                await adjustStock(tx, item.variant_id, -item.quantity, 'ORDER_PLACED', order.id, null, userId);
+                await adjustStock(
+                    tx,
+                    item.variant_id,
+                    -item.quantity,
+                    'ORDER_PLACED',
+                    order.id,
+                    options?.inventoryNote ?? null,
+                    options?.inventoryCreatedBy ?? userId
+                );
+            }
+
+            if (options?.payment) {
+                const [paymentTransaction] = await tx<{ id: number }[]>`
+                    INSERT INTO payment_transactions(
+                        order_id,
+                        provider,
+                        provider_reference,
+                        merchant_reference,
+                        checkout_url,
+                        amount,
+                        currency,
+                        status,
+                        payment_method,
+                        confirmation_code,
+                        result_desc,
+                        raw_payload
+                    )
+                    VALUES (
+                        ${order.id},
+                        ${options.payment.provider},
+                        ${options.payment.providerReference ?? null},
+                        ${options.payment.merchantReference},
+                        ${null},
+                        ${options.payment.amount},
+                        ${options.payment.currency},
+                        ${'COMPLETED'},
+                        ${options.payment.paymentMethod ?? null},
+                        ${options.payment.providerReference ?? options.payment.reference},
+                        ${'Payment recorded at checkout counter'},
+                        ${options.payment.rawPayload == null ? null : JSON.stringify(options.payment.rawPayload)}::jsonb
+                    )
+                    ON CONFLICT (provider, merchant_reference) DO UPDATE
+                    SET
+                        status = EXCLUDED.status,
+                        payment_method = EXCLUDED.payment_method,
+                        confirmation_code = EXCLUDED.confirmation_code,
+                        raw_payload = EXCLUDED.raw_payload
+                    RETURNING id
+                `;
+
+                await tx`
+                    INSERT INTO payment_ledger_entries(
+                        order_id,
+                        payment_transaction_id,
+                        entry_type,
+                        direction,
+                        amount,
+                        currency,
+                        reference,
+                        metadata
+                    )
+                    VALUES (
+                        ${order.id},
+                        ${paymentTransaction?.id ?? null},
+                        ${'PAYMENT_CAPTURED'},
+                        ${'CREDIT'},
+                        ${options.payment.amount},
+                        ${options.payment.currency},
+                        ${options.payment.reference},
+                        ${options.payment.metadata == null ? null : JSON.stringify(options.payment.metadata)}::jsonb
+                    )
+                    ON CONFLICT (entry_type, reference) WHERE reference IS NOT NULL DO NOTHING
+                `;
             }
 
             return order!;

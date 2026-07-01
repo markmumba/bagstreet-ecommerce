@@ -1,4 +1,5 @@
-import { createFileRoute, useNavigate } from '@tanstack/react-router';
+import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
+import { Package } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { apiClient } from '@/services/api';
@@ -83,6 +84,32 @@ function AccountPage() {
       <p className="text-sm text-muted-foreground mb-12" style={{ fontFamily: 'var(--font-sans)' }}>
         {user.email}
       </p>
+
+      <section className="mb-12 flex flex-col gap-5 border border-border bg-card p-5 sm:flex-row sm:items-center sm:justify-between max-w-3xl">
+        <div className="flex gap-4">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted text-foreground">
+            <Package className="h-5 w-5" strokeWidth={1.4} />
+          </span>
+          <div>
+            <h2
+              className="text-sm font-medium text-foreground"
+              style={{ fontFamily: 'var(--font-sans)' }}
+            >
+              Order history
+            </h2>
+            <p className="mt-1 text-sm text-muted-foreground" style={{ fontFamily: 'var(--font-sans)' }}>
+              View your orders, payment receipts, and delivery status.
+            </p>
+          </div>
+        </div>
+        <Link
+          to="/orders"
+          className="inline-flex h-10 items-center justify-center border border-border px-5 text-xs uppercase tracking-[0.15em] text-foreground transition-colors hover:bg-muted"
+          style={{ fontFamily: 'var(--font-sans)' }}
+        >
+          View Orders
+        </Link>
+      </section>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 max-w-3xl">
 
