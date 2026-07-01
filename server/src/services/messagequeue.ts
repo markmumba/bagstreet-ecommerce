@@ -1,8 +1,12 @@
 import amqp from 'amqplib';
 import { env } from '../config/env';
 import {
+    sendAdminOrderConfirmedEmail,
+    sendCustomerAccountSetupEmail,
     sendInviteEmail,
+    sendLowStockEmail,
     sendOrderConfirmationEmail,
+    sendPaymentFailedEmail,
     sendPasswordResetEmail,
 } from '../lib/email';
 
@@ -11,11 +15,13 @@ const DLQ = 'email.dlq';
 
 export type EmailJob =
     | { type: 'INVITE'; to: string; name: string; inviteUrl: string }
+    | { type: 'CUSTOMER_ACCOUNT_SETUP'; to: string; name: string; setupUrl: string }
     | {
         type: 'ORDER_CONFIRMATION';
         to: string;
         name: string;
         orderId: number;
+        orderRef?: string;
         items: {
             product_name: string;
             variant_size?: string | null;
@@ -25,8 +31,30 @@ export type EmailJob =
             subtotal: number;
         }[];
         totalAmount: number;
-        shippingAddress: { full_name: string; address_line1: string; city: string; county?: string };
+        shippingAddress: { full_name: string; address_line1: string; city: string; county?: string; state?: string };
+        confirmReceivedUrl: string;
     }
+    | {
+        type: 'LOW_STOCK_ALERT';
+        to: string;
+        name: string;
+        productName: string;
+        variantLabel: string;
+        stock: number;
+        threshold: number;
+    }
+    | {
+        type: 'ADMIN_ORDER_CONFIRMED';
+        to: string;
+        name: string;
+        orderId: number;
+        orderRef?: string;
+        customerName: string;
+        customerPhone: string;
+        totalAmount: number;
+        itemCount: number;
+    }
+    | { type: 'PAYMENT_FAILED'; to: string; name: string; orderId: number; orderRef?: string; reason?: string | null }
     | { type: 'PASSWORD_RESET'; to: string; name: string; resetUrl: string };
 
 let channel: amqp.Channel | null = null;
@@ -56,11 +84,38 @@ async function handleJob(job: EmailJob): Promise<void> {
         case 'INVITE':
             await sendInviteEmail(job.to, job.name, job.inviteUrl);
             break;
+        case 'CUSTOMER_ACCOUNT_SETUP':
+            await sendCustomerAccountSetupEmail(job.to, job.name, job.setupUrl);
+            break;
         case 'ORDER_CONFIRMATION':
             await sendOrderConfirmationEmail(
-                job.to, job.name, job.orderId,
-                job.items, job.totalAmount, job.shippingAddress
+                job.to,
+                job.name,
+                job.orderId,
+                job.items,
+                job.totalAmount,
+                job.shippingAddress,
+                job.confirmReceivedUrl,
+                job.orderRef,
             );
+            break;
+        case 'LOW_STOCK_ALERT':
+            await sendLowStockEmail(job.to, job.name, job.productName, job.variantLabel, job.stock, job.threshold);
+            break;
+        case 'ADMIN_ORDER_CONFIRMED':
+            await sendAdminOrderConfirmedEmail(
+                job.to,
+                job.name,
+                job.orderId,
+                job.orderRef,
+                job.customerName,
+                job.customerPhone,
+                job.totalAmount,
+                job.itemCount,
+            );
+            break;
+        case 'PAYMENT_FAILED':
+            await sendPaymentFailedEmail(job.to, job.name, job.orderId, job.reason, job.orderRef);
             break;
         case 'PASSWORD_RESET':
             await sendPasswordResetEmail(job.to, job.name, job.resetUrl);

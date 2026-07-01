@@ -1,13 +1,19 @@
 import { createFileRoute, useNavigate, Link } from '@tanstack/react-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { z } from 'zod';
 import { useCart, useClearCart } from '@/hooks/useCart';
-import { useConfirmMpesaPayment, usePlaceOrder, useResendMpesaPrompt } from '@/hooks/useOrders';
+import { useCheckPesapalPayment, useCompleteDevPayment, useInitiatePesapalPayment, usePlaceOrder } from '@/hooks/useOrders';
 import { useAuth } from '@/context/AuthContext';
 import { useActiveShippingLocations } from '@/hooks/useShipping';
 import { useFreeDeliveryThreshold, useValidateDiscountCode } from '@/hooks/usePromotions';
+import { useSeo } from '@/hooks/useSeo';
 import { PAYMENT_STATUS } from 'shared';
 
 export const Route = createFileRoute('/checkout')({
+  validateSearch: z.object({
+    payment: z.enum(['paid', 'pending', 'failed']).optional(),
+    order_id: z.string().optional(),
+  }),
   component: CheckoutPage,
 });
 
@@ -18,17 +24,25 @@ function formatPrice(price: number) {
 function CheckoutPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const search = Route.useSearch();
+  useSeo({
+    title: 'Checkout',
+    description: 'Complete your Bagstreet order with guest checkout and secure Pesapal payment.',
+    canonicalPath: '/checkout',
+  });
   const { data: cartRes } = useCart();
   const clearCart = useClearCart();
   const placeOrder = usePlaceOrder();
-  const resendPrompt = useResendMpesaPrompt();
-  const confirmPayment = useConfirmMpesaPayment();
+  const initiatePayment = useInitiatePesapalPayment();
+  const confirmPayment = useCheckPesapalPayment();
+  const completeDevPayment = useCompleteDevPayment();
   const { data: locationsRes } = useActiveShippingLocations();
   const { data: thresholdRes } = useFreeDeliveryThreshold();
   const validateDiscount = useValidateDiscountCode();
 
   const [form, setForm] = useState({
     full_name: user?.full_name ?? '',
+    email: user?.email ?? '',
     phone: '',
     address_line1: '',
     address_line2: '',
@@ -37,12 +51,24 @@ function CheckoutPage() {
     notes: '',
   });
   const [shippingLocationId, setShippingLocationId] = useState('');
-  const [paymentStep, setPaymentStep] = useState<'form' | 'prompt' | 'fallback' | 'paid'>('form');
-  const [pendingOrder, setPendingOrder] = useState<{ id: number; total: number } | null>(null);
-  const [paymentMessage, setPaymentMessage] = useState('');
+  const initialReturnOrderId = search.order_id ? Number(search.order_id) : NaN;
+  const hasNumericReturnOrderId = Number.isFinite(initialReturnOrderId);
+  const hasPaymentReturn = Boolean(search.payment && search.order_id);
+  const [paymentStep, setPaymentStep] = useState<'form' | 'payment' | 'paid'>(
+    search.payment === 'paid' ? 'paid' : hasPaymentReturn ? 'payment' : 'form'
+  );
+  const [pendingOrder, setPendingOrder] = useState<{ id: number; publicId?: string; orderNumber?: string; total: number; reference?: string | null } | null>(
+    hasPaymentReturn ? { id: hasNumericReturnOrderId ? initialReturnOrderId : 0, publicId: search.order_id, total: 0 } : null
+  );
+  const [paymentMessage, setPaymentMessage] = useState(() => {
+    if (search.payment === 'failed') return 'Payment was not completed. You can retry checkout or contact us if you already paid.';
+    if (search.payment === 'pending') return 'Payment is still pending. We will email you once Pesapal confirms it.';
+    return '';
+  });
   const [discountCode, setDiscountCode] = useState('');
   const [discountPreview, setDiscountPreview] = useState<{ code: string; discount_amount: number; message: string } | null>(null);
   const [discountMessage, setDiscountMessage] = useState('');
+  const [clearedReturnCart, setClearedReturnCart] = useState(false);
 
   const cart = (cartRes?.data as any);
   const items = cart?.items ?? [];
@@ -56,32 +82,72 @@ function CheckoutPage() {
   const qualifiesForFreeDelivery = freeDeliveryThreshold > 0 && subtotalAfterDiscount >= freeDeliveryThreshold;
   const deliveryCost = selectedLocation ? (qualifiesForFreeDelivery ? 0 : selectedLocation.price) : 0;
   const grandTotal = subtotalAfterDiscount + deliveryCost;
-  const tillNumber = import.meta.env.VITE_MPESA_TILL_NUMBER || 'Configure till number';
+  const showDevFinish = import.meta.env.DEV;
 
   const set = (k: string, v: string) => setForm((f) => ({ ...f, [k]: v }));
+
+  useEffect(() => {
+    const returnedOrderId = search.order_id ? Number(search.order_id) : NaN;
+    if (!search.payment || !search.order_id) return;
+
+    setPendingOrder((current) => current ?? {
+      id: Number.isFinite(returnedOrderId) ? returnedOrderId : 0,
+      publicId: search.order_id,
+      total: 0,
+    });
+    setPaymentStep(search.payment === 'paid' ? 'paid' : 'payment');
+
+    if (search.payment === 'paid' && !clearedReturnCart) {
+      clearCart.mutate();
+      setClearedReturnCart(true);
+      setPaymentMessage('');
+      return;
+    }
+
+    setPaymentMessage(
+      search.payment === 'failed'
+        ? 'Payment was not completed. You can retry checkout or contact us if you already paid.'
+        : 'Payment is still pending. We will email you once Pesapal confirms it.'
+    );
+  }, [clearCart, clearedReturnCart, search.order_id, search.payment]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!shippingLocationId) return;
 
-    const { notes, ...address } = form;
+    const { notes, county, ...addressFields } = form;
+    const address = {
+      ...addressFields,
+      state: county.trim(),
+      postal_code: '',
+      country: 'Kenya',
+      phone: form.phone,
+    };
     try {
       const res = await placeOrder.mutateAsync({
         items: items.map((i: any) => ({ variant_id: i.variant_id, quantity: i.quantity })),
         shipping_address: address,
         shipping_location_id: parseInt(shippingLocationId, 10),
         phone: form.phone,
+        email: form.email,
         discount_code: discountCode.trim() || undefined,
         notes: notes || undefined,
       });
       const order = res.data;
-      setPendingOrder(order ? { id: Number(order.id), total: order.total_amount } : null);
+      if (order?.payment_redirect_url) {
+        window.location.assign(order.payment_redirect_url);
+        return;
+      }
+      setPendingOrder(order ? {
+        id: Number(order.id),
+        publicId: order.public_id,
+        orderNumber: order.order_number,
+        total: order.total_amount,
+        reference: order.payment_reference,
+      } : null);
       clearCart.mutate();
-      setPaymentStep('prompt');
-      setPaymentMessage('');
-      setTimeout(() => {
-        setPaymentStep((step) => (step === 'prompt' ? 'fallback' : step));
-      }, 30000);
+      setPaymentStep('payment');
+      setPaymentMessage('Payment is pending. Continue to Pesapal or use the development finish button.');
     } catch {
       // error shown below
     }
@@ -92,7 +158,7 @@ function CheckoutPage() {
     setDiscountPreview(null);
     if (!discountCode.trim()) return;
     if (!form.phone.trim()) {
-      setDiscountMessage('Enter your M-Pesa phone number before applying a code.');
+      setDiscountMessage('Enter your phone number before applying a code.');
       return;
     }
 
@@ -117,18 +183,18 @@ function CheckoutPage() {
     }
   };
 
-  const handleResendPrompt = async () => {
+  const handleContinuePayment = async () => {
     if (!pendingOrder) return;
     setPaymentMessage('');
     try {
-      await resendPrompt.mutateAsync({ order_id: pendingOrder.id, phone: form.phone });
-      setPaymentStep('prompt');
-      setPaymentMessage('A new M-Pesa prompt has been sent to your phone.');
-      setTimeout(() => {
-        setPaymentStep((step) => (step === 'prompt' ? 'fallback' : step));
-      }, 30000);
+      const res = await initiatePayment.mutateAsync({ order_id: pendingOrder.id, phone: form.phone, email: form.email });
+      if (res.data?.payment_redirect_url) {
+        window.location.assign(res.data.payment_redirect_url);
+        return;
+      }
+      setPaymentMessage('Payment is pending. Please try again shortly.');
     } catch (err: any) {
-      setPaymentMessage(err?.message || 'We could not resend the prompt. Please try again shortly.');
+      setPaymentMessage(err?.message || 'We could not start payment. Please try again shortly.');
     }
   };
 
@@ -136,7 +202,12 @@ function CheckoutPage() {
     if (!pendingOrder) return;
     setPaymentMessage('');
     try {
-      const res = await confirmPayment.mutateAsync({ order_id: pendingOrder.id, phone: form.phone });
+      const res = await confirmPayment.mutateAsync({
+        order_id: pendingOrder.id,
+        order_tracking_id: pendingOrder.reference ?? undefined,
+        phone: form.phone,
+        email: form.email,
+      });
       if (res.data?.status === PAYMENT_STATUS.PAID) {
         setPaymentStep('paid');
         return;
@@ -147,58 +218,60 @@ function CheckoutPage() {
     }
   };
 
-  if (paymentStep === 'prompt' || paymentStep === 'fallback' || paymentStep === 'paid') {
+  const handleDevFinish = async () => {
+    if (!pendingOrder) return;
+    setPaymentMessage('');
+    try {
+      await completeDevPayment.mutateAsync({ order_id: pendingOrder.id, phone: form.phone });
+      setPaymentStep('paid');
+    } catch (err: any) {
+      setPaymentMessage(err?.message || 'We could not complete the development payment.');
+    }
+  };
+
+  if (paymentStep === 'payment' || paymentStep === 'paid') {
+    const isReturnedFromPesapal = Boolean(search.payment && pendingOrder);
     return (
-      <div className="max-w-xl mx-auto px-4 py-20">
+      <div className="max-w-xl mx-auto px-4 py-24">
         <div className="rounded-2xl border border-border bg-card p-6 text-center shadow-sm">
           {paymentStep === 'paid' ? (
             <div className="space-y-4">
               <p className="text-xs font-semibold uppercase tracking-wide text-primary">Payment confirmed</p>
               <h2 className="text-2xl font-semibold">Your order is confirmed</h2>
               <p className="text-sm text-muted-foreground">
-                We have received your M-Pesa payment for order #{pendingOrder?.id}.
+                We have received your payment for order {pendingOrder?.orderNumber ?? pendingOrder?.publicId ?? `#${pendingOrder?.id}`}.
               </p>
               <button
-                onClick={() => navigate({ to: user ? '/orders' : '/' })}
+                onClick={() => {
+                  if (user && pendingOrder) {
+                    navigate({ to: '/orders/$orderId', params: { orderId: pendingOrder.publicId ?? String(pendingOrder.id) } });
+                    return;
+                  }
+                  navigate({ to: user ? '/orders' : '/' });
+                }}
                 className="inline-flex h-10 items-center justify-center rounded-md bg-primary px-5 text-sm font-medium text-primary-foreground hover:opacity-90"
               >
-                {user ? 'View My Orders' : 'Continue Shopping'}
+                {user ? 'View Order' : 'Continue Shopping'}
               </button>
             </div>
           ) : (
             <div className="space-y-5">
               <div className="space-y-2">
                 <p className="text-xs font-semibold uppercase tracking-wide text-primary">
-                  Order #{pendingOrder?.id}
+                  Order {pendingOrder?.orderNumber ?? pendingOrder?.publicId ?? `#${pendingOrder?.id}`}
                 </p>
-                <h2 className="text-2xl font-semibold">
-                  {paymentStep === 'prompt' ? 'Check your phone' : 'Complete your payment'}
-                </h2>
+                <h2 className="text-2xl font-semibold">Complete your payment</h2>
                 <p className="text-sm text-muted-foreground">
-                  We sent an M-Pesa prompt to <strong>{form.phone}</strong> for{' '}
-                  <strong>{formatPrice(pendingOrder?.total ?? grandTotal)}</strong>.
+                  {isReturnedFromPesapal
+                    ? 'We have your order and are waiting for final payment confirmation.'
+                    : (
+                      <>
+                        Continue to Pesapal to pay <strong>{formatPrice(pendingOrder?.total ?? grandTotal)}</strong>{' '}
+                        securely using the available payment methods.
+                      </>
+                    )}
                 </p>
               </div>
-
-              {paymentStep === 'fallback' && (
-                <div className="rounded-xl border border-dashed border-border bg-muted/30 p-4 text-left">
-                  <p className="text-sm font-semibold">Manual M-Pesa payment</p>
-                  <dl className="mt-3 grid grid-cols-2 gap-3 text-sm">
-                    <div>
-                      <dt className="text-muted-foreground">Till number</dt>
-                      <dd className="font-semibold">{tillNumber}</dd>
-                    </div>
-                    <div>
-                      <dt className="text-muted-foreground">Amount</dt>
-                      <dd className="font-semibold">{formatPrice(pendingOrder?.total ?? grandTotal)}</dd>
-                    </div>
-                    <div className="col-span-2">
-                      <dt className="text-muted-foreground">Reference</dt>
-                      <dd className="font-semibold">Order #{pendingOrder?.id} or {form.phone}</dd>
-                    </div>
-                  </dl>
-                </div>
-              )}
 
               {paymentMessage && (
                 <p className="rounded-xl bg-muted px-3 py-2 text-sm text-muted-foreground">
@@ -207,20 +280,40 @@ function CheckoutPage() {
               )}
 
               <div className="flex flex-col gap-2 sm:flex-row sm:justify-center">
-                <button
-                  onClick={handleResendPrompt}
-                  disabled={resendPrompt.isPending}
-                  className="inline-flex h-10 items-center justify-center rounded-md border border-border px-5 text-sm font-medium hover:bg-muted disabled:opacity-50"
-                >
-                  {resendPrompt.isPending ? 'Sending...' : 'Resend M-Pesa Prompt'}
-                </button>
-                <button
-                  onClick={handleConfirmPayment}
-                  disabled={confirmPayment.isPending}
-                  className="inline-flex h-10 items-center justify-center rounded-md bg-primary px-5 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
-                >
-                  {confirmPayment.isPending ? 'Checking...' : "I've Paid - Confirm"}
-                </button>
+                {isReturnedFromPesapal ? (
+                  <button
+                    onClick={() => navigate({ to: search.payment === 'failed' ? '/cart' : '/' })}
+                    className="inline-flex h-10 items-center justify-center rounded-md bg-primary px-5 text-sm font-medium text-primary-foreground hover:opacity-90"
+                  >
+                    {search.payment === 'failed' ? 'Return to Cart' : 'Continue Shopping'}
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      onClick={handleContinuePayment}
+                      disabled={initiatePayment.isPending}
+                      className="inline-flex h-10 items-center justify-center rounded-md border border-border px-5 text-sm font-medium hover:bg-muted disabled:opacity-50"
+                    >
+                      {initiatePayment.isPending ? 'Starting...' : 'Continue to Payment'}
+                    </button>
+                    <button
+                      onClick={handleConfirmPayment}
+                      disabled={confirmPayment.isPending}
+                      className="inline-flex h-10 items-center justify-center rounded-md bg-primary px-5 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
+                    >
+                      {confirmPayment.isPending ? 'Checking...' : 'Check Payment Status'}
+                    </button>
+                  </>
+                )}
+                {showDevFinish && !isReturnedFromPesapal && (
+                  <button
+                    onClick={handleDevFinish}
+                    disabled={completeDevPayment.isPending}
+                    className="inline-flex h-10 items-center justify-center rounded-md bg-[var(--color-success-bg)] px-5 text-sm font-medium text-[var(--color-success-text)] ring-1 ring-inset ring-[var(--color-success-border)] hover:opacity-90 disabled:opacity-50"
+                  >
+                    {completeDevPayment.isPending ? 'Finishing...' : 'Finish Development Order'}
+                  </button>
+                )}
               </div>
 
               {user && (
@@ -240,7 +333,7 @@ function CheckoutPage() {
 
   if (items.length === 0) {
     return (
-      <div className="max-w-2xl mx-auto px-4 py-20 text-center">
+      <div className="max-w-2xl mx-auto px-4 py-24 text-center">
         <h2 className="text-2xl font-semibold mb-4">Your cart is empty</h2>
         <Link to="/" className="inline-block bg-primary text-primary-foreground px-6 py-2.5 rounded-md text-sm font-medium">Shop now</Link>
       </div>
@@ -248,7 +341,7 @@ function CheckoutPage() {
   }
 
   return (
-    <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+    <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-24 sm:py-28">
       <h1 className="text-3xl font-bold mb-8">Checkout</h1>
 
       <form onSubmit={handleSubmit} className="grid grid-cols-1 lg:grid-cols-2 gap-10">
@@ -258,7 +351,8 @@ function CheckoutPage() {
 
           {[
             { key: 'full_name', label: 'Full Name', placeholder: 'Jane Doe', required: true },
-            { key: 'phone', label: 'M-Pesa Phone Number', placeholder: '0712 345 678', required: true },
+            { key: 'email', label: 'Email', placeholder: 'jane@example.com', required: true },
+            { key: 'phone', label: 'Phone Number', placeholder: '0712 345 678', required: true },
             { key: 'address_line1', label: 'Address', placeholder: '123 Kenyatta Ave', required: true },
             { key: 'address_line2', label: 'Apartment / Suite (optional)', placeholder: 'Apt 4B', required: false },
             { key: 'city', label: 'City', placeholder: 'Nairobi', required: true },
@@ -351,7 +445,7 @@ function CheckoutPage() {
           </div>
 
           <p className="text-xs text-muted-foreground mb-4 text-center">
-            You will receive an M-Pesa prompt on your phone to complete payment.
+            You will continue to Pesapal to complete payment securely.
           </p>
 
           <div className="mb-4 rounded-lg border border-border bg-muted/20 p-3">
@@ -392,7 +486,7 @@ function CheckoutPage() {
             disabled={placeOrder.isPending || !shippingLocationId}
             className="w-full bg-primary text-primary-foreground py-3 rounded-md text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50"
           >
-            {placeOrder.isPending ? 'Placing Order...' : 'Place Order & Pay via M-Pesa'}
+            {placeOrder.isPending ? 'Placing Order...' : 'Place Order & Continue to Payment'}
           </button>
 
           {placeOrder.isError && (

@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react';
 import type { ProductResponse } from 'shared';
-
-type Product = ProductResponse;
+import { ImageIcon, Star, X } from 'lucide-react';
 import { useCreateProduct, useUpdateProduct, useUpdateProductForm } from '@/hooks/useProducts';
 import { useCategoryTree } from '@/hooks/useCategories';
 import type { CategoryTreeNode } from 'shared';
+import { cn } from '@/lib/utils';
 import {
   Dialog,
   DialogContent,
@@ -24,10 +24,21 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 
+type Product = ProductResponse;
+
 interface ProductDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   product?: Product | null;
+}
+
+const maxImageSizeMb = 15;
+const maxImageCount = 8;
+const maxImageSizeBytes = maxImageSizeMb * 1024 * 1024;
+
+function formatFileSize(size: number) {
+  if (size >= 1024 * 1024) return `${(size / 1024 / 1024).toFixed(1)} MB`;
+  return `${Math.max(1, Math.round(size / 1024))} KB`;
 }
 
 export function ProductDialog({ open, onOpenChange, product }: ProductDialogProps) {
@@ -35,7 +46,10 @@ export function ProductDialog({ open, onOpenChange, product }: ProductDialogProp
   const [description, setDescription] = useState('');
   const [price, setPrice] = useState('');
   const [categoryId, setCategoryId] = useState('');
-  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imageFiles, setImageFiles] = useState<File[]>([]);
+  const [imagePreviewUrls, setImagePreviewUrls] = useState<string[]>([]);
+  const [imageInputKey, setImageInputKey] = useState(0);
+  const [imageError, setImageError] = useState('');
   const [isActive, setIsActive] = useState(true);
 
   const { data: categoryTree } = useCategoryTree();
@@ -52,31 +66,95 @@ export function ProductDialog({ open, onOpenChange, product }: ProductDialogProp
       setDescription(product.description || '');
       setPrice(product.price.toString());
       setCategoryId(product.category_id?.toString() || '');
-      setImageFile(null);
+      setImageFiles([]);
+      setImageInputKey((key) => key + 1);
+      setImageError('');
       setIsActive(product.is_active);
     } else {
       setName('');
       setDescription('');
       setPrice('');
       setCategoryId('');
-      setImageFile(null);
+      setImageFiles([]);
+      setImageInputKey((key) => key + 1);
+      setImageError('');
       setIsActive(true);
     }
   }, [product, open]);
 
+  useEffect(() => {
+    const urls = imageFiles.map((file) => URL.createObjectURL(file));
+    setImagePreviewUrls(urls);
+
+    return () => {
+      urls.forEach((url) => URL.revokeObjectURL(url));
+    };
+  }, [imageFiles]);
+
+  const clearSelectedImages = () => {
+    setImageFiles([]);
+    setImageInputKey((key) => key + 1);
+  };
+
+  const handleImageChange = (files: FileList | null) => {
+    setImageError('');
+    const nextFiles = Array.from(files ?? []);
+
+    if (nextFiles.length === 0) {
+      clearSelectedImages();
+      return;
+    }
+
+    if (nextFiles.length > maxImageCount) {
+      clearSelectedImages();
+      setImageError(`Choose up to ${maxImageCount} product images.`);
+      return;
+    }
+
+    const oversizedFile = nextFiles.find((file) => file.size > maxImageSizeBytes);
+    if (oversizedFile) {
+      clearSelectedImages();
+      setImageError(`Image must be ${maxImageSizeMb}MB or smaller.`);
+      return;
+    }
+
+    setImageFiles(nextFiles);
+  };
+
+  const removeSelectedImage = (indexToRemove: number) => {
+    setImageFiles((files) => {
+      const nextFiles = files.filter((_, index) => index !== indexToRemove);
+      if (nextFiles.length === 0) setImageInputKey((key) => key + 1);
+      return nextFiles;
+    });
+  };
+
+  const makePrimaryImage = (primaryIndex: number) => {
+    setImageFiles((files) => {
+      const selected = files[primaryIndex];
+      if (!selected) return files;
+      return [selected, ...files.filter((_, index) => index !== primaryIndex)];
+    });
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    if (!isEditing && imageFiles.length === 0) {
+      setImageError('Add at least one product image.');
+      return;
+    }
+
     try {
       if (isEditing) {
-        if (imageFile) {
-          // Image selected — use multipart update
+        if (imageFiles.length > 0) {
+          // Image selected: use multipart update.
           const formData = new FormData();
           formData.append('name', name.trim());
           formData.append('description', description.trim());
           formData.append('price', price);
           formData.append('is_active', String(isActive));
-          formData.append('image_file', imageFile);
+          imageFiles.forEach((file) => formData.append('image_files', file));
           await updateFormMutation.mutateAsync({ id: product.id, data: formData });
         } else {
           await updateMutation.mutateAsync({
@@ -92,7 +170,7 @@ export function ProductDialog({ open, onOpenChange, product }: ProductDialogProp
         formData.append('stock', '0');
         formData.append('category_id', categoryId);
         formData.append('is_active', String(isActive));
-        if (imageFile) formData.append('image_file', imageFile);
+        imageFiles.forEach((file) => formData.append('image_files', file));
         await createMutation.mutateAsync(formData);
       }
 
@@ -108,9 +186,18 @@ export function ProductDialog({ open, onOpenChange, product }: ProductDialogProp
     setDescription('');
     setPrice('');
     setCategoryId('');
-    setImageFile(null);
+    clearSelectedImages();
+    setImageError('');
     setIsActive(true);
   };
+
+  const submitLabel = isLoading
+    ? imageFiles.length > 0
+      ? imageFiles.length === 1 ? 'Optimizing image...' : 'Optimizing images...'
+      : 'Saving...'
+    : isEditing
+      ? 'Update'
+      : 'Create';
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -212,28 +299,109 @@ export function ProductDialog({ open, onOpenChange, product }: ProductDialogProp
             />
           </div>
 
-          <div className="space-y-2">
+          <div className="space-y-3">
+            <div className="space-y-1.5">
               <Label htmlFor="imageFile">
-                Image {!isEditing && <span className="text-destructive">*</span>}
-                {isEditing && <span className="text-muted-foreground font-normal"> (leave blank to keep current)</span>}
+                Product images {!isEditing && <span className="text-destructive">*</span>}
               </Label>
-              {isEditing && product?.image_url && !imageFile && (
-                <div className="h-16 w-16 overflow-hidden rounded-md bg-muted">
-                  <img src={product.image_url} alt="Current" className="h-full w-full object-cover" />
-                </div>
-              )}
-              <Input
-                id="imageFile"
-                type="file"
-                accept="image/jpeg,image/png,image/jpg,image/webp"
-                onChange={(e) => setImageFile(e.target.files?.[0] ?? null)}
-                required={!isEditing}
-                disabled={isLoading}
-              />
-              {imageFile && (
-                <p className="text-xs text-muted-foreground">{imageFile.name}</p>
-              )}
+              <p className="text-xs text-muted-foreground">
+                Add up to {maxImageCount} images. The first image is used as the main product image.
+                {isEditing ? ' Selecting new images replaces the current gallery.' : ''}
+              </p>
             </div>
+
+            {isEditing && (product?.images?.length || product?.image_url) && imageFiles.length === 0 && (
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-muted-foreground">Current gallery</p>
+                <div className="flex gap-2 overflow-x-auto rounded-lg border bg-muted/30 p-2">
+                  {(product.images?.length ? product.images : [{ id: 'primary', url: product.image_url }]).map((image, index) => (
+                    <div key={image.id} className="relative h-20 w-20 shrink-0 overflow-hidden rounded-lg bg-muted">
+                      <img src={image.url} alt={product.name} className="h-full w-full object-cover" />
+                      {index === 0 && (
+                        <span className="absolute left-1.5 top-1.5 rounded-md bg-background/90 px-1.5 py-0.5 text-[10px] font-medium text-foreground shadow-sm">
+                          Main
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <Input
+              key={imageInputKey}
+              id="imageFile"
+              type="file"
+              accept="image/jpeg,image/png,image/jpg,image/webp,image/heic,image/heif"
+              multiple
+              onChange={(e) => handleImageChange(e.target.files)}
+              required={!isEditing}
+              disabled={isLoading}
+            />
+
+            {imageFiles.length > 0 && (
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                {imageFiles.map((file, index) => (
+                  <div
+                    key={`${file.name}-${file.size}-${file.lastModified}`}
+                    className={cn(
+                      'group relative overflow-hidden rounded-lg border bg-background',
+                      index === 0 && 'border-primary shadow-sm'
+                    )}
+                  >
+                    <div className="aspect-square bg-muted">
+                      {imagePreviewUrls[index] ? (
+                        <img
+                          src={imagePreviewUrls[index]}
+                          alt={file.name}
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        <div className="flex h-full w-full items-center justify-center text-muted-foreground">
+                          <ImageIcon className="h-5 w-5" strokeWidth={1.7} />
+                        </div>
+                      )}
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => removeSelectedImage(index)}
+                      className="absolute right-1.5 top-1.5 flex h-7 w-7 items-center justify-center rounded-full bg-background/95 text-muted-foreground shadow-sm transition hover:text-destructive"
+                      aria-label={`Remove ${file.name}`}
+                      disabled={isLoading}
+                    >
+                      <X className="h-3.5 w-3.5" strokeWidth={1.9} />
+                    </button>
+
+                    {index === 0 ? (
+                      <span className="absolute left-1.5 top-1.5 inline-flex items-center gap-1 rounded-md bg-primary px-1.5 py-0.5 text-[10px] font-medium text-primary-foreground shadow-sm">
+                        <Star className="h-3 w-3 fill-current" strokeWidth={1.7} />
+                        Main
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => makePrimaryImage(index)}
+                        className="absolute left-1.5 top-1.5 rounded-md bg-background/95 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground opacity-0 shadow-sm transition hover:text-foreground group-hover:opacity-100 focus:opacity-100"
+                        disabled={isLoading}
+                      >
+                        Make main
+                      </button>
+                    )}
+
+                    <div className="space-y-0.5 p-2">
+                      <p className="truncate text-xs font-medium text-foreground" title={file.name}>
+                        {file.name}
+                      </p>
+                      <p className="text-[11px] text-muted-foreground">{formatFileSize(file.size)}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {imageError && <p className="text-xs text-destructive">{imageError}</p>}
+          </div>
 
           <div className="flex items-center space-x-2">
             <input
@@ -260,9 +428,9 @@ export function ProductDialog({ open, onOpenChange, product }: ProductDialogProp
             </Button>
             <Button
               type="submit"
-              disabled={isLoading || !name.trim() || !price || (!isEditing && !categoryId)}
+              disabled={isLoading || !!imageError || !name.trim() || !price || (!isEditing && (!categoryId || imageFiles.length === 0))}
             >
-              {isLoading ? 'Saving...' : isEditing ? 'Update' : 'Create'}
+              {submitLabel}
             </Button>
           </div>
         </form>

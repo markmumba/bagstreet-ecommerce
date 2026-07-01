@@ -10,7 +10,7 @@
 
 BagStreet is a Nairobi-based fashion accessories ecommerce platform specialising in handbags, shoes, scarves, wallets, and belts. The business currently operates via Instagram DMs and dispatches a bike messenger to deliver within one hour of an order being placed.
 
-This platform replaces the manual Instagram workflow with a self-serve storefront while preserving the same same-day delivery model. Customers browse, checkout with a phone number only (no account required), and pay via M-Pesa STK Push. Staff manage orders and manually co-ordinate rider dispatch.
+This platform replaces the manual Instagram workflow with a self-serve storefront while preserving the same same-day delivery model. Customers browse, checkout with contact details only (no account required), and pay via Pesapal hosted checkout. Staff manage orders and manually co-ordinate rider dispatch.
 
 ---
 
@@ -19,8 +19,8 @@ This platform replaces the manual Instagram workflow with a self-serve storefron
 | Current pain point | Impact |
 |---|---|
 | Orders managed manually via Instagram DM | No order history, inventory visibility, or audit trail |
-| No structured payment collection | Cash/manual M-Pesa send; no automated confirmation |
-| Stock tracked in spreadsheets or memory | Overselling, no low-stock alerts |
+| No structured payment collection | Cash/manual Pesapal send; no automated confirmation |
+| Stock tracked in spreadsheets or memory | Overselling, no product-level stock health, no low-stock email alerts |
 | No way to run promotions at scale | Promo codes shared on Instagram but honoured manually |
 | All communication is 1-to-1 DMs | Doesn't scale; owner spends hours in chat |
 
@@ -30,7 +30,7 @@ This platform replaces the manual Instagram workflow with a self-serve storefron
 
 ### Business goals
 - Convert Instagram browsers into paying customers with ≤3 taps from product page to order placed
-- Eliminate manual payment reconciliation via automated M-Pesa STK Push
+- Eliminate manual payment reconciliation via automated Pesapal hosted checkout
 - Give staff real-time inventory visibility to prevent overselling
 - Enable promotion campaigns with single-use discount codes
 
@@ -39,7 +39,7 @@ This platform replaces the manual Instagram workflow with a self-serve storefron
 |---|---|
 | Orders placed via platform | ≥ 50% of total orders |
 | Checkout completion rate | ≥ 60% |
-| Payment success rate (M-Pesa) | ≥ 80% |
+| Payment success rate (Pesapal) | ≥ 80% |
 | Average time from order to dispatch | ≤ 15 min |
 
 ---
@@ -49,7 +49,7 @@ This platform replaces the manual Instagram workflow with a self-serve storefron
 ### 4.1 Shopper (primary)
 - Female, 20–40, Nairobi
 - Follows BagStreet on Instagram; discovers products there
-- Has M-Pesa on their phone
+- Can pay through Pesapal-supported methods such as mobile money or card
 - Wants to buy without creating an account
 - Expects delivery within the hour
 
@@ -80,25 +80,25 @@ This platform replaces the manual Instagram workflow with a self-serve storefron
     │  select size / colour
     ▼
 [Add to Bag]  ──►  [Bag (cart) page]
-    │  enter phone + name
+    │  enter name + email + phone
     ▼
 [Checkout]
     ├── select delivery location (shipping zone)
     ├── apply promo code (optional)
     ├── review: subtotal + shipping + discount = TOTAL
     ▼
-[Place Order & Pay via M-Pesa]
-    │  STK Push sent to phone
+[Place Order & Pay via Pesapal]
+    │  redirected to hosted checkout
     ▼
-[Customer approves on phone]
+[Customer completes payment]
     │
-    ▼  (M-Pesa callback received)
+    ▼  (Pesapal callback received)
 [Order CONFIRMED]
     │
-    ├── SMS confirmation sent (Africa's Talking)
+    ├── email confirmation sent (transactional email)
     └── Admin dashboard shows new order (bell / SSE)
 
-[Staff sees order]  →  calls rider  →  marks DISPATCHED / DELIVERED
+[Staff sees order]  →  calls rider  →  customer/admin marks RECEIVED
 ```
 
 ### 5.2 Admin Order Management Flow
@@ -110,14 +110,19 @@ This platform replaces the manual Instagram workflow with a self-serve storefron
 [Orders page — PENDING filter]
     │
     ├── View order details (items, customer phone, address, total, discount applied)
-    ├── Update status: PENDING → CONFIRMED → PROCESSING → SHIPPED → DELIVERED
+    ├── Update status: PENDING → CONFIRMED → RECEIVED / CANCELLED / REFUNDED
     └── Cancel order (stock restored automatically)
 
 [Products page]
     ├── Add product (image, price, category)
     ├── Manage variants (size, colour, stock, SKU)
     ├── Set flash sale: sale price + optional end date per product
+    ├── Show product-level stock badge: red "low" when any variant needs attention, green "high" when healthy
+    ├── Send admin/manager email when a variant reaches low stock
     └── Low-stock alert widget on dashboard
+
+[Notifications]
+    └── Clicking a notification opens the relevant admin page, e.g. orders or products
 
 [Promotions page]
     ├── Promo codes tab
@@ -132,12 +137,12 @@ This platform replaces the manual Instagram workflow with a self-serve storefron
 ### 5.3 Payment Failure + Retry Flow
 
 ```
-[STK Push sent → customer on "waiting for payment" screen]
+[hosted checkout started → customer is sent to Pesapal]
     │
-    ├── A) Customer approves on phone
-    │         └── Safaricom callback → order CONFIRMED → success screen ✓
+    ├── A) Customer completes payment
+    │         └── Pesapal callback/IPN → order CONFIRMED → success screen ✓
     │
-    └── B) No approval within ~60s (timeout, dismissed, no signal)
+    └── B) Payment is cancelled, fails, or is still pending
               │
               ▼
     [Payment fallback screen]
@@ -145,14 +150,10 @@ This platform replaces the manual Instagram workflow with a self-serve storefron
     │  Payment not completed                   │
     │                                          │
     │  Option 1:                               │
-    │  [Resend M-Pesa Prompt to 07XX]          │  ← new STK Push, same order
+    │  [Continue to Pesapal]                    │  ← resumes or creates hosted checkout
     │                                          │
-    │  Option 2: Pay manually via M-Pesa menu  │
-    │  ┌────────────────────────────────┐      │
-    │  │  Till No:  123456              │      │
-    │  │  Amount:   KES 3,500           │      │
-    │  │  Ref:      Your phone number   │      │
-    │  └────────────────────────────────┘      │
+    │  Option 2:                               │
+    │  [Check payment status]                  │
     │                                          │
     │  [I've paid — Confirm ▸]                 │
     └──────────────────────────────────────────┘
@@ -160,29 +161,22 @@ This platform replaces the manual Instagram workflow with a self-serve storefron
     [Confirm button pressed]
               │
               ▼
-    Server: QuerySTKPushStatus (CheckoutRequestID)
+    Server: GetTransactionStatus (OrderTrackingId)
               │
               ├── COMPLETED → mark PAID/CONFIRMED → success screen ✓
               │
               ├── Still PENDING → "Not received yet, try again in a moment"
               │                    (button re-enables after 5s)
               │
-              └── FAILED/CANCELLED (customer paid till manually)
-                        │
-                        ▼
-              Server: check C2B records (phone + amount, last 15 min)
-                        │
-                        ├── C2B match found → mark PAID/CONFIRMED → success ✓
-                        │
-                        └── No match → "Payment not yet detected.
-                                        Our team will confirm shortly."
-                                        (order stays PENDING/UNPAID,
-                                         staff confirms manually in admin)
+              └── FAILED/CANCELLED → show failure message
+                                      (order stays PENDING/UNPAID,
+                                       customer can retry hosted checkout
+                                       or staff can confirm manually)
 ```
 
 ### 5.4 Staff Manual Confirmation Flow
 
-For the edge case where the customer paid to the till but the C2B match wasn't found (timing issue, wrong reference):
+For the edge case where Pesapal shows payment success but the automated callback/IPN was delayed or missed:
 
 ```
 [Admin orders page]
@@ -191,7 +185,7 @@ For the edge case where the customer paid to the till but the C2B match wasn't f
           │
           └── Order detail sheet → [Mark as Paid] button (admin/manager only)
                     └── Sets payment_status = PAID, status = CONFIRMED
-                        Triggers order confirmation SMS to customer
+                        Triggers order confirmation email to customer
 ```
 
 ---
@@ -205,14 +199,14 @@ For the edge case where the customer paid to the till but the C2B match wasn't f
 | S1 | Product listing with category + subcategory filter | Must |
 | S2 | Product detail page: images, price, size/colour variants, stock badge | Must |
 | S3 | Shopping bag (persistent via localStorage) | Must |
-| S4 | Guest checkout: name + phone (no account) | Must |
+| S4 | Guest checkout: name + email + phone (no account) | Must |
 | S5 | Delivery location selector (flat-rate zones) | Must |
 | S6 | Promo code field at checkout | Must |
-| S7 | M-Pesa STK Push payment | Must |
-| S7a | Payment fallback screen: till number + resend prompt button | Must |
-| S7b | "Confirm" button polling payment status (QuerySTKPushStatus → C2B fallback) | Must |
+| S7 | Pesapal hosted checkout payment | Must |
+| S7a | Payment fallback screen: continue payment + check status buttons | Must |
+| S7b | "Check status" button polling Pesapal GetTransactionStatus | Must |
 | S8 | Post-payment confirmation page | Must |
-| S9 | SMS order confirmation via Africa's Talking | Must |
+| S9 | Email order confirmation and payment-failure notice via transactional email | Must |
 | S10 | Out-of-stock variant UI (disabled, labelled) | Must |
 | S11 | Featured products section on home | Should |
 | S12 | Mobile-first responsive design | Must |
@@ -227,17 +221,21 @@ For the edge case where the customer paid to the till but the C2B match wasn't f
 | A1 | Secure login (JWT, invite-only) | Must |
 | A2 | Dashboard: KPI cards, revenue chart, order status chart, low-stock table | Must |
 | A3 | Orders: list, filter by status, view detail sheet, update status | Must |
+| A3a | Order lifecycle: unpaid `PENDING`, paid `CONFIRMED`, customer/admin-confirmed `RECEIVED`, plus `CANCELLED` and `REFUNDED` | Must |
 | A3a | Orders: "Mark as Paid" action for PENDING/UNPAID orders (admin/manager) | Must |
 | A4 | Orders: export to CSV | Must |
 | A5 | Products: CRUD, image upload, category assignment | Must |
 | A6 | Product variants: size/colour/stock/SKU management | Must |
+| A6a | Product list: stock-health badge showing red `low` when any active variant is low/out, green `high` when all active variants are healthy | Must |
+| A6b | Low-stock email alert to active admins/managers when checkout reduces a variant to or below threshold | Must |
 | A7 | Stock adjustment with reason + audit log | Must |
 | A8 | Categories: hierarchical (parent → subcategory) | Must |
 | A9 | Shipping locations: CRUD, flat-rate prices | Must |
 | A10 | Promotions: promo codes, free delivery threshold, flash sales | Must |
+| A10a | Promo-code generator button for faster admin code creation | Should |
 | A11 | User management: invite staff, assign roles | Must |
 
-### 6.3 Promotions (new — not yet built)
+### 6.3 Promotions
 
 Three distinct promotion types, managed from a single `/promotions` page in the admin dashboard.
 
@@ -286,7 +284,7 @@ orders                   — customer orders
 order_items              — variant + qty + price snapshot per order line
 cart_items               — guest session carts (keyed by session or user)
 shipping_locations       — delivery zones with flat prices
-mpesa_transactions       — STK Push records per order
+payment_transactions       — hosted checkout records per order
 ```
 
 ### New tables (MVP additions)
@@ -347,7 +345,7 @@ ALTER TABLE orders ADD COLUMN IF NOT EXISTS customer_name    VARCHAR(100);
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS customer_phone   VARCHAR(20);
 ```
 
-> **Note**: `customer_name` and `customer_phone` may already be present from the M-Pesa guest checkout flow — confirm before altering.
+> **Note**: `customer_name` and `customer_phone` may already be present from the Pesapal guest checkout flow — confirm before altering.
 
 ### Effective price logic (order of precedence)
 
@@ -379,7 +377,7 @@ categories (hierarchical)
     └── products (sale_price, sale_ends_at)
             └── product_variants ──── inventory_movements
                     │
-                    └── order_items ──── orders ──── mpesa_transactions
+                    └── order_items ──── orders ──── payment_transactions
                                             │         (discount_code, discount_amount)
                                             ├── shipping_locations
                                             ├── discount_codes ─── discount_code_usages
@@ -399,8 +397,8 @@ categories (hierarchical)
 | Database | PostgreSQL | via `bun:sql` |
 | Object storage | MinIO | Product images |
 | Message queue | RabbitMQ | Email jobs |
-| Payments | M-Pesa Daraja | STK Push + IPN callback |
-| SMS | Africa's Talking | Order confirmation SMS |
+| Payments | Pesapal API 3.0 | Hosted checkout + callback/IPN + status verification |
+| Notifications | Email | Customer and staff transactional email |
 | Admin frontend | React + TanStack Router + TanStack Query | |
 | Storefront | React + TanStack Router + TanStack Query | Mobile-first |
 | Shared types | TypeScript monorepo (`shared/`) | Compiled to `shared/dist` |
@@ -417,7 +415,7 @@ bagstreet-ecommerce/
 │       │   ├── cart/
 │       │   ├── categories/
 │       │   ├── discounts/        ← NEW
-│       │   ├── notifications/    ← extend with SMS
+│       │   ├── notifications/
 │       │   ├── orders/
 │       │   ├── payments/
 │       │   ├── products/
@@ -426,11 +424,11 @@ bagstreet-ecommerce/
 │       ├── lib/
 │       │   ├── db.ts
 │       │   ├── email.ts
-│       │   ├── sms.ts            ← NEW (Africa's Talking)
+│       │   ├── phone.ts
 │       │   └── inventory.ts
 │       └── services/
 │           ├── messagequeue.ts
-│           └── mpesa.ts
+│           └── pesapal.ts
 ├── client/               ← Admin dashboard
 ├── storefront/           ← Customer storefront
 └── shared/               ← Shared TypeScript types
@@ -439,56 +437,46 @@ bagstreet-ecommerce/
 ### Auth model
 
 - Staff/admin: JWT (email/password, invite-only registration)
-- Customers: **no auth** — guest checkout by phone number
+- Customers: **no auth** — guest checkout by email + phone
 - Roles: `ADMIN`, `MANAGER`, `STAFF`
 
 ### Payment flow — happy path (sequence)
 
 ```
-Customer          Storefront        Server           M-Pesa         Africa's Talking
+Customer          Storefront        Server           Pesapal         transactional email
     │──Place Order──►│                │                │                │
     │               │──POST /orders──►│                │                │
-    │               │                │──STK Push──────►│                │
-    │               │◄──order:PENDING─│                │                │
-    │◄─"Check phone"─│                │                │                │
-    │──Approve on phone──────────────────────────────►│                │
-    │               │                │◄──STK Callback──│                │
+    │               │                │──SubmitOrderRequest──►│                │
+    │               │◄──redirect URL──│                │                │
+    │──Hosted checkout──────────────────────────────►│                │
+    │──Completes payment────────────────────────────►│                │
+    │               │                │◄──callback/IPN────────│
     │               │                │──markOrderPaid  │                │
-    │               │                │──Send SMS────────────────────────►│
+    │               │                │──Send email────────────────────────►│
     │               │◄──SSE push──────│                │                │
     │◄──"Order confirmed"─│           │                │                │
-    │◄──SMS confirmation──────────────────────────────────────────────────│
+    │◄──email confirmation──────────────────────────────────────────────────│
 ```
 
 ### Payment flow — failure + retry (sequence)
 
 ```
-Customer          Storefront        Server           M-Pesa (STK)   M-Pesa (C2B)
-    │               │                │                │                │
-    │  [dismisses prompt / times out]│                │                │
-    │◄──Fallback screen──│           │                │                │
-    │                    │           │                │                │
-    │──[Resend prompt]──►│           │                │                │
-    │               │──POST /payments/mpesa/resend───►│                │
-    │               │◄──new CheckoutRequestID─────────│                │
-    │──Approve──────────────────────────────────────►│                │
-    │               │                │◄──STK Callback──│                │
-    │               │                │──markOrderPaid ──────────────────►(SMS)
-    │◄──"Order confirmed"─────────────│                │                │
-    │                                │                │                │
-    │  [OR: pays to till manually]   │                │                │
-    │──[Confirm button]─►│           │                │                │
-    │               │──GET /payments/mpesa/status/:id►│                │
-    │               │                │──QuerySTKStatus►│               │
-    │               │                │  (FAILED)       │               │
-    │               │                │────────────────────────────────►│ check C2B
-    │               │                │◄─────────────── C2B match found─│
-    │               │                │──markOrderPaid                  │
-    │◄──"Order confirmed"─────────────│                                 │
-    │                                │                                 │
-    │  [OR: C2B not found yet]       │                                 │
-    │◄──"Not detected yet, retry"─────│                                │
-    │               │                │         (staff confirms manually)│
+Customer          Storefront        Server           Pesapal         Email
+    │               │                │                │              │
+    │  [cancels / payment pending]   │                │              │
+    │◄──Fallback screen──│           │                │              │
+    │                    │           │                │              │
+    │──[Continue payment]►│           │                │              │
+    │               │──POST /payments/pesapal/initiate►│              │
+    │               │◄──redirect URL or pending status│              │
+    │──Hosted checkout──────────────────────────────►│              │
+    │               │                │◄──callback/IPN────────│        │
+    │               │                │──GetTransactionStatus►│        │
+    │               │                │◄──COMPLETED/FAILED────│        │
+    │               │                │──mark paid or failed           │
+    │               │                │──send confirmation/failure────►│
+    │◄──"Order confirmed" or "Payment pending"───────│              │
+    │               │                │         (staff confirms manually only when needed)
 ```
 
 ---
@@ -529,57 +517,88 @@ Body: {
   items: [{ variant_id, quantity }],
   shipping_location_id: number,
   customer_name: string,
-  phone: string,                  // used for M-Pesa + SMS
+  email: string,                  // used for transactional email
+  phone: string,                  // used for Pesapal billing/contact details
   discount_code?: string
 }
 Response: {
   order: OrderResponse,           // payment_status: 'UNPAID', discount_amount included
-  message: "Check your phone for M-Pesa prompt"
+  message: "Continue to secure payment"
 }
 ```
 
 ### Payment retry + status endpoints
 
 ```
--- Resend STK Push to same phone for an existing UNPAID order
-POST /api/payments/mpesa/resend
-Auth: none (public — identified by order_id + phone)
-Body: { order_id: number, phone: string }
-Response: { message: "Prompt resent — check your phone" }
-Notes: rate-limited to 1 resend per 30s per order; creates new mpesa_transactions row
+-- Start or resume hosted checkout for an existing UNPAID order
+POST /api/payments/pesapal/initiate
+Auth: optional (public orders identified by order_id + phone/email)
+Body: { order_id: number, phone?: string, email?: string }
+Response: { payment_provider: 'pesapal', payment_reference, payment_redirect_url }
+Notes: returns the existing checkout URL when possible; otherwise submits a new Pesapal order
 
--- Poll payment status (Confirm button)
-GET  /api/payments/mpesa/status/:orderId
-Auth: none (public)
+-- Poll payment status (Check Status button)
+POST /api/payments/pesapal/status
+Auth: optional (public orders identified by order_id + phone/email)
+Body: { order_id?: number, order_tracking_id?: string, phone?: string, email?: string }
 Response:
   { status: 'CONFIRMED', order: OrderResponse }            // paid — redirect to success
   { status: 'PENDING', message: "Not received yet" }       // still waiting
-  { status: 'NOT_FOUND', message: "Not detected yet..." }  // C2B not matched either
+  { status: 'FAILED', message: "Payment failed" }          // customer can retry
 
--- C2B webhook (Safaricom → server when customer pays till manually)
-POST /api/payments/mpesa/c2b-callback
-Auth: none (Safaricom calls this)
-Notes: matches incoming payment to UNPAID order by phone + amount within 15-min window;
-       on match → markOrderPaid → SMS confirmation; unmatched payments stored for manual review
+-- Pesapal IPN
+GET|POST /api/payments/pesapal/ipn
+Auth: none (Pesapal calls this)
+Notes: receives OrderTrackingId and then verifies final status through GetTransactionStatus;
+       on paid → markOrderPaid → email confirmation; on failed → email failure notice
 
 -- Admin: manually confirm payment
 PATCH /api/orders/:id/confirm-payment
 Auth: ADMIN | MANAGER
-Notes: sets payment_status=PAID, status=CONFIRMED, triggers SMS
+Notes: sets payment_status=PAID, status=CONFIRMED, triggers email
 ```
 
-### SMS notifications (Africa's Talking)
+### Customer receipt confirmation
+
+- The order confirmation email includes a signed `Confirm Received` button.
+- Clicking the button opens the storefront and marks the paid order as received.
+- Admins can also mark an order as received manually when the customer forgets.
+- For implementation compatibility, received orders are stored as `DELIVERED` internally and displayed as `Received` in the UI.
+
+### Admin low-stock alerts
+
+- Trigger: after checkout reduces any active product variant to `stock <= low_stock_threshold`.
+- Recipients: active admins and managers.
+- Channels:
+  - In-app notification for real-time visibility.
+  - Email alert for staff who are not currently watching the dashboard.
+- Email content: product name, variant details, current stock, threshold, and prompt to restock or deactivate.
+- Product list visibility:
+  - Red `low` badge when any active variant is low or out of stock.
+  - Green `high` badge when all active variants are above threshold.
+
+### Development checkout shortcut
+
+- In development only, the checkout payment screen shows a `Finish Development Order` button.
+- Clicking it marks the order as paid/confirmed so local testing can continue without waiting for a Pesapal callback.
+- This must be disabled in production; live checkout remains Pesapal hosted checkout with callback/IPN status verification.
+
+### Email notifications (transactional email)
 
 ```
 Order CONFIRMED (happy path or manual confirm):
   "BagStreet: Order #AB1234 confirmed! KES 3,500 received.
    Rider on the way — ETA 1 hour. Questions? Call 0700 000 000"
 
-Payment not detected (Confirm button — no match):
+Payment failed or not completed:
   "BagStreet: We haven't received payment for order #AB1234 yet.
-   Pay to Till 123456, Amount KES 3,500, Ref your phone number.
-   Call 0700 000 000 if you've already paid."
+   Continue checkout through Pesapal or call 0700 000 000 if you've already paid."
 ```
+
+Implementation status:
+- Order confirmation email is sent when payment is confirmed through Pesapal callback, Pesapal status verification, admin "Mark as Paid", or the development checkout shortcut.
+- Payment failure email is sent when Pesapal status verification returns a failed or reversed payment.
+- In development, missing transactional email credentials logs the email instead of blocking checkout.
 
 ---
 
@@ -589,9 +608,9 @@ Payment not detected (Confirm button — no match):
 |---|---|
 | Page load (storefront) | < 2s on 3G |
 | API response time (p95) | < 300ms |
-| M-Pesa callback handling | Idempotent — safe to receive twice |
+| Pesapal callback handling | Idempotent — safe to receive twice |
 | Inventory | Variant stock locked with `SELECT FOR UPDATE` during order |
-| Security | No PII logged; M-Pesa credentials in env only |
+| Security | No PII logged; Pesapal credentials in env only |
 | Mobile | Storefront designed mobile-first (375px base) |
 
 ---
@@ -601,7 +620,7 @@ Payment not detected (Confirm button — no match):
 - Rider portal / dispatch app
 - Customer accounts / order history lookup
 - WhatsApp Business API integration
-- Card payments (Stripe / Pesapal)
+- Direct card gateway outside Pesapal
 - Product reviews
 - Wishlists
 - Returns / refund automation
@@ -616,11 +635,11 @@ Payment not detected (Confirm button — no match):
 | Phase | Deliverable | Status |
 |---|---|---|
 | **0 — Foundation** | DB, auth, products, categories, variants, cart, orders | ✅ Done |
-| **1 — Payments** | M-Pesa STK Push + STK callback | ✅ Done |
-| **1b — Payment retry** | Fallback screen (till number + resend STK), QuerySTKPushStatus polling, C2B webhook, admin manual confirm | 🔲 Next |
+| **1 — Payments** | Pesapal hosted checkout + callback/IPN status verification | ✅ Done |
+| **1b — Payment retry** | Continue payment + status check + admin manual confirm | ✅ Done |
 | **2 — Logistics** | Shipping locations, order status management | ✅ Done |
 | **3 — Admin polish** | Dashboard charts, low-stock, CSV export, image update, pagination | ✅ Done |
-| **4 — Promotions** | Promo codes (% off, single-use per phone) + free delivery threshold + flash sale prices | 🔲 Next |
-| **5 — SMS** | Africa's Talking — order confirmation + payment failure SMS | 🔲 Next |
-| **6 — Storefront polish** | Mobile UX, SEO, performance | 🔲 After |
+| **4 — Promotions** | Promo codes (% off, single-use per phone) + free delivery threshold + flash sale prices | ✅ Done |
+| **5 — Email notifications** | Order confirmation, low stock, payment failure, staff alerts | ✅ Done |
+| **6 — Storefront polish** | Mobile UX, SEO, performance | ✅ Done |
 | **7 — Launch** | Domain, SSL, production env, smoke tests | 🔲 After |

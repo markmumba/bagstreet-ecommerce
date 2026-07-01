@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { ShoppingBag } from 'lucide-react';
+import { USER_ROLE } from 'shared';
 
 export const Route = createFileRoute('/login')({
   validateSearch: z.object({
@@ -17,7 +18,7 @@ export const Route = createFileRoute('/login')({
 });
 
 function LoginPage() {
-  const { login, isAuthenticated, isLoading } = useAuth();
+  const { login, isAuthenticated, isLoading, user } = useAuth();
   const navigate = useNavigate();
   const { activated, reset } = Route.useSearch();
   const [email, setEmail] = useState('');
@@ -27,9 +28,9 @@ function LoginPage() {
 
   useEffect(() => {
     if (!isLoading && isAuthenticated) {
-      navigate({ to: '/dashboard' });
+      navigate({ to: user?.role === USER_ROLE.MANAGER ? '/orders' : '/dashboard' });
     }
-  }, [isLoading, isAuthenticated, navigate]);
+  }, [isLoading, isAuthenticated, navigate, user?.role]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -37,8 +38,8 @@ function LoginPage() {
     setSubmitting(true);
 
     try {
-      await login(email, password);
-      navigate({ to: '/dashboard' });
+      const authUser = await login(email, password);
+      navigate({ to: authUser.role === USER_ROLE.MANAGER ? '/orders' : '/dashboard' });
     } catch (err: any) {
       setError(err?.message || 'Invalid email or password');
     } finally {

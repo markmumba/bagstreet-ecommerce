@@ -2,9 +2,12 @@ import { sql } from '../../lib/db';
 import { adjustStock } from '../../lib/inventory';
 import { ORDER_STATUS } from 'shared/dist';
 import type { Order, OrderStatus, ShippingAddress } from 'shared/dist';
+import { randomBytes } from 'node:crypto';
 
 interface OrderRow extends Omit<Order, 'id' | 'created_at' | 'updated_at'> {
     id: number;
+    public_id: string;
+    order_number: string;
     user_id: number | null;
     created_at: string;
     updated_at: string;
@@ -14,6 +17,7 @@ interface OrderItemRow {
     id: number;
     order_id: number;
     product_id: number;
+    product_slug: string | null;
     product_name: string;
     variant_id: number | null;
     variant_sku: string | null;
@@ -23,6 +27,21 @@ interface OrderItemRow {
     unit_price: string;
     subtotal: string;
     created_at: string;
+}
+
+function generateOrderNumber() {
+    return `BS-${randomBytes(4).toString('hex').toUpperCase()}`;
+}
+
+async function uniqueOrderNumber(tx: typeof sql): Promise<string> {
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+        const candidate = generateOrderNumber();
+        const [existing] = await tx<{ id: number }[]>`
+            SELECT id FROM orders WHERE order_number = ${candidate} LIMIT 1
+        `;
+        if (!existing) return candidate;
+    }
+    throw new Error('Failed to generate unique order number');
 }
 
 export const ordersQueries = {
@@ -73,9 +92,24 @@ export const ordersQueries = {
         return order;
     },
 
+    findByReference: async (reference: string): Promise<OrderRow | undefined> => {
+        const ref = reference.trim();
+        if (/^\d+$/.test(ref)) {
+            return ordersQueries.findById(Number(ref));
+        }
+
+        const [order] = await sql<OrderRow[]>`
+            SELECT * FROM orders
+            WHERE public_id::text = ${ref}
+               OR order_number = ${ref.toUpperCase()}
+            LIMIT 1
+        `;
+        return order;
+    },
+
     findItemsByOrderId: async (orderId: number): Promise<OrderItemRow[]> => {
         return await sql<OrderItemRow[]>`
-            SELECT oi.*, p.name AS product_name
+            SELECT oi.*, p.name AS product_name, p.slug AS product_slug
             FROM order_items oi
             JOIN products p ON p.id = oi.product_id
             WHERE oi.order_id = ${orderId}
@@ -115,9 +149,11 @@ export const ordersQueries = {
         discountCode: string | null,
         discountAmount: number,
         customerName: string,
-        customerPhone: string
+        customerPhone: string,
+        customerEmail: string | null
     ): Promise<OrderRow> => {
         return await sql.begin(async (tx: typeof sql) => {
+            const orderNumber = await uniqueOrderNumber(tx);
             for (const item of items) {
                 const [variant] = await tx<{ id: number; stock: number; size: string | null; color: string | null }[]>`
                     SELECT id, stock, size, color FROM product_variants WHERE id = ${item.variant_id} FOR UPDATE
@@ -132,13 +168,13 @@ export const ordersQueries = {
 
             const [order] = await tx<OrderRow[]>`
                 INSERT INTO orders(
-                    user_id, total_amount, shipping_address, shipping_location_id, shipping_cost,
-                    notes, discount_code, discount_amount, customer_name, customer_phone
+                    user_id, order_number, total_amount, shipping_address, shipping_location_id, shipping_cost,
+                    notes, discount_code, discount_amount, customer_name, customer_phone, customer_email
                 )
                 VALUES (
-                    ${userId}, ${totalAmount}, ${JSON.stringify(shippingAddress)}::jsonb,
+                    ${userId}, ${orderNumber}, ${totalAmount}, ${JSON.stringify(shippingAddress)}::jsonb,
                     ${shippingLocationId}, ${shippingCost}, ${notes ?? null},
-                    ${discountCode}, ${discountAmount}, ${customerName}, ${customerPhone}
+                    ${discountCode}, ${discountAmount}, ${customerName}, ${customerPhone}, ${customerEmail}
                 )
                 RETURNING *
             `;
@@ -185,9 +221,9 @@ export const ordersQueries = {
         const daily = await sql<{ date: string; revenue: string }[]>`
             SELECT
                 TO_CHAR(created_at::date, 'YYYY-MM-DD') AS date,
-                COALESCE(SUM(total_amount), 0) AS revenue
-            FROM orders
-            WHERE status NOT IN (${ORDER_STATUS.CANCELLED}, ${ORDER_STATUS.REFUNDED})
+                COALESCE(SUM(CASE WHEN direction = 'CREDIT' THEN amount ELSE -amount END), 0) AS revenue
+            FROM payment_ledger_entries
+            WHERE entry_type IN ('PAYMENT_CAPTURED', 'REFUND_ISSUED')
               AND created_at >= NOW() - INTERVAL '30 days'
             GROUP BY created_at::date
             ORDER BY created_at::date ASC

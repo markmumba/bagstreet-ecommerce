@@ -1,8 +1,9 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { ShoppingBag, ArrowLeft } from 'lucide-react';
 import { useProduct, useProductVariants } from '@/hooks/useProducts';
 import { useAddToCart } from '@/hooks/useCart';
+import { useSeo } from '@/hooks/useSeo';
 import type { ProductVariantResponse } from 'shared';
 
 export const Route = createFileRoute('/products/$productId')({
@@ -21,35 +22,68 @@ function ProductDetailPage() {
   const [selectedSize, setSelectedSize] = useState<string | null>(null);
   const [quantity, setQuantity] = useState(1);
   const [added, setAdded] = useState(false);
+  const [selectedImageIndex, setSelectedImageIndex] = useState(0);
 
   const { data: productRes, isLoading } = useProduct(productId);
-  const { data: variantsRes } = useProductVariants(productId);
   const addToCart = useAddToCart();
 
   const product = productRes?.data;
+  const productInternalId = product?.id;
+  const { data: variantsRes } = useProductVariants(productInternalId);
   const variants = (variantsRes?.data as ProductVariantResponse[]) ?? [];
-  const activeVariants = variants.filter((v) => v.is_active);
+  const activeVariants = useMemo(() => variants.filter((v) => v.is_active), [variants]);
+  const galleryImages = useMemo(() => {
+    if (!product) return [];
+    const images = product.images?.length
+      ? product.images.map((image) => ({ url: image.url, alt: image.alt_text || product.name }))
+      : product.image_url ? [{ url: product.image_url, alt: product.name }] : [];
+    return images;
+  }, [product]);
+  const selectedImage = galleryImages[selectedImageIndex] ?? galleryImages[0];
+
+  useSeo({
+    title: product ? product.name : 'Product',
+    description: product?.description || 'Shop this Bagstreet product with secure checkout.',
+    image: product?.image_url || undefined,
+    canonicalPath: `/products/${product?.slug ?? productId}`,
+  });
+
+  useEffect(() => {
+    setSelectedImageIndex(0);
+  }, [productId, galleryImages.length]);
 
   // Distinct colors and sizes across ALL active variants
-  const allColors = [...new Set(activeVariants.map((v) => v.color).filter(Boolean))] as string[];
-  const allSizes  = [...new Set(activeVariants.map((v) => v.size).filter(Boolean))]  as string[];
+  const allColors = useMemo(
+    () => [...new Set(activeVariants.map((v) => v.color).filter(Boolean))] as string[],
+    [activeVariants]
+  );
+  const allSizes = useMemo(
+    () => [...new Set(activeVariants.map((v) => v.size).filter(Boolean))] as string[],
+    [activeVariants]
+  );
 
   // Whether these dimensions actually differentiate variants
   const hasColors = allColors.length > 0;
   const hasSizes  = allSizes.length > 1; // only show size selector when >1 distinct size
 
   // Sizes available for the currently selected color (or all if no color selected)
-  const sizesForColor = selectedColor
-    ? [...new Set(activeVariants.filter((v) => v.color === selectedColor).map((v) => v.size).filter(Boolean))] as string[]
-    : allSizes;
+  const sizesForColor = useMemo(
+    () => selectedColor
+      ? [...new Set(activeVariants.filter((v) => v.color === selectedColor).map((v) => v.size).filter(Boolean))] as string[]
+      : allSizes,
+    [activeVariants, allSizes, selectedColor]
+  );
 
   // Colors available for the currently selected size (or all if no size selected)
-  const colorsForSize = selectedSize
-    ? [...new Set(activeVariants.filter((v) => v.size === selectedSize).map((v) => v.color).filter(Boolean))] as string[]
-    : allColors;
+  const colorsForSize = useMemo(
+    () => selectedSize
+      ? [...new Set(activeVariants.filter((v) => v.size === selectedSize).map((v) => v.color).filter(Boolean))] as string[]
+      : allColors,
+    [activeVariants, allColors, selectedSize]
+  );
 
   // Derive the matched variant from selections
-  const selectedVariant: ProductVariantResponse | null = (() => {
+  const selectedVariant: ProductVariantResponse | null = useMemo(() => {
     if (activeVariants.length === 0) return null;
     // Must have all required selections made
     if (hasColors && !selectedColor) return null;
@@ -68,13 +102,13 @@ function ProductDetailPage() {
       }) ??
       null
     );
-  })();
+  }, [activeVariants, hasColors, hasSizes, selectedColor, selectedSize]);
 
   // Auto-select when only one option in a dimension
   useEffect(() => {
     if (allColors.length === 1) setSelectedColor(allColors[0]);
     if (allSizes.length === 1)  setSelectedSize(allSizes[0]);
-  }, [variantsRes]);
+  }, [allColors, allSizes]);
 
   // If color changes and current size is no longer available for it, clear size
   useEffect(() => {
@@ -84,7 +118,7 @@ function ProductDetailPage() {
         .map((v) => v.size);
       if (!available.includes(selectedSize)) setSelectedSize(null);
     }
-  }, [selectedColor]);
+  }, [activeVariants, selectedColor, selectedSize]);
 
   const saleIsActive = product?.sale_price != null
     && (!product.sale_ends_at || new Date(product.sale_ends_at).getTime() > Date.now());
@@ -111,7 +145,7 @@ function ProductDetailPage() {
 
   if (isLoading) {
     return (
-      <div className="max-w-[1440px] mx-auto px-8 sm:px-12 lg:px-20 pt-[72px]">
+      <div className="max-w-[1440px] mx-auto px-4 sm:px-8 lg:px-20 pt-[72px]">
         <div className="grid grid-cols-1 md:grid-cols-12 gap-16 animate-pulse py-16">
           <div className="md:col-span-7 aspect-[3/4] bg-[var(--surface)]" />
           <div className="md:col-span-5 space-y-4 pt-8">
@@ -133,25 +167,61 @@ function ProductDetailPage() {
   );
 
   return (
-    <div className="max-w-[1440px] mx-auto px-8 sm:px-12 lg:px-20 pt-[72px]">
+    <div className="max-w-[1440px] mx-auto px-4 sm:px-8 lg:px-20 pt-[72px]">
       {/* Back */}
       <button
         onClick={() => navigate({ to: '/' })}
-        className="flex items-center gap-2 mt-8 mb-12 text-xs tracking-[0.15em] uppercase text-[var(--foreground-faint)] hover:text-foreground transition-colors duration-200"
+        className="flex items-center gap-2 mt-6 mb-8 text-xs tracking-[0.15em] uppercase text-[var(--foreground-faint)] hover:text-foreground transition-colors duration-200 sm:mt-8 sm:mb-12"
         style={{ fontFamily: 'var(--font-sans)' }}
       >
         <ArrowLeft strokeWidth={1} className="h-4 w-4" />
         Back
       </button>
 
-      <div className="grid grid-cols-1 md:grid-cols-12 gap-16 pb-24">
-        {/* Image */}
-        <div className="md:col-span-7 aspect-[3/4] overflow-hidden bg-[var(--surface)]">
-          {product.image_url ? (
-            <img src={product.image_url} alt={product.name} className="w-full h-full object-cover" />
-          ) : (
-            <div className="w-full h-full flex items-center justify-center text-[var(--foreground-faint)] text-xs tracking-[0.15em] uppercase">
-              No image
+      <div className="grid grid-cols-1 md:grid-cols-12 gap-8 pb-24 md:gap-16">
+        {/* Image gallery */}
+        <div className="md:col-span-7 space-y-3">
+          <div className="aspect-[3/4] overflow-hidden bg-[var(--surface)]">
+            {selectedImage ? (
+              <img
+                src={selectedImage.url}
+                alt={selectedImage.alt}
+                loading="eager"
+                decoding="async"
+                sizes="(min-width: 768px) 58vw, 100vw"
+                className="w-full h-full object-cover"
+              />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center text-[var(--foreground-faint)] text-xs tracking-[0.15em] uppercase">
+                No image
+              </div>
+            )}
+          </div>
+
+          {galleryImages.length > 1 && (
+            <div className="flex gap-2 overflow-x-auto pb-1" aria-label="Product images">
+              {galleryImages.map((image, index) => (
+                <button
+                  key={`${image.url}-${index}`}
+                  type="button"
+                  onClick={() => setSelectedImageIndex(index)}
+                  className={`h-20 w-16 shrink-0 overflow-hidden border transition-colors duration-200 sm:h-24 sm:w-20 ${
+                    selectedImageIndex === index
+                      ? 'border-foreground'
+                      : 'border-[var(--border)] hover:border-[var(--foreground-muted)]'
+                  }`}
+                  aria-label={`View product image ${index + 1}`}
+                  aria-pressed={selectedImageIndex === index}
+                >
+                  <img
+                    src={image.url}
+                    alt=""
+                    loading="lazy"
+                    decoding="async"
+                    className="h-full w-full object-cover"
+                  />
+                </button>
+              ))}
             </div>
           )}
         </div>

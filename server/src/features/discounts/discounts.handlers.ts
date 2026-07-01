@@ -1,10 +1,11 @@
-import type { Context } from 'hono';
+import type { AppContext } from '@server/lib/hono';
 import { z } from 'zod';
 import { discountsQueries, type DiscountCodeRow } from './discounts.queries';
-import { normalisePhone } from '../../services/mpesa';
+import { normalisePhone } from '../../lib/phone';
 import { success } from '@server/lib/response';
 import { BadRequestError, ConflictError, NotFoundError, ValidationError } from '@server/lib/errors';
 import type { DiscountCodeResponse, DiscountValidationResponse } from 'shared/dist';
+import { auditFromContext } from '@server/lib/audit';
 
 const discountSchema = z.object({
     code: z.string().min(2).max(50).regex(/^[A-Za-z0-9_-]+$/),
@@ -79,12 +80,12 @@ export async function validateDiscount(
 }
 
 export const discountsHandlers = {
-    list: async (c: Context) => {
+    list: async (c: AppContext) => {
         const rows = await discountsQueries.list();
         return success(c, rows.map(toResponse));
     },
 
-    create: async (c: Context) => {
+    create: async (c: AppContext) => {
         const body = await c.req.json();
         const parsed = discountSchema.safeParse(body);
         if (!parsed.success) throw new ValidationError('Invalid discount code', parsed.error.errors);
@@ -93,28 +94,53 @@ export const discountsHandlers = {
         if (existing) throw new ConflictError('Discount code already exists');
 
         const row = await discountsQueries.create(parsed.data);
+        await auditFromContext(c, {
+            action: 'DISCOUNT_CREATED',
+            entityType: 'discount_code',
+            entityId: row.id,
+            after: toResponse(row),
+        });
         return success(c, toResponse(row), 'Discount code created', 201);
     },
 
-    update: async (c: Context) => {
+    update: async (c: AppContext) => {
         const id = parseInt(c.req.param('id')!);
         const body = await c.req.json();
         const parsed = updateDiscountSchema.safeParse(body);
         if (!parsed.success) throw new ValidationError('Invalid discount code', parsed.error.errors);
 
+        const existing = await discountsQueries.findById(id);
+        if (!existing) throw new NotFoundError('Discount code', id);
         const row = await discountsQueries.update(id, parsed.data);
         if (!row) throw new NotFoundError('Discount code', id);
+        await auditFromContext(c, {
+            action: 'DISCOUNT_UPDATED',
+            entityType: 'discount_code',
+            entityId: id,
+            before: toResponse(existing),
+            after: toResponse(row),
+            metadata: { fields: Object.keys(parsed.data) },
+        });
         return success(c, toResponse(row), 'Discount code updated');
     },
 
-    deactivate: async (c: Context) => {
+    deactivate: async (c: AppContext) => {
         const id = parseInt(c.req.param('id')!);
+        const existing = await discountsQueries.findById(id);
+        if (!existing) throw new NotFoundError('Discount code', id);
         const row = await discountsQueries.deactivate(id);
         if (!row) throw new NotFoundError('Discount code', id);
+        await auditFromContext(c, {
+            action: 'DISCOUNT_DEACTIVATED',
+            entityType: 'discount_code',
+            entityId: id,
+            before: toResponse(existing),
+            after: toResponse(row),
+        });
         return success(c, toResponse(row), 'Discount code deactivated');
     },
 
-    validate: async (c: Context) => {
+    validate: async (c: AppContext) => {
         const code = c.req.query('code');
         const subtotal = Number(c.req.query('subtotal') ?? 0);
         const phone = c.req.query('phone') ?? '';

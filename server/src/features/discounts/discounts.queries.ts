@@ -27,6 +27,13 @@ export const discountsQueries = {
         return row;
     },
 
+    findById: async (id: number): Promise<DiscountCodeRow | undefined> => {
+        const [row] = await sql<DiscountCodeRow[]>`
+            SELECT * FROM discount_codes WHERE id = ${id}
+        `;
+        return row;
+    },
+
     create: async (data: {
         code: string;
         value: number;

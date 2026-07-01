@@ -1,9 +1,9 @@
 
-import type { Context } from 'hono';
+import type { AppContext } from '@server/lib/hono';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import type { ApiResponse, PaginatedResponse } from 'shared/dist';
 
-export function success<T>(c: Context, data: T, message = 'Success', status: ContentfulStatusCode = 200) {
+export function success<T>(c: AppContext, data: T, message = 'Success', status: ContentfulStatusCode = 200) {
   const response: ApiResponse<T> = {
     success: true,
     status,
@@ -15,7 +15,7 @@ export function success<T>(c: Context, data: T, message = 'Success', status: Con
 }
 
 export function paginated<T>(
-  c: Context,
+  c: AppContext,
   data: T[],
   page: number,
   limit: number,
@@ -37,7 +37,7 @@ export function paginated<T>(
   return c.json(response, status);
 }
 
-export function error(c: Context, message: string, status: ContentfulStatusCode = 500, code?: string) {
+export function error(c: AppContext, message: string, status: ContentfulStatusCode = 500, code?: string) {
   const response: ApiResponse<undefined> = {
     success: false,
     status,

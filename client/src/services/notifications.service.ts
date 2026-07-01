@@ -5,7 +5,7 @@ export interface NotificationItem {
     type: string;
     title: string;
     body: string | null;
-    data: { link: string; order_id?: string } | null;
+    data: { link?: unknown; order_id?: string | number; variant_id?: string | number } | string | null;
     is_read: boolean;
     created_at: string;
 }

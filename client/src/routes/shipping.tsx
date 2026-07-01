@@ -8,9 +8,11 @@ import {
     useCreateShippingLocation,
     useUpdateShippingLocation,
     useDeleteShippingLocation,
+    useImportShippingCsv,
 } from '@/hooks/useShipping';
 import type { ShippingLocationResponse } from 'shared';
-import { Plus, Truck, Pencil, Trash2 } from 'lucide-react';
+import { Plus, Truck, Pencil, Trash2, Upload } from 'lucide-react';
+import { CsvImportDialog } from '@/components/import/CsvImportDialog';
 
 export const Route = createFileRoute('/shipping')({
     component: ShippingPage,
@@ -25,8 +27,10 @@ function ShippingPage() {
     const createMutation = useCreateShippingLocation();
     const updateMutation = useUpdateShippingLocation();
     const deleteMutation = useDeleteShippingLocation();
+    const importMutation = useImportShippingCsv();
 
     const [showForm, setShowForm] = useState(false);
+    const [importOpen, setImportOpen] = useState(false);
     const [editingId, setEditingId] = useState<string | null>(null);
     const [form, setForm] = useState({ name: '', price: '', is_active: true });
     const [formError, setFormError] = useState('');
@@ -94,10 +98,16 @@ function ShippingPage() {
                             </p>
                         </div>
                     </div>
-                    <Button onClick={() => { resetForm(); setShowForm(true); }}>
-                        <Plus className="h-4 w-4" />
-                        Add Location
-                    </Button>
+                    <div className="flex items-center gap-2">
+                        <Button variant="outline" onClick={() => setImportOpen(true)}>
+                            <Upload className="h-4 w-4" />
+                            Import CSV
+                        </Button>
+                        <Button onClick={() => { resetForm(); setShowForm(true); }}>
+                            <Plus className="h-4 w-4" />
+                            Add Location
+                        </Button>
+                    </div>
                 </div>
 
                 {/* Inline form */}
@@ -231,6 +241,18 @@ function ShippingPage() {
                     </div>
                 )}
             </div>
+            <CsvImportDialog
+                open={importOpen}
+                onOpenChange={setImportOpen}
+                title="Import shipping locations"
+                description="Upload delivery areas and flat-rate prices. Duplicate location names are skipped."
+                templateFilename="bagstreet-shipping-locations-template.csv"
+                templateCsv={'name,price,is_active\nNairobi CBD,150,true\nWestlands,250,true\n'}
+                onImport={async (file) => {
+                    const response = await importMutation.mutateAsync(file);
+                    return response.data!;
+                }}
+            />
         </DashboardLayout>
     );
 }

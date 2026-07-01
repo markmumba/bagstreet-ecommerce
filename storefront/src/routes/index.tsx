@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { Search } from 'lucide-react';
 import { useProducts } from '@/hooks/useProducts';
 import { useCategoryTree } from '@/hooks/useCategories';
+import { useSeo } from '@/hooks/useSeo';
 import type { ProductResponse, CategoryTreeNode } from 'shared';
 
 export const Route = createFileRoute('/')({
@@ -15,19 +16,22 @@ function formatPrice(price: number) {
   return new Intl.NumberFormat('en-KE', { style: 'currency', currency: 'KES' }).format(price);
 }
 
-function ProductCard({ product }: { product: ProductResponse }) {
+function ProductCard({ product, priority = false }: { product: ProductResponse; priority?: boolean }) {
   const saleIsActive = product.sale_price != null
     && (!product.sale_ends_at || new Date(product.sale_ends_at).getTime() > Date.now());
 
   return (
-    <Link to="/products/$productId" params={{ productId: product.id }}>
-      <article className="group cursor-pointer">
+    <Link to="/products/$productId" params={{ productId: product.slug || product.id }}>
+      <article className="product-card group cursor-pointer">
         {/* Portrait image — 3:4 ratio */}
         <div className="relative aspect-[3/4] overflow-hidden bg-[var(--surface)]">
           {product.image_url ? (
             <img
               src={product.image_url}
               alt={product.name}
+              loading={priority ? 'eager' : 'lazy'}
+              decoding="async"
+              sizes="(min-width: 1280px) 25vw, (min-width: 1024px) 33vw, 50vw"
               className="w-full h-full object-cover transition-transform duration-700 ease-out group-hover:scale-[1.04]"
             />
           ) : (
@@ -87,6 +91,11 @@ function ProductCard({ product }: { product: ProductResponse }) {
 function HomePage() {
   const { search: urlSearch } = Route.useSearch();
   const navigate = useNavigate();
+  useSeo({
+    title: urlSearch ? `Search: ${urlSearch}` : 'Bagstreet - Luxury Handbags & Accessories',
+    description: 'Shop curated luxury handbags, shoes, and cashmere scarves from Bagstreet.',
+    canonicalPath: '/',
+  });
   const [search, setSearch] = useState(urlSearch ?? '');
   const [debouncedSearch, setDebouncedSearch] = useState(urlSearch ?? '');
   const [selectedParentId, setSelectedParentId] = useState('');
@@ -145,9 +154,9 @@ function HomePage() {
   };
 
   return (
-    <div className="max-w-360 mx-auto px-8 sm:px-12 lg:px-20">
+    <div className="max-w-360 mx-auto px-4 sm:px-8 lg:px-20">
       {/* Hero */}
-      <div className="pt-40 pb-24 text-center">
+      <div className="pt-28 pb-16 text-center sm:pt-36 sm:pb-24">
         <p
           className="text-xs tracking-[0.3em] uppercase text-(--foreground-faint) mb-6"
           style={{ fontFamily: 'var(--font-sans)' }}
@@ -180,8 +189,8 @@ function HomePage() {
             </h2>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-x-6 gap-y-12">
-            {featuredProducts.map((product) => (
-              <ProductCard key={product.id} product={product} />
+            {featuredProducts.map((product, index) => (
+              <ProductCard key={product.id} product={product} priority={index < 2} />
             ))}
           </div>
         </section>
@@ -208,7 +217,7 @@ function HomePage() {
         </div>
 
         {/* Row 1: top-level category tabs */}
-        <nav className="flex gap-8 border-b border-[var(--border)]">
+        <nav className="-mx-4 flex gap-8 overflow-x-auto border-b border-[var(--border)] px-4 pb-px sm:mx-0 sm:px-0">
           <button
             onClick={handleAllClick}
             className={`pb-3 text-xs tracking-[0.15em] uppercase whitespace-nowrap transition-colors duration-200 -mb-px
@@ -238,7 +247,7 @@ function HomePage() {
 
         {/* Row 2: subcategory pills */}
         {selectedParent && selectedParent.children.length > 0 && (
-          <div className="flex gap-6 pt-4 pl-0">
+          <div className="-mx-4 flex gap-6 overflow-x-auto px-4 pt-4 sm:mx-0 sm:px-0">
             {selectedParent.children.map((child) => (
               <button
                 key={child.id}
@@ -273,8 +282,8 @@ function HomePage() {
         </div>
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-x-6 gap-y-12 pb-24">
-          {products.map((product) => (
-            <ProductCard key={product.id} product={product} />
+          {products.map((product, index) => (
+            <ProductCard key={product.id} product={product} priority={index < 2 && featuredProducts.length === 0} />
           ))}
         </div>
       )}

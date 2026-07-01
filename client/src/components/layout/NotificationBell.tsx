@@ -5,6 +5,8 @@ import { Button } from '@/components/ui/button';
 import { useNotifications, useMarkRead, useMarkAllRead } from '@/hooks/useNotifications';
 import type { NotificationItem } from '@/services/notifications.service';
 
+type NotificationData = Exclude<NotificationItem['data'], string | null>;
+
 function relativeTime(dateStr: string): string {
     const diff = Date.now() - new Date(dateStr).getTime();
     const mins = Math.floor(diff / 60000);
@@ -13,6 +15,30 @@ function relativeTime(dateStr: string): string {
     const hrs = Math.floor(mins / 60);
     if (hrs < 24) return `${hrs}h ago`;
     return `${Math.floor(hrs / 24)}d ago`;
+}
+
+const notificationTargets = new Set([
+    '/dashboard',
+    '/orders',
+    '/products',
+    '/categories',
+    '/promotions',
+    '/shipping',
+    '/users',
+    '/settings',
+]);
+
+function normalizeNotificationData(data: NotificationItem['data']): NotificationData | null {
+    if (!data) return null;
+    if (typeof data === 'string') {
+        try {
+            const parsed = JSON.parse(data);
+            return parsed && typeof parsed === 'object' ? parsed as NotificationData : null;
+        } catch {
+            return null;
+        }
+    }
+    return data;
 }
 
 export function NotificationBell() {
@@ -42,8 +68,14 @@ export function NotificationBell() {
             markRead.mutate(notif.id);
         }
         setOpen(false);
-        if (notif.data?.link) {
-            navigate({ to: notif.data.link as '/orders' });
+        const data = normalizeNotificationData(notif.data);
+        const target = typeof data?.link === 'string' ? data.link : notif.type === 'NEW_ORDER' ? '/orders' : '';
+        if (notificationTargets.has(target)) {
+            if (target === '/orders' && data?.order_id != null) {
+                navigate({ to: '/orders', search: { order_id: String(data.order_id) } as any });
+            } else {
+                navigate({ to: target as any });
+            }
         }
     }
 
@@ -65,7 +97,7 @@ export function NotificationBell() {
             </Button>
 
             {open && (
-                <div className="absolute right-0 top-10 z-50 w-80 rounded-md border border-border bg-background shadow-lg">
+                <div className="absolute right-0 top-10 z-[100] w-80 rounded-md border border-border bg-background shadow-lg">
                     {/* Header */}
                     <div className="flex items-center justify-between border-b border-border px-4 py-2">
                         <span className="text-sm font-medium">Notifications</span>

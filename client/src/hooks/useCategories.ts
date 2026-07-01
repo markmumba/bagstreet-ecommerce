@@ -87,3 +87,13 @@ export function useDeleteCategory() {
     },
   });
 }
+
+export function useImportCategoriesCsv() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (file: File) => categoriesService.importCsv(file),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: categoryKeys.all });
+    },
+  });
+}

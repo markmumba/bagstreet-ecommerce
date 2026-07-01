@@ -4,10 +4,22 @@ import type { ApiResponse } from 'shared';
 let authToken: string | null = localStorage.getItem('bagstreet_token');
 let isRefreshing = false;
 let refreshQueue: Array<(token: string | null) => void> = [];
+let authExpiredDispatched = false;
 
 function drainQueue(token: string | null) {
   refreshQueue.forEach((cb) => cb(token));
   refreshQueue = [];
+}
+
+function expireAuth() {
+  authToken = null;
+  localStorage.removeItem('bagstreet_token');
+  drainQueue(null);
+
+  if (!authExpiredDispatched) {
+    authExpiredDispatched = true;
+    window.dispatchEvent(new Event('bagstreet:auth-expired'));
+  }
 }
 
 class ApiClient {
@@ -16,7 +28,10 @@ class ApiClient {
   constructor() {
     this.client = axios.create({
       baseURL: import.meta.env.VITE_SERVER_URL || 'http://localhost:3000',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Bagstreet-App': 'admin',
+      },
       timeout: 10000,
       withCredentials: true,
     });
@@ -26,6 +41,7 @@ class ApiClient {
 
   setAuthToken(token: string | null) {
     authToken = token;
+    if (token) authExpiredDispatched = false;
   }
 
   private setupInterceptors() {
@@ -43,12 +59,19 @@ class ApiClient {
       (response) => response,
       async (error: AxiosError<ApiResponse>) => {
         const originalRequest = error.config as any;
+        const requestUrl = originalRequest?.url ?? '';
+        const isAuthRequest =
+          requestUrl.includes('/api/auth/login') ||
+          requestUrl.includes('/api/auth/register') ||
+          requestUrl.includes('/api/auth/refresh') ||
+          requestUrl.includes('/api/auth/logout');
 
         // Attempt silent token refresh on 401 — only when we had a token
         if (
           error.response?.status === 401 &&
           !originalRequest._retry &&
-          authToken !== null
+          authToken !== null &&
+          !isAuthRequest
         ) {
           if (isRefreshing) {
             return new Promise((resolve, reject) => {
@@ -79,11 +102,7 @@ class ApiClient {
             delete (originalRequest.headers as any).Authorization;
             return this.client(originalRequest);
           } catch {
-            drainQueue(null);
-            localStorage.removeItem('bagstreet_token');
-            if (window.location.pathname !== '/login') {
-              window.location.href = '/login';
-            }
+            expireAuth();
             return Promise.reject(error);
           } finally {
             isRefreshing = false;

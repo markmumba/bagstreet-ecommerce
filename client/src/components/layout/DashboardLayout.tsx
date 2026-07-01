@@ -1,5 +1,5 @@
 import { Link, useLocation, useNavigate } from '@tanstack/react-router';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ComponentType } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import {
   Sidebar,
@@ -16,15 +16,24 @@ import {
 import { ChevronDown, LayoutDashboard, Tag, Package, ClipboardList, Users, LogOut, Settings, ShoppingBag, Truck, BadgePercent } from 'lucide-react';
 import { NotificationBell } from './NotificationBell';
 import { useNotificationStream } from '@/hooks/useNotifications';
+import { USER_ROLE } from 'shared';
+import type { UserRole } from 'shared';
 
-const navigation = [
-  { title: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-  { title: 'Categories', href: '/categories', icon: Tag },
-  { title: 'Products', href: '/products', icon: Package },
-  { title: 'Orders', href: '/orders', icon: ClipboardList },
-  { title: 'Promotions', href: '/promotions', icon: BadgePercent },
-  { title: 'Shipping', href: '/shipping', icon: Truck },
-  { title: 'Users', href: '/users', icon: Users },
+type NavigationItem = {
+  title: string;
+  href: '/dashboard' | '/categories' | '/products' | '/orders' | '/promotions' | '/shipping' | '/users';
+  icon: ComponentType<{ className?: string; strokeWidth?: number }>;
+  roles: UserRole[];
+};
+
+const navigation: NavigationItem[] = [
+  { title: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, roles: [USER_ROLE.ADMIN] },
+  { title: 'Categories', href: '/categories', icon: Tag, roles: [USER_ROLE.ADMIN] },
+  { title: 'Products', href: '/products', icon: Package, roles: [USER_ROLE.ADMIN] },
+  { title: 'Orders', href: '/orders', icon: ClipboardList, roles: [USER_ROLE.ADMIN, USER_ROLE.MANAGER] },
+  { title: 'Promotions', href: '/promotions', icon: BadgePercent, roles: [USER_ROLE.ADMIN] },
+  { title: 'Shipping', href: '/shipping', icon: Truck, roles: [USER_ROLE.ADMIN] },
+  { title: 'Users', href: '/users', icon: Users, roles: [USER_ROLE.ADMIN] },
 ];
 
 interface DashboardLayoutProps {
@@ -53,9 +62,19 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
-      navigate({ to: '/login' });
+      navigate({ to: '/login', replace: true });
     }
   }, [isLoading, isAuthenticated, navigate]);
+
+  const isManager = user?.role === USER_ROLE.MANAGER;
+  const isManagerAllowedPage = location.pathname === '/orders';
+  const visibleNavigation = navigation.filter((item) => user?.role && item.roles.includes(user.role));
+
+  useEffect(() => {
+    if (!isLoading && isAuthenticated && isManager && !isManagerAllowedPage) {
+      navigate({ to: '/orders', replace: true });
+    }
+  }, [isLoading, isAuthenticated, isManager, isManagerAllowedPage, navigate]);
 
   useEffect(() => {
     if (!accountMenuOpen) return;
@@ -91,6 +110,14 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
 
   if (!isAuthenticated) return null;
 
+  if (isManager && !isManagerAllowedPage) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-solid border-primary border-r-transparent" />
+      </div>
+    );
+  }
+
   const handleLogout = async () => {
     setAccountMenuOpen(false);
     await logout();
@@ -99,10 +126,13 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
 
   const handleSettings = () => {
     setAccountMenuOpen(false);
-    navigate({ to: '/settings' });
+    if (user?.role === USER_ROLE.ADMIN) {
+      navigate({ to: '/settings' });
+    }
   };
 
   const userInitials = getInitials(user?.full_name, user?.email);
+  const roleLabel = user?.role === USER_ROLE.MANAGER ? 'Manager' : 'Admin';
 
   return (
     <SidebarProvider>
@@ -117,7 +147,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                 </div>
                 <div>
                   <h1 className="text-sm font-semibold text-sidebar-foreground">BagStreet</h1>
-                  <p className="text-xs text-[var(--sidebar-fg-muted)]">Admin</p>
+                  <p className="text-xs text-[var(--sidebar-fg-muted)]">{roleLabel}</p>
                 </div>
               </div>
             </div>
@@ -127,12 +157,12 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
               <SidebarGroupLabel>Management</SidebarGroupLabel>
               <SidebarGroupContent>
                 <SidebarMenu>
-                  {navigation.map((item) => {
+                  {visibleNavigation.map((item) => {
                     const isActive = location.pathname === item.href;
                     return (
                       <SidebarMenuItem key={item.href}>
                         <SidebarMenuButton asChild isActive={isActive}>
-                          <Link to={item.href as '/dashboard' | '/categories' | '/products' | '/orders' | '/promotions' | '/shipping' | '/users'}>
+                          <Link to={item.href}>
                             <item.icon className="h-[18px] w-[18px]" strokeWidth={1.5} />
                             <span>{item.title}</span>
                           </Link>
@@ -149,7 +179,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
         {/* Main Content */}
         <main className="flex-1 flex flex-col min-w-0">
           {/* Top Bar */}
-          <header className="sticky top-0 z-10 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+          <header className="sticky top-0 z-40 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
             <div className="flex h-14 items-center gap-4 px-6">
               <SidebarTrigger />
               <div className="flex-1" />
@@ -173,7 +203,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                   {accountMenuOpen && (
                     <div
                       role="menu"
-                      className="absolute right-0 top-11 z-50 w-64 overflow-hidden rounded-xl border border-border bg-background shadow-[var(--shadow-dropdown)]"
+                      className="absolute right-0 top-11 z-[100] w-64 overflow-hidden rounded-xl border border-border bg-background shadow-[var(--shadow-dropdown)]"
                     >
                       <div className="border-b border-border px-4 py-3">
                         <p className="truncate text-sm font-medium">{user?.full_name}</p>
@@ -181,15 +211,17 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                         <p className="mt-1 text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">{user?.role}</p>
                       </div>
                       <div className="p-1.5">
-                        <button
-                          type="button"
-                          role="menuitem"
-                          onClick={handleSettings}
-                          className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-accent hover:text-accent-foreground"
-                        >
-                          <Settings className="h-4 w-4" strokeWidth={1.5} />
-                          Settings
-                        </button>
+                        {user?.role === USER_ROLE.ADMIN && (
+                          <button
+                            type="button"
+                            role="menuitem"
+                            onClick={handleSettings}
+                            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-accent hover:text-accent-foreground"
+                          >
+                            <Settings className="h-4 w-4" strokeWidth={1.5} />
+                            Settings
+                          </button>
+                        )}
                         <button
                           type="button"
                           role="menuitem"

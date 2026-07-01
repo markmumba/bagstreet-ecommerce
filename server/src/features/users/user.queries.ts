@@ -55,6 +55,37 @@ export const UsersQueries = {
         return user;
     },
 
+    findActiveStaff: async (): Promise<User[]> => {
+        return await sql<User[]>`
+            SELECT id, email, full_name, role, is_active, created_at, updated_at
+            FROM users
+            WHERE role IN ('ADMIN', 'MANAGER') AND is_active = true
+            ORDER BY role ASC, full_name ASC
+        `;
+    },
+
+    findActiveAdmins: async (): Promise<User[]> => {
+        return await sql<User[]>`
+            SELECT id, email, full_name, role, is_active, created_at, updated_at
+            FROM users
+            WHERE role = 'ADMIN' AND is_active = true
+            ORDER BY full_name ASC
+        `;
+    },
+
+    findActiveOrderAlertRecipients: async (managerId: number | null): Promise<User[]> => {
+        return await sql<User[]>`
+            SELECT id, email, full_name, role, is_active, created_at, updated_at
+            FROM users
+            WHERE is_active = true
+              AND (
+                role = 'ADMIN'
+                OR (${managerId}::int IS NOT NULL AND id = ${managerId}::int AND role = 'MANAGER')
+              )
+            ORDER BY role ASC, full_name ASC
+        `;
+    },
+
     create: async (data: {
         email: string;
         full_name: string;
@@ -83,6 +114,11 @@ export const UsersQueries = {
     },
 
     createInvitation: async (userId: number, tokenHash: string, expiresAt: Date): Promise<void> => {
+        await sql`
+            DELETE FROM user_invitations
+            WHERE user_id = ${userId}
+              AND used_at IS NULL
+        `;
         await sql`
             INSERT INTO user_invitations(user_id, token_hash, expires_at)
             VALUES (${userId}, ${tokenHash}, ${expiresAt})

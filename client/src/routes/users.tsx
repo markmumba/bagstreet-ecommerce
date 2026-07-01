@@ -83,7 +83,7 @@ function UsersPage() {
 
   useEffect(() => {
     if (currentUser && currentUser.role !== USER_ROLE.ADMIN) {
-      navigate({ to: '/dashboard' });
+      navigate({ to: '/orders' });
     }
   }, [currentUser, navigate]);
 

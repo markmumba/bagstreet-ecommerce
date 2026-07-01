@@ -1,12 +1,11 @@
-import type { Context } from 'hono';
 import { cartQueries, type CartItemRow } from './cart.queries';
 import { addToCartSchema, updateCartItemSchema } from './cart.schema';
 import { sql } from '../../lib/db';
 import { success } from '@server/lib/response';
 import { BadRequestError, NotFoundError, ValidationError } from '@server/lib/errors';
 import type { CartResponse, CartItemResponse } from 'shared/dist';
-
-interface JWTPayload { sub: string }
+import type { AppContext } from '@server/lib/hono';
+import { getRequiredUser } from '@server/lib/hono';
 
 function toCartResponse(items: CartItemRow[]): CartResponse {
     const mapped: CartItemResponse[] = items.map((item) => ({
@@ -30,14 +29,14 @@ function toCartResponse(items: CartItemRow[]): CartResponse {
 
 export const cartHandlers = {
 
-    get: async (c: Context) => {
-        const { sub } = c.get('user') as JWTPayload;
+    get: async (c: AppContext) => {
+        const { sub } = getRequiredUser(c);
         const items = await cartQueries.getCart(Number(sub));
         return success(c, toCartResponse(items));
     },
 
-    add: async (c: Context) => {
-        const { sub } = c.get('user') as JWTPayload;
+    add: async (c: AppContext) => {
+        const { sub } = getRequiredUser(c);
         const body = await c.req.json();
         const validated = addToCartSchema.safeParse(body);
 
@@ -71,8 +70,8 @@ export const cartHandlers = {
         return success(c, toCartResponse(items), 'Item added to cart', 201);
     },
 
-    update: async (c: Context) => {
-        const { sub } = c.get('user') as JWTPayload;
+    update: async (c: AppContext) => {
+        const { sub } = getRequiredUser(c);
         const variantId = parseInt(c.req.param('variantId')!);
         const body = await c.req.json();
         const validated = updateCartItemSchema.safeParse(body);
@@ -88,8 +87,8 @@ export const cartHandlers = {
         return success(c, toCartResponse(items), 'Cart updated');
     },
 
-    remove: async (c: Context) => {
-        const { sub } = c.get('user') as JWTPayload;
+    remove: async (c: AppContext) => {
+        const { sub } = getRequiredUser(c);
         const variantId = parseInt(c.req.param('variantId')!);
 
         const removed = await cartQueries.removeItem(Number(sub), variantId);
@@ -99,8 +98,8 @@ export const cartHandlers = {
         return success(c, toCartResponse(items), 'Item removed from cart');
     },
 
-    clear: async (c: Context) => {
-        const { sub } = c.get('user') as JWTPayload;
+    clear: async (c: AppContext) => {
+        const { sub } = getRequiredUser(c);
         await cartQueries.clearCart(Number(sub));
         return success(c, toCartResponse([]), 'Cart cleared');
     },

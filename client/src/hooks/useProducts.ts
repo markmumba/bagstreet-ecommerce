@@ -91,3 +91,14 @@ export function useToggleFeatured() {
     },
   });
 }
+
+export function useImportProductsCsv() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (file: File) => productsService.importCsv(file),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: productKeys.all });
+    },
+  });
+}

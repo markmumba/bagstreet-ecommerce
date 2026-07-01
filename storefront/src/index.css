@@ -91,4 +91,9 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
+
+  .product-card {
+    content-visibility: auto;
+    contain-intrinsic-size: 420px 620px;
+  }
 }

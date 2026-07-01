@@ -1,5 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useState } from 'react';
+import { WandSparkles } from 'lucide-react';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -28,6 +29,15 @@ function formatDate(value?: string) {
   return new Date(value).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
+function generatePromoCode() {
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let suffix = '';
+  for (let i = 0; i < 6; i += 1) {
+    suffix += alphabet[Math.floor(Math.random() * alphabet.length)];
+  }
+  return `BAG${suffix}`;
+}
+
 function PromotionsPage() {
   const { data: discountsRes, isLoading: discountsLoading } = useDiscountCodes();
   const { data: thresholdRes } = useFreeDeliveryThreshold();
@@ -51,6 +61,10 @@ function PromotionsPage() {
   });
   const [thresholdInput, setThresholdInput] = useState('');
   const [error, setError] = useState('');
+
+  const handleGenerateCode = () => {
+    setForm((f) => ({ ...f, code: generatePromoCode() }));
+  };
 
   const submitDiscount = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -100,13 +114,19 @@ function PromotionsPage() {
             <form onSubmit={submitDiscount} className="rounded-xl border bg-card p-4">
               <h2 className="text-sm font-semibold">Create promo code</h2>
               <div className="mt-4 grid gap-3">
-                <input
-                  value={form.code}
-                  onChange={(e) => setForm((f) => ({ ...f, code: e.target.value.toUpperCase() }))}
-                  placeholder="Code, e.g. INSTA10"
-                  className="h-10 rounded-md border bg-background px-3 text-sm"
-                  required
-                />
+                <div className="flex gap-2">
+                  <input
+                    value={form.code}
+                    onChange={(e) => setForm((f) => ({ ...f, code: e.target.value.toUpperCase() }))}
+                    placeholder="Code, e.g. INSTA10"
+                    className="h-10 flex-1 rounded-md border bg-background px-3 text-sm"
+                    required
+                  />
+                  <Button type="button" variant="outline" onClick={handleGenerateCode}>
+                    <WandSparkles className="h-4 w-4" />
+                    Generate
+                  </Button>
+                </div>
                 <div className="grid grid-cols-2 gap-3">
                   <input
                     type="number"

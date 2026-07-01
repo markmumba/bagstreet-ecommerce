@@ -1,5 +1,6 @@
 import { apiClient } from './api';
 import type { CategoryRequest, CategoryResponse, CategoryTreeNode } from 'shared';
+import type { ImportReport } from '@/components/import/CsvImportDialog';
 
 export interface CategoryListParams {
   search?: string;
@@ -30,5 +31,11 @@ export const categoriesService = {
 
   getTree: async () => {
     return apiClient.get<CategoryTreeNode[]>('/api/categories/tree');
+  },
+
+  importCsv: async (file: File) => {
+    const data = new FormData();
+    data.append('file', file);
+    return apiClient.postForm<ImportReport>('/api/categories/import', data);
   },
 };

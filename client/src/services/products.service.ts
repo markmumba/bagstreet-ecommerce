@@ -1,5 +1,6 @@
 import { apiClient } from './api';
 import type { ProductDeleteResponse, ProductResponse, ProductUpdateRequest } from 'shared';
+import type { ImportReport } from '@/components/import/CsvImportDialog';
 
 export interface ProductListParams {
   search?: string;
@@ -40,5 +41,11 @@ export const productsService = {
 
   toggleFeatured: async (id: string, is_featured: boolean) => {
     return apiClient.put<ProductResponse>(`/api/products/${id}`, { is_featured });
+  },
+
+  importCsv: async (file: File) => {
+    const data = new FormData();
+    data.append('file', file);
+    return apiClient.postForm<ImportReport>('/api/products/import', data);
   },
 };

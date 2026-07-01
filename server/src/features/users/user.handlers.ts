@@ -1,4 +1,4 @@
-import type { Context } from 'hono';
+import type { AppContext } from '@server/lib/hono';
 import { randomBytes, createHash } from 'crypto';
 import { UsersQueries } from './user.queries';
 import { userCreateSchema, userUpdateSchema } from './user.schema';
@@ -12,6 +12,7 @@ import {
 import { publishEmail } from '@server/services/messagequeue';
 import { env } from '@server/config/env';
 import type { User, UserResponse } from 'shared/dist';
+import { auditFromContext } from '@server/lib/audit';
 
 function toUserResponse(user: User): UserResponse {
     return {
@@ -27,7 +28,7 @@ function toUserResponse(user: User): UserResponse {
 
 export const userHandlers = {
 
-    list: async (c: Context) => {
+    list: async (c: AppContext) => {
         const page = Math.max(1, parseInt(c.req.query('page') ?? '1', 10));
         const limit = Math.min(100, Math.max(1, parseInt(c.req.query('limit') ?? '20', 10)));
         const search = c.req.query('search') ?? '';
@@ -43,14 +44,14 @@ export const userHandlers = {
         return paginated(c, users.map(toUserResponse), page, limit, total);
     },
 
-    get: async (c: Context) => {
+    get: async (c: AppContext) => {
         const id = parseInt(c.req.param('id')!);
         const user = await UsersQueries.findById(id);
         if (!user) throw new NotFoundError('User', id);
         return success(c, toUserResponse(user));
     },
 
-    create: async (c: Context) => {
+    create: async (c: AppContext) => {
         const body = await c.req.json();
         const validated = userCreateSchema.safeParse(body);
         if (!validated.success) throw new ValidationError('Invalid user data', validated.error.errors);
@@ -75,11 +76,18 @@ export const userHandlers = {
 
         const inviteUrl = `${env.CLIENT_URL}/accept-invite?token=${rawToken}`;
         await publishEmail({ type: 'INVITE', to: validated.data.email, name: validated.data.full_name, inviteUrl });
+        await auditFromContext(c, {
+            action: 'USER_INVITED',
+            entityType: 'user',
+            entityId: user.id,
+            after: toUserResponse(user),
+            metadata: { invited_role: user.role },
+        });
 
         return success(c, toUserResponse(user), 'Invite sent successfully', 201);
     },
 
-    update: async (c: Context) => {
+    update: async (c: AppContext) => {
         const id = parseInt(c.req.param('id')!);
         const body = await c.req.json();
         const validated = userUpdateSchema.safeParse(body);
@@ -90,15 +98,29 @@ export const userHandlers = {
 
         const updated = await UsersQueries.update(id, validated.data);
         if (!updated) throw new InternalServerError('Failed to update user');
+        await auditFromContext(c, {
+            action: 'USER_UPDATED',
+            entityType: 'user',
+            entityId: id,
+            before: toUserResponse(existing),
+            after: toUserResponse(updated),
+            metadata: { fields: Object.keys(validated.data) },
+        });
 
         return success(c, toUserResponse(updated), 'User updated successfully');
     },
 
-    delete: async (c: Context) => {
+    delete: async (c: AppContext) => {
         const id = parseInt(c.req.param('id')!);
         const user = await UsersQueries.findById(id);
         if (!user) throw new NotFoundError('User', id);
         await UsersQueries.delete(id);
+        await auditFromContext(c, {
+            action: 'USER_DELETED',
+            entityType: 'user',
+            entityId: id,
+            before: toUserResponse(user),
+        });
         return success(c, null, 'User deleted successfully');
     },
 };

@@ -16,6 +16,16 @@ export interface Product extends BaseType {
     is_featured: boolean,
 }
 
+export interface ProductImage {
+    id: string,
+    product_id: string,
+    url: string,
+    alt_text?: string,
+    position: number,
+    is_primary: boolean,
+    created_at: string,
+}
+
 export interface ProductRequest {
     category_id: string,
     name: string,
@@ -45,6 +55,7 @@ export interface ProductResponse {
     id: string,
     category_id: string,
     sku: string,
+    slug: string,
     name: string,
     description: string,
     price: number,
@@ -52,7 +63,11 @@ export interface ProductResponse {
     sale_ends_at?: string,
     stock: number,
     total_stock?: number,
+    stock_status?: 'out' | 'low' | 'high',
+    low_stock_variant_count?: number,
+    out_of_stock_variant_count?: number,
     image_url: string,
+    images?: ProductImage[],
     is_active: boolean,
     is_featured: boolean,
     created_at: string,

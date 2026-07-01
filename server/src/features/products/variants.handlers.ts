@@ -1,4 +1,4 @@
-import type { Context } from 'hono';
+import type { AppContext } from '@server/lib/hono';
 import { variantsQueries } from './variants.queries';
 import { productsQueries } from './products.queries';
 import { createVariantSchema, updateVariantSchema, adjustStockSchema } from './variants.schema';
@@ -8,6 +8,7 @@ import { generateSku } from '@server/lib/util';
 import { adjustStock } from '@server/lib/inventory';
 import { sql } from '@server/lib/db';
 import type { ProductVariantResponse } from 'shared/dist';
+import { getRequiredUser } from '@server/lib/hono';
 
 function toVariantResponse(v: any): ProductVariantResponse & { low_stock_threshold?: number } {
     return {
@@ -26,7 +27,7 @@ function toVariantResponse(v: any): ProductVariantResponse & { low_stock_thresho
 }
 
 export const variantsHandlers = {
-    lowStock: async (c: Context) => {
+    lowStock: async (c: AppContext) => {
         const variants = await variantsQueries.findLowStock();
         return success(c, variants.map((v) => ({
             ...toVariantResponse(v),
@@ -35,7 +36,7 @@ export const variantsHandlers = {
         })));
     },
 
-    list: async (c: Context) => {
+    list: async (c: AppContext) => {
         const productId = parseInt(c.req.param('id')!);
         const product = await productsQueries.findById(productId);
         if (!product) throw new NotFoundError('Product', productId);
@@ -44,7 +45,7 @@ export const variantsHandlers = {
         return success(c, variants.map(toVariantResponse));
     },
 
-    create: async (c: Context) => {
+    create: async (c: AppContext) => {
         const productId = parseInt(c.req.param('id')!);
         const product = await productsQueries.findById(productId);
         if (!product) throw new NotFoundError('Product', productId);
@@ -60,7 +61,7 @@ export const variantsHandlers = {
         return success(c, toVariantResponse(variant), 'Variant created', 201);
     },
 
-    update: async (c: Context) => {
+    update: async (c: AppContext) => {
         const variantId = parseInt(c.req.param('vid')!);
         const existing = await variantsQueries.findById(variantId);
         if (!existing) throw new NotFoundError('Variant', variantId);
@@ -75,7 +76,7 @@ export const variantsHandlers = {
         return success(c, toVariantResponse(updated));
     },
 
-    delete: async (c: Context) => {
+    delete: async (c: AppContext) => {
         const variantId = parseInt(c.req.param('vid')!);
         const existing = await variantsQueries.findById(variantId);
         if (!existing) throw new NotFoundError('Variant', variantId);
@@ -90,8 +91,8 @@ export const variantsHandlers = {
         return success(c, null, 'Variant deleted');
     },
 
-    adjustStock: async (c: Context) => {
-        const { sub } = c.get('user') as { sub: string };
+    adjustStock: async (c: AppContext) => {
+        const { sub } = getRequiredUser(c);
         const variantId = parseInt(c.req.param('vid')!);
         const body = await c.req.json();
         const validated = adjustStockSchema.safeParse(body);
@@ -120,7 +121,7 @@ export const variantsHandlers = {
         return success(c, toVariantResponse(updated!), 'Stock adjusted');
     },
 
-    stockHistory: async (c: Context) => {
+    stockHistory: async (c: AppContext) => {
         const variantId = parseInt(c.req.param('vid')!);
         const existing = await variantsQueries.findById(variantId);
         if (!existing) throw new NotFoundError('Variant', variantId);

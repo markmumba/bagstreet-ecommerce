@@ -7,6 +7,7 @@ export const orderKeys = {
   lists: () => [...orderKeys.all, 'list'] as const,
   list: (params?: OrderListParams) => [...orderKeys.lists(), params] as const,
   detail: (id: string) => [...orderKeys.all, 'detail', id] as const,
+  receipt: (id: string) => [...orderKeys.all, 'receipt', id] as const,
 };
 
 export function useOrders(params?: OrderListParams) {
@@ -16,6 +17,17 @@ export function useOrders(params?: OrderListParams) {
       const res = await ordersService.getAll(params);
       return res;
     },
+  });
+}
+
+export function useOrderReceipt(id: string | undefined, enabled = true) {
+  return useQuery({
+    queryKey: id ? orderKeys.receipt(id) : [...orderKeys.all, 'receipt', 'missing'],
+    queryFn: async () => {
+      if (!id) throw new Error('Order id is required');
+      return ordersService.getReceipt(id);
+    },
+    enabled: Boolean(id) && enabled,
   });
 }
 

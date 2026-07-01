@@ -22,6 +22,7 @@ export type PaymentStatus = typeof PAYMENT_STATUS[keyof typeof PAYMENT_STATUS];
 
 export interface ShippingAddress {
     full_name: string;
+    email?: string;
     address_line1: string;
     address_line2?: string;
     city: string;
@@ -55,6 +56,7 @@ export interface OrderCreateRequest {
     shipping_address: ShippingAddress;
     shipping_location_id: number;
     phone: string;
+    email?: string;
     discount_code?: string;
     notes?: string;
 }
@@ -62,6 +64,7 @@ export interface OrderCreateRequest {
 export interface OrderItemResponse {
     id: string;
     product_id: string;
+    product_slug?: string;
     product_name: string;
     variant_id?: string;
     variant_sku?: string;
@@ -74,6 +77,8 @@ export interface OrderItemResponse {
 
 export interface OrderResponse {
     id: string;
+    public_id?: string;
+    order_number?: string;
     user_id: string;
     status: OrderStatus;
     total_amount: number;
@@ -85,18 +90,46 @@ export interface OrderResponse {
     shipping_address: ShippingAddress;
     notes?: string;
     items: OrderItemResponse[];
+    payment_provider?: string;
+    payment_redirect_url?: string | null;
+    payment_reference?: string | null;
     created_at: string;
     updated_at: string;
 }
 
 export interface PaymentRetryResponse {
     checkout_request_id: string;
+    payment_provider?: string;
+    payment_reference?: string | null;
+    payment_redirect_url?: string | null;
 }
 
 export interface PaymentStatusResponse {
-    status: typeof ORDER_STATUS.PENDING | typeof PAYMENT_STATUS.PAID;
+    status: typeof ORDER_STATUS.PENDING | typeof PAYMENT_STATUS.PAID | typeof PAYMENT_STATUS.FAILED;
     order_id: number;
     receipt_number?: string;
+    payment_method?: string;
+}
+
+export interface OrderReceiptResponse {
+    receipt_number: string;
+    order_id: string;
+    order_number?: string;
+    order_public_id?: string;
+    issued_at: string;
+    paid_at: string;
+    customer_name: string;
+    customer_email?: string;
+    customer_phone?: string;
+    payment_provider: string;
+    payment_method?: string;
+    payment_reference?: string | null;
+    currency: string;
+    subtotal: number;
+    shipping_cost: number;
+    discount_amount: number;
+    total_amount: number;
+    items: OrderItemResponse[];
 }
 
 export interface DiscountCodeResponse {

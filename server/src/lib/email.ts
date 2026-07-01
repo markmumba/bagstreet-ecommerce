@@ -32,6 +32,22 @@ export async function sendInviteEmail(to: string, name: string, inviteUrl: strin
     await send(to, `You've been invited to Bagstreet`, html);
 }
 
+export async function sendCustomerAccountSetupEmail(to: string, name: string, setupUrl: string) {
+    if (env.NODE_ENV !== 'production') {
+        console.log(`[DEV] Customer account setup for ${name} <${to}>`);
+        console.log(`[DEV] ${setupUrl}`);
+    }
+
+    if (!env.SMTP_USER || !env.SMTP_PASS) return;
+
+    const html = await renderTemplate('customer-account-setup', {
+        name,
+        setupUrl,
+        year: String(new Date().getFullYear()),
+    });
+    await send(to, `Set up your Bagstreet account`, html);
+}
+
 
 export async function sendOrderConfirmationEmail(
     to: string,
@@ -46,9 +62,11 @@ export async function sendOrderConfirmationEmail(
         subtotal: number;
     }[],
     totalAmount: number,
-    shippingAddress: { full_name: string; address_line1: string; city: string; county?: string }
+    shippingAddress: { full_name: string; address_line1: string; city: string; county?: string; state?: string },
+    confirmReceivedUrl: string,
+    providedOrderRef?: string
 ) {
-    const orderRef = `#${String(orderId).padStart(6, '0').toUpperCase()}`;
+    const orderRef = providedOrderRef ?? `#${String(orderId).padStart(6, '0').toUpperCase()}`;
 
     const itemsHtml = items.map((item) => {
         const variant = [item.variant_size, item.variant_color].filter(Boolean).join(' / ');
@@ -65,10 +83,12 @@ export async function sendOrderConfirmationEmail(
             </tr>`;
     }).join('');
 
-    const shippingCity = shippingAddress.city + (shippingAddress.county ? `, ${shippingAddress.county}` : '');
+    const shippingRegion = shippingAddress.county ?? shippingAddress.state;
+    const shippingCity = shippingAddress.city + (shippingRegion ? `, ${shippingRegion}` : '');
 
     if (!env.SMTP_USER || !env.SMTP_PASS) {
         console.log(`[DEV] Order confirmation for ${name} <${to}> — Order ${orderRef}`);
+        console.log(`[DEV] Confirm received: ${confirmReceivedUrl}`);
         return;
     }
 
@@ -80,10 +100,116 @@ export async function sendOrderConfirmationEmail(
         shippingName: shippingAddress.full_name,
         shippingAddress: shippingAddress.address_line1,
         shippingCity,
+        confirmReceivedUrl,
         year: String(new Date().getFullYear()),
     });
 
     await send(to, `Your Bagstreet order ${orderRef} is confirmed`, html);
+}
+
+export async function sendAdminOrderConfirmedEmail(
+    to: string,
+    name: string,
+    orderId: number,
+    providedOrderRef: string | undefined,
+    customerName: string,
+    customerPhone: string,
+    totalAmount: number,
+    itemCount: number
+) {
+    const orderRef = providedOrderRef ?? `#${String(orderId).padStart(6, '0').toUpperCase()}`;
+    const subject = `Bagstreet order ${orderRef} confirmed`;
+
+    if (!env.SMTP_USER || !env.SMTP_PASS) {
+        console.log(`[DEV] Admin order confirmation for ${name} <${to}> - ${orderRef}`);
+        return;
+    }
+
+    const html = `
+        <div style="font-family:Arial,sans-serif;line-height:1.5;color:#241212;">
+          <h2 style="margin:0 0 12px;">Order confirmed</h2>
+          <p>Hello ${name},</p>
+          <p><strong>${orderRef}</strong> has been confirmed.</p>
+          <table style="border-collapse:collapse;margin:16px 0;width:100%;max-width:520px;">
+            <tr>
+              <td style="padding:8px 0;color:#6f5d55;">Customer</td>
+              <td style="padding:8px 0;text-align:right;"><strong>${customerName}</strong></td>
+            </tr>
+            <tr>
+              <td style="padding:8px 0;color:#6f5d55;">Phone</td>
+              <td style="padding:8px 0;text-align:right;">${customerPhone}</td>
+            </tr>
+            <tr>
+              <td style="padding:8px 0;color:#6f5d55;">Items</td>
+              <td style="padding:8px 0;text-align:right;">${itemCount}</td>
+            </tr>
+            <tr>
+              <td style="padding:8px 0;color:#6f5d55;">Total</td>
+              <td style="padding:8px 0;text-align:right;"><strong>KES ${totalAmount.toFixed(2)}</strong></td>
+            </tr>
+          </table>
+          <p>Please continue processing this order in the admin dashboard.</p>
+        </div>
+    `;
+
+    await send(to, subject, html);
+}
+
+export async function sendPaymentFailedEmail(
+    to: string,
+    name: string,
+    orderId: number,
+    reason?: string | null,
+    providedOrderRef?: string
+) {
+    const orderRef = providedOrderRef ?? `#${String(orderId).padStart(6, '0').toUpperCase()}`;
+    const subject = `Payment not completed for Bagstreet order ${orderRef}`;
+
+    if (!env.SMTP_USER || !env.SMTP_PASS) {
+        console.log(`[DEV] Payment failure email for ${name} <${to}> - ${orderRef}`);
+        return;
+    }
+
+    const html = `
+        <div style="font-family:Arial,sans-serif;line-height:1.5;color:#241212;">
+          <h2 style="margin:0 0 12px;">Payment not completed</h2>
+          <p>Hello ${name},</p>
+          <p>We could not confirm payment for <strong>${orderRef}</strong>.</p>
+          ${reason ? `<p style="color:#6f5d55;">${reason}</p>` : ''}
+          <p>You can return to checkout and try again. If you already paid, please contact support with your payment reference.</p>
+        </div>
+    `;
+
+    await send(to, subject, html);
+}
+
+export async function sendLowStockEmail(
+    to: string,
+    name: string,
+    productName: string,
+    variantLabel: string,
+    stock: number,
+    threshold: number
+) {
+    const subject = stock === 0
+        ? `Bagstreet stock alert: ${productName} is out of stock`
+        : `Bagstreet stock alert: ${productName} is low`;
+
+    if (!env.SMTP_USER || !env.SMTP_PASS) {
+        console.log(`[DEV] Low stock email for ${name} <${to}> - ${productName} ${variantLabel}: ${stock}/${threshold}`);
+        return;
+    }
+
+    const html = `
+        <div style="font-family:Arial,sans-serif;line-height:1.5;color:#241212;">
+          <h2 style="margin:0 0 12px;">Stock alert</h2>
+          <p>Hello ${name},</p>
+          <p><strong>${productName}</strong>${variantLabel ? ` (${variantLabel})` : ''} has ${stock} unit${stock === 1 ? '' : 's'} remaining.</p>
+          <p>The alert threshold is ${threshold}.</p>
+          <p>Please restock or deactivate the variant if it should no longer be sold.</p>
+        </div>
+    `;
+    await send(to, subject, html);
 }
 
 

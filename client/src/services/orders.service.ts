@@ -1,5 +1,5 @@
 import { apiClient } from './api';
-import type { OrderResponse, OrderStatus, PaymentStatus } from 'shared';
+import type { OrderReceiptResponse, OrderResponse, OrderStatus, PaymentStatus } from 'shared';
 
 export interface OrderListParams {
   page?: number;
@@ -13,6 +13,8 @@ export const ordersService = {
     apiClient.get<OrderResponse[]>('/api/orders', params as Record<string, unknown>),
 
   getById: (id: string) => apiClient.get<OrderResponse>(`/api/orders/${id}`),
+
+  getReceipt: (id: string) => apiClient.get<OrderReceiptResponse>(`/api/orders/${id}/receipt`),
 
   updateStatus: (id: string, status: OrderStatus) =>
     apiClient.patch<OrderResponse>(`/api/orders/${id}/status`, { status }),

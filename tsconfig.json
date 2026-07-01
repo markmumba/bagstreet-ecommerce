@@ -10,7 +10,7 @@
 
     // Path resolution
     "baseUrl": "./",
-    "ignoreDeprecations": "6.0",
+    "ignoreDeprecations": "5.0",
     "paths": {
       "@server/*": ["./server/src/*"],
       "@client/*": ["./client/src/*"],

@@ -1,14 +1,16 @@
 import { Hono } from 'hono';
 import { authHandlers } from './auth.handlers';
 import { requireAuth } from '../../middleware/auth.middleware';
+import type { AppEnv } from '@server/lib/hono';
 
-const authRoutes = new Hono();
+const authRoutes = new Hono<AppEnv>();
 
 authRoutes.post('/register', authHandlers.register);
 authRoutes.post('/login', authHandlers.login);
 authRoutes.post('/refresh', authHandlers.refresh);
 authRoutes.post('/logout', authHandlers.logout);
 authRoutes.post('/accept-invite', authHandlers.acceptInvite);
+authRoutes.post('/verify-invite', authHandlers.verifyInvite);
 authRoutes.post('/forgot-password', authHandlers.forgotPassword);
 authRoutes.post('/reset-password', authHandlers.resetPassword);
 authRoutes.get('/me', requireAuth, authHandlers.me);

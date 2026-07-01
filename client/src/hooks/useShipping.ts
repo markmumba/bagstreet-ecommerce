@@ -38,3 +38,11 @@ export function useDeleteShippingLocation() {
         onSuccess: () => qc.invalidateQueries({ queryKey: QUERY_KEY }),
     });
 }
+
+export function useImportShippingCsv() {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: (file: File) => shippingService.importCsv(file),
+        onSuccess: () => qc.invalidateQueries({ queryKey: QUERY_KEY }),
+    });
+}

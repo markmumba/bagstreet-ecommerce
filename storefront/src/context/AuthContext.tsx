@@ -1,17 +1,21 @@
 import { createContext, useContext, useEffect, useState } from 'react';
 import { apiClient } from '@/services/api';
-import type { UserResponse } from 'shared';
+import { USER_ROLE, type UserResponse } from 'shared';
 
 interface AuthContextValue {
   user: UserResponse | null;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
-  register: (email: string, fullName: string, password: string) => Promise<void>;
+  register: (email: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
+
+function isCustomerUser(user: UserResponse): boolean {
+  return user.role === USER_ROLE.CUSTOMER;
+}
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<UserResponse | null>(null);
@@ -22,7 +26,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (token) {
       apiClient.setAuthToken(token);
       apiClient.get<UserResponse>('/api/auth/me')
-        .then((res) => setUser(res.data ?? null))
+        .then((res) => {
+          if (res.data && isCustomerUser(res.data)) {
+            setUser(res.data);
+            return;
+          }
+          localStorage.removeItem('bagstreet_store_token');
+          apiClient.setAuthToken(null);
+          setUser(null);
+        })
         .catch(() => { localStorage.removeItem('bagstreet_store_token'); apiClient.setAuthToken(null); })
         .finally(() => setIsLoading(false));
     } else {
@@ -33,17 +45,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const login = async (email: string, password: string) => {
     const res = await apiClient.post<{ access_token: string; user: UserResponse }>('/api/auth/login', { email, password });
     const { access_token, user } = res.data!;
+    if (!isCustomerUser(user)) {
+      throw new Error('Please use the admin portal for this account');
+    }
     localStorage.setItem('bagstreet_store_token', access_token);
     apiClient.setAuthToken(access_token);
     setUser(user);
   };
 
-  const register = async (email: string, fullName: string, password: string) => {
-    const res = await apiClient.post<{ access_token: string; user: UserResponse }>('/api/auth/register', { email, full_name: fullName, password });
-    const { access_token, user } = res.data!;
-    localStorage.setItem('bagstreet_store_token', access_token);
-    apiClient.setAuthToken(access_token);
-    setUser(user);
+  const register = async (email: string) => {
+    await apiClient.post('/api/auth/register', { email });
   };
 
   const logout = async () => {

@@ -16,7 +16,10 @@ class ApiClient {
   constructor() {
     this.client = axios.create({
       baseURL: import.meta.env.VITE_SERVER_URL || 'http://localhost:3000',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Bagstreet-App': 'storefront',
+      },
       timeout: 10000,
       withCredentials: true,
     });

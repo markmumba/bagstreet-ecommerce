@@ -25,7 +25,7 @@ export function useProduct(id: string) {
   });
 }
 
-export function useProductVariants(productId: string) {
+export function useProductVariants(productId: string | undefined) {
   return useQuery({
     queryKey: ['products', productId, 'variants'],
     queryFn: () => apiClient.get(`/api/products/${productId}/variants`),

@@ -16,6 +16,16 @@ const STATUS_COLORS: Record<string, string> = {
   [ORDER_STATUS.REFUNDED]: 'var(--color-neutral-text)',
 };
 
+const STATUS_LABELS: Record<string, string> = {
+  [ORDER_STATUS.PENDING]: 'Pending',
+  [ORDER_STATUS.CONFIRMED]: 'Confirmed',
+  [ORDER_STATUS.PROCESSING]: 'Processing',
+  [ORDER_STATUS.SHIPPED]: 'Shipped',
+  [ORDER_STATUS.DELIVERED]: 'Received',
+  [ORDER_STATUS.CANCELLED]: 'Cancelled',
+  [ORDER_STATUS.REFUNDED]: 'Refunded',
+};
+
 function CustomTooltip({ active, payload }: any) {
   if (!active || !payload?.length) return null;
   const { name, value } = payload[0];
@@ -28,6 +38,11 @@ function CustomTooltip({ active, payload }: any) {
 }
 
 export function OrderStatusChart({ data }: Props) {
+  const chartData = data.map((entry) => ({
+    ...entry,
+    label: STATUS_LABELS[entry.status] ?? entry.status,
+  }));
+
   return (
     <Card>
       <CardHeader className="pb-2">
@@ -37,16 +52,16 @@ export function OrderStatusChart({ data }: Props) {
         <ResponsiveContainer width="100%" height={220}>
           <PieChart>
             <Pie
-              data={data}
+              data={chartData}
               dataKey="count"
-              nameKey="status"
+              nameKey="label"
               cx="50%"
               cy="50%"
               innerRadius={55}
               outerRadius={85}
               paddingAngle={3}
             >
-              {data.map((entry) => (
+              {chartData.map((entry) => (
                 <Cell
                   key={entry.status}
                   fill={STATUS_COLORS[entry.status] ?? 'var(--color-neutral-text)'}

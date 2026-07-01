@@ -2,6 +2,7 @@ import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
 import { Trash2 } from 'lucide-react';
 import { useCart, useUpdateCartItem, useRemoveCartItem } from '@/hooks/useCart';
 import { useFreeDeliveryThreshold } from '@/hooks/usePromotions';
+import { useSeo } from '@/hooks/useSeo';
 
 export const Route = createFileRoute('/cart')({
   component: CartPage,
@@ -13,6 +14,11 @@ function formatPrice(price: number) {
 
 function CartPage() {
   const navigate = useNavigate();
+  useSeo({
+    title: 'Shopping Cart',
+    description: 'Review your Bagstreet cart and continue to secure checkout.',
+    canonicalPath: '/cart',
+  });
   const { data: cartRes, isLoading } = useCart();
   const { data: thresholdRes } = useFreeDeliveryThreshold();
   const updateItem = useUpdateCartItem();
@@ -28,7 +34,7 @@ function CartPage() {
 
   if (items.length === 0) {
     return (
-      <div className="max-w-2xl mx-auto px-4 py-20 text-center">
+      <div className="max-w-2xl mx-auto px-4 py-24 text-center">
         <h2 className="text-2xl font-semibold mb-2">Your cart is empty</h2>
         <p className="text-muted-foreground mb-6">Add some products to get started.</p>
         <Link to="/" className="inline-block bg-primary text-primary-foreground px-6 py-2.5 rounded-md text-sm font-medium hover:opacity-90">
@@ -39,16 +45,22 @@ function CartPage() {
   }
 
   return (
-    <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+    <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-24 sm:py-28">
       <h1 className="text-3xl font-bold mb-8">Your Cart</h1>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div className="lg:col-span-2 space-y-4">
           {items.map((item: any) => (
-            <div key={item.variant_id} className="flex gap-4 p-4 border border-border rounded-lg bg-card">
+            <div key={item.variant_id} className="grid grid-cols-[5rem_1fr] gap-4 border border-border bg-card p-4 sm:flex">
               <div className="w-20 h-20 rounded-md overflow-hidden bg-muted shrink-0">
                 {item.product_image_url ? (
-                  <img src={item.product_image_url} alt={item.product_name} className="w-full h-full object-cover" />
+                  <img
+                    src={item.product_image_url}
+                    alt={item.product_name}
+                    loading="lazy"
+                    decoding="async"
+                    className="w-full h-full object-cover"
+                  />
                 ) : (
                   <div className="w-full h-full bg-muted" />
                 )}
@@ -60,7 +72,7 @@ function CartPage() {
                 </p>
                 <p className="text-sm font-semibold text-primary mt-1">{formatPrice(item.unit_price)}</p>
               </div>
-              <div className="flex flex-col items-end gap-2">
+              <div className="col-span-2 flex items-center justify-between gap-3 sm:col-span-1 sm:ml-auto sm:flex-col sm:items-end sm:gap-2">
                 <button
                   onClick={() => removeItem.mutate(item.variant_id)}
                   className="text-muted-foreground hover:text-destructive transition-colors"

@@ -1,8 +1,9 @@
 import { Hono } from 'hono';
 import { cartHandlers } from './cart.handlers';
 import { requireAuth } from '../../middleware/auth.middleware';
+import type { AppEnv } from '@server/lib/hono';
 
-const cartRoutes = new Hono();
+const cartRoutes = new Hono<AppEnv>();
 
 cartRoutes.use('/*', requireAuth);
 

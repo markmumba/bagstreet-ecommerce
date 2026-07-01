@@ -1,5 +1,10 @@
 import { sql } from "../../lib/db";
-import type { Product, ProductRequest, ProductUpdateRequest } from "shared/dist";
+import type { Product, ProductImage, ProductRequest } from "shared/dist";
+
+type ProductImageRow = Omit<ProductImage, 'id' | 'product_id'> & {
+    id: number;
+    product_id: number;
+};
 
 export const productsQueries = {
     findAll: async (
@@ -8,21 +13,38 @@ export const productsQueries = {
         categoryId: number | null,
         searchTerm: string,
         status: boolean | null
-    ): Promise<(Product & { total_stock: number | null })[]> => {
+    ): Promise<(Product & {
+        total_stock: number | null;
+        low_stock_variant_count: number;
+        out_of_stock_variant_count: number;
+    })[]> => {
         const offset = (page - 1) * limit;
 
         const pattern = searchTerm && searchTerm.trim() !== ""
             ? `%${searchTerm.trim()}%`
             : null;
 
-        return await sql<(Product & { total_stock: number | null })[]>`
+        return await sql<(Product & {
+            total_stock: number | null;
+            low_stock_variant_count: number;
+            out_of_stock_variant_count: number;
+        })[]>`
             WITH RECURSIVE descendants AS (
                 SELECT id FROM categories WHERE ${categoryId}::integer IS NOT NULL AND id = ${categoryId}::integer
                 UNION ALL
                 SELECT c.id FROM categories c JOIN descendants d ON c.parent_id = d.id
             )
             SELECT p.*,
-                COALESCE(SUM(pv.stock) FILTER (WHERE pv.is_active = true), 0) AS total_stock
+                COALESCE(SUM(pv.stock) FILTER (WHERE pv.is_active = true), 0) AS total_stock,
+                COUNT(*) FILTER (
+                    WHERE pv.is_active = true
+                      AND pv.stock > 0
+                      AND pv.stock <= pv.low_stock_threshold
+                ) AS low_stock_variant_count,
+                COUNT(*) FILTER (
+                    WHERE pv.is_active = true
+                      AND pv.stock = 0
+                ) AS out_of_stock_variant_count
             FROM products p
             LEFT JOIN product_variants pv ON pv.product_id = p.id
             WHERE (${categoryId}::integer IS NULL OR p.category_id IN (SELECT id FROM descendants))
@@ -69,6 +91,50 @@ export const productsQueries = {
     findBySlug: async (slug: string): Promise<Product | undefined> => {
         const [product] = await sql<Product[]>`SELECT * FROM products WHERE slug = ${slug} AND is_active=true`;
         return product;
+    },
+
+    findBySlugAnyStatus: async (slug: string): Promise<Product | undefined> => {
+        const [product] = await sql<Product[]>`SELECT * FROM products WHERE slug = ${slug}`;
+        return product;
+    },
+
+    findImagesByProductId: async (productId: number): Promise<ProductImageRow[]> => {
+        return await sql<ProductImageRow[]>`
+            SELECT id, product_id, url, alt_text, position, is_primary, created_at
+            FROM product_images
+            WHERE product_id = ${productId}
+            ORDER BY is_primary DESC, position ASC, id ASC
+        `;
+    },
+
+    findImagesByProductIds: async (productIds: number[]): Promise<ProductImageRow[]> => {
+        if (productIds.length === 0) return [];
+        const safeProductIds = productIds.filter((id) => Number.isInteger(id) && id > 0);
+        if (safeProductIds.length === 0) return [];
+
+        return await sql<ProductImageRow[]>`
+            SELECT id, product_id, url, alt_text, position, is_primary, created_at
+            FROM product_images
+            WHERE product_id IN ${sql(safeProductIds)}
+            ORDER BY product_id ASC, is_primary DESC, position ASC, id ASC
+        `;
+    },
+
+    replaceImages: async (productId: number, images: { url: string; alt_text?: string | null; position: number; is_primary: boolean }[]): Promise<void> => {
+        await sql.begin(async (tx: typeof sql) => {
+            await tx`DELETE FROM product_images WHERE product_id = ${productId}`;
+            for (const image of images) {
+                await tx`
+                    INSERT INTO product_images(product_id, url, alt_text, position, is_primary)
+                    VALUES (${productId}, ${image.url}, ${image.alt_text ?? null}, ${image.position}, ${image.is_primary})
+                `;
+            }
+            await tx`
+                UPDATE products
+                SET image_url = ${images[0]?.url ?? null}
+                WHERE id = ${productId}
+            `;
+        });
     },
 
     create: async (product: ProductRequest & { sku: string; slug: string }): Promise<Product | undefined> => {

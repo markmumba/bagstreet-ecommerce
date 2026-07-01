@@ -2,14 +2,19 @@ import { z } from 'zod';
 import { ORDER_STATUS } from 'shared/dist';
 
 const shippingAddressSchema = z.object({
-    full_name: z.string().min(2).max(200),
-    address_line1: z.string().min(1).max(200),
+    full_name: z.string().trim().min(2).max(200),
+    email: z.string().trim().email().optional(),
+    address_line1: z.string().trim().min(1).max(200),
     address_line2: z.string().max(200).optional(),
-    city: z.string().min(1).max(100),
-    state: z.string().min(1).max(100),
-    postal_code: z.string().min(1).max(20),
-    country: z.string().min(2).max(100),
-    phone: z.string().max(20).optional(),
+    city: z.string().trim().min(1).max(100),
+    state: z.string().trim().min(1).max(100).optional(),
+    county: z.string().trim().min(1).max(100).optional(),
+    postal_code: z.string().trim().max(20).optional().default(''),
+    country: z.string().trim().min(2).max(100).optional().default('Kenya'),
+    phone: z.string().trim().max(20).optional(),
+}).refine((address) => address.state || address.county, {
+    message: 'County is required',
+    path: ['county'],
 });
 
 export const createOrderSchema = z.object({
@@ -24,6 +29,7 @@ export const createOrderSchema = z.object({
     shipping_address: shippingAddressSchema,
     shipping_location_id: z.number().int().positive(),
     phone: z.string().min(9).max(15),
+    email: z.string().trim().email().optional(),
     discount_code: z.string().max(50).optional(),
     notes: z.string().max(500).optional(),
 });
@@ -31,8 +37,6 @@ export const createOrderSchema = z.object({
 export const updateOrderStatusSchema = z.object({
     status: z.enum([
         ORDER_STATUS.CONFIRMED,
-        ORDER_STATUS.PROCESSING,
-        ORDER_STATUS.SHIPPED,
         ORDER_STATUS.DELIVERED,
         ORDER_STATUS.CANCELLED,
         ORDER_STATUS.REFUNDED,

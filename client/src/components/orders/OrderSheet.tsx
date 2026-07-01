@@ -3,6 +3,7 @@ import { ORDER_STATUS, PAYMENT_STATUS, USER_ROLE } from 'shared';
 import type { OrderResponse, OrderStatus } from 'shared';
 import { useConfirmOrderPayment, useUpdateOrderStatus } from '@/hooks/useOrders';
 import { useAuth } from '@/context/AuthContext';
+import { OrderReceiptDialog } from './OrderReceiptDialog';
 import {
   Sheet,
   SheetContent,
@@ -20,19 +21,25 @@ import {
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
+import { Mail, MapPin, Phone, ReceiptText } from 'lucide-react';
 
 const ORDER_STATUSES: OrderStatus[] = [
-  ORDER_STATUS.PENDING,
-  ORDER_STATUS.CONFIRMED,
-  ORDER_STATUS.PROCESSING,
-  ORDER_STATUS.SHIPPED,
   ORDER_STATUS.DELIVERED,
   ORDER_STATUS.CANCELLED,
   ORDER_STATUS.REFUNDED,
 ];
 
-const LOCKED_STATUS_UPDATES: OrderStatus[] = [ORDER_STATUS.DELIVERED, ORDER_STATUS.REFUNDED];
+const LOCKED_STATUS_UPDATES: OrderStatus[] = [ORDER_STATUS.CANCELLED, ORDER_STATUS.REFUNDED];
 const PAYMENT_CONFIRM_BLOCKED_STATUSES: OrderStatus[] = [ORDER_STATUS.CANCELLED, ORDER_STATUS.REFUNDED];
+const STATUS_LABELS: Record<OrderStatus, string> = {
+  [ORDER_STATUS.PENDING]: 'Pending',
+  [ORDER_STATUS.CONFIRMED]: 'Confirmed',
+  [ORDER_STATUS.PROCESSING]: 'Processing',
+  [ORDER_STATUS.SHIPPED]: 'Shipped',
+  [ORDER_STATUS.DELIVERED]: 'Received',
+  [ORDER_STATUS.CANCELLED]: 'Cancelled',
+  [ORDER_STATUS.REFUNDED]: 'Refunded',
+};
 
 const STATUS_VARIANTS: Record<OrderStatus, React.ComponentProps<typeof Badge>['variant']> = {
   PENDING: 'warning',
@@ -44,6 +51,13 @@ const STATUS_VARIANTS: Record<OrderStatus, React.ComponentProps<typeof Badge>['v
   REFUNDED: 'neutral',
 };
 
+function availableStatusUpdates(current: OrderStatus, paymentStatus: string) {
+  if (paymentStatus !== PAYMENT_STATUS.PAID) return [ORDER_STATUS.CANCELLED];
+  if (current === ORDER_STATUS.DELIVERED) return [ORDER_STATUS.REFUNDED];
+  if (current === ORDER_STATUS.CONFIRMED) return [ORDER_STATUS.DELIVERED, ORDER_STATUS.REFUNDED];
+  return ORDER_STATUSES.filter((status) => status !== current);
+}
+
 function formatDate(d: string) {
   return new Date(d).toLocaleDateString('en-US', {
     month: 'short',
@@ -54,6 +68,15 @@ function formatDate(d: string) {
   });
 }
 
+function addressLines(addr: OrderResponse['shipping_address']) {
+  return [
+    addr.address_line1,
+    addr.address_line2,
+    [addr.city, addr.state, addr.postal_code].filter(Boolean).join(', '),
+    addr.country,
+  ].filter(Boolean);
+}
+
 interface OrderSheetProps {
   order: OrderResponse | null;
   open: boolean;
@@ -62,10 +85,11 @@ interface OrderSheetProps {
 
 export function OrderSheet({ order, open, onOpenChange }: OrderSheetProps) {
   const { user } = useAuth();
-  const isStaff = user?.role === USER_ROLE.ADMIN || user?.role === USER_ROLE.MANAGER;
+  const canManageOrders = user?.role === USER_ROLE.ADMIN;
 
   const [selectedStatus, setSelectedStatus] = useState<OrderStatus | ''>('');
   const [error, setError] = useState<string | null>(null);
+  const [receiptOpen, setReceiptOpen] = useState(false);
   const updateStatus = useUpdateOrderStatus();
   const confirmPayment = useConfirmOrderPayment();
 
@@ -96,10 +120,11 @@ export function OrderSheet({ order, open, onOpenChange }: OrderSheetProps) {
   const { shipping_address: addr } = order;
 
   return (
+    <>
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className="w-full sm:max-w-lg overflow-y-auto">
         <SheetHeader className="pb-4">
-          <SheetTitle>Order #{order.id.slice(-8).toUpperCase()}</SheetTitle>
+          <SheetTitle>Order {order.order_number ?? `#${order.id.slice(-8).toUpperCase()}`}</SheetTitle>
           <SheetDescription>Placed {formatDate(order.created_at)}</SheetDescription>
         </SheetHeader>
 
@@ -109,11 +134,11 @@ export function OrderSheet({ order, open, onOpenChange }: OrderSheetProps) {
             <div className="flex items-center gap-2">
               <span className="text-sm font-medium">Status</span>
               <Badge variant={STATUS_VARIANTS[order.status]}>
-                {order.status.toLowerCase()}
+                {STATUS_LABELS[order.status] ?? order.status}
               </Badge>
             </div>
 
-            {isStaff && !LOCKED_STATUS_UPDATES.includes(order.status) && (
+            {canManageOrders && !LOCKED_STATUS_UPDATES.includes(order.status) && (
               <div className="flex gap-2">
                 <Select
                   value={selectedStatus}
@@ -123,9 +148,9 @@ export function OrderSheet({ order, open, onOpenChange }: OrderSheetProps) {
                     <SelectValue placeholder="Change status…" />
                   </SelectTrigger>
                   <SelectContent>
-                    {ORDER_STATUSES.filter((s) => s !== order.status).map((s) => (
+                    {availableStatusUpdates(order.status, (order as any).payment_status).map((s) => (
                       <SelectItem key={s} value={s}>
-                        {s}
+                        {STATUS_LABELS[s] ?? s}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -149,18 +174,40 @@ export function OrderSheet({ order, open, onOpenChange }: OrderSheetProps) {
 
           <Separator />
 
-          {/* Shipping Address */}
+          {/* Delivery */}
           <div className="flex flex-col gap-2">
-            <h3 className="text-sm font-semibold">Shipping Address</h3>
-            <div className="space-y-0.5 rounded-xl border p-3 text-sm text-muted-foreground">
-              <p className="font-medium text-foreground">{addr.full_name}</p>
-              <p>{addr.address_line1}</p>
-              {addr.address_line2 && <p>{addr.address_line2}</p>}
-              <p>
-                {addr.city}, {addr.state} {addr.postal_code}
-              </p>
-              <p>{addr.country}</p>
-              {addr.phone && <p>{addr.phone}</p>}
+            <h3 className="text-sm font-semibold">Delivery Details</h3>
+            <div className="rounded-xl border p-3 text-sm">
+              <div className="space-y-3">
+                <div>
+                  <p className="font-medium text-foreground">{addr.full_name || 'Guest customer'}</p>
+                  <div className="mt-1 flex flex-col gap-1 text-xs text-muted-foreground">
+                    {addr.email && (
+                      <span className="inline-flex items-center gap-1.5">
+                        <Mail className="h-3.5 w-3.5" strokeWidth={1.8} />
+                        {addr.email}
+                      </span>
+                    )}
+                    {addr.phone && (
+                      <span className="inline-flex items-center gap-1.5">
+                        <Phone className="h-3.5 w-3.5" strokeWidth={1.8} />
+                        {addr.phone}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex items-start gap-2 rounded-lg bg-muted/40 px-3 py-2 text-muted-foreground">
+                  <MapPin className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={1.8} />
+                  <div className="min-w-0 space-y-0.5">
+                    {addressLines(addr).length > 0 ? (
+                      addressLines(addr).map((line) => <p key={line}>{line}</p>)
+                    ) : (
+                      <p>No delivery address captured</p>
+                    )}
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -222,7 +269,17 @@ export function OrderSheet({ order, open, onOpenChange }: OrderSheetProps) {
                   <Badge variant={(order as any).payment_status === PAYMENT_STATUS.PAID ? 'default' : (order as any).payment_status === PAYMENT_STATUS.FAILED ? 'destructive' : 'secondary'} className="text-xs">
                     {(order as any).payment_status}
                   </Badge>
-                  {isStaff && (order as any).payment_status !== PAYMENT_STATUS.PAID && !PAYMENT_CONFIRM_BLOCKED_STATUSES.includes(order.status) && (
+                  {(order as any).payment_status === PAYMENT_STATUS.PAID && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setReceiptOpen(true)}
+                    >
+                      <ReceiptText className="h-4 w-4" />
+                      Receipt
+                    </Button>
+                  )}
+                  {canManageOrders && (order as any).payment_status !== PAYMENT_STATUS.PAID && !PAYMENT_CONFIRM_BLOCKED_STATUSES.includes(order.status) && (
                     <Button
                       size="sm"
                       variant="outline"
@@ -239,5 +296,11 @@ export function OrderSheet({ order, open, onOpenChange }: OrderSheetProps) {
         </div>
       </SheetContent>
     </Sheet>
+    <OrderReceiptDialog
+      orderId={order.id}
+      open={receiptOpen}
+      onOpenChange={setReceiptOpen}
+    />
+    </>
   );
 }

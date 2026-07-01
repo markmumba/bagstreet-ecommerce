@@ -49,10 +49,10 @@ export function Navbar() {
                  transition-all duration-500
                  [&.scrolled]:bg-background/95 [&.scrolled]:backdrop-blur-sm"
     >
-      <div className="max-w-[1440px] mx-auto px-8 sm:px-12 lg:px-20 h-full">
+      <div className="max-w-[1440px] mx-auto px-4 sm:px-8 lg:px-20 h-full">
         {/* Search overlay */}
         {searchOpen && (
-          <form onSubmit={submitSearch} className="absolute inset-0 flex items-center px-8 sm:px-12 lg:px-20 bg-background/95 backdrop-blur-sm z-10">
+          <form onSubmit={submitSearch} className="absolute inset-0 flex items-center px-4 sm:px-8 lg:px-20 bg-background/95 backdrop-blur-sm z-10">
             <Search strokeWidth={1} className="h-4 w-4 text-[var(--foreground-faint)] flex-shrink-0 mr-3" />
             <input
               ref={searchInputRef}
@@ -107,7 +107,7 @@ export function Navbar() {
           </nav>
 
           {/* Right icons */}
-          <div className="flex items-center gap-6">
+          <div className="flex items-center gap-4 sm:gap-6">
             {/* Search */}
             <button
               onClick={() => setSearchOpen(true)}
@@ -120,7 +120,7 @@ export function Navbar() {
               <ShoppingBag strokeWidth={1} className="h-5 w-5" />
               {itemCount > 0 && (
                 <span
-                  className="absolute -top-1.5 -right-1.5 bg-primary text-primary-foreground
+                  className="absolute -top-1.5 -right-1.5 rounded-full bg-primary text-primary-foreground
                              text-[10px] font-normal h-4 w-4 flex items-center justify-center"
                 >
                   {itemCount > 9 ? '9+' : itemCount}

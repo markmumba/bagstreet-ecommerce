@@ -1,11 +1,11 @@
 // src/middleware/error-handler.ts
-import type { Context } from 'hono';
+import type { AppContext } from '@server/lib/hono';
 import { AppError } from '../lib/errors';
 import { error } from '../lib/response';
 import { env } from '../config/env';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
 
-export function errorHandler(err: Error, c: Context) {
+export function errorHandler(err: Error, c: AppContext) {
   const isDev = env.NODE_ENV === 'development';
   console.error(`[${new Date().toISOString()}] ${c.req.method} ${c.req.path} →`, err.message);
   if (isDev) console.error(err.stack);
@@ -17,7 +17,12 @@ export function errorHandler(err: Error, c: Context) {
   const anyErr = err as any;
 
   // Network / service connectivity
-  if (anyErr.code === 'ECONNREFUSED' || anyErr.code === 'ENOTFOUND') {
+  if (
+    anyErr.code === 'ECONNREFUSED'
+    || anyErr.code === 'ENOTFOUND'
+    || anyErr.code === 'SERVICE_UNAVAILABLE'
+    || anyErr.code === 'TIMEOUT'
+  ) {
     const msg = isDev ? `Service unavailable: ${err.message}` : 'A backend service is unavailable';
     return error(c, msg, 503, 'SERVICE_UNAVAILABLE');
   }

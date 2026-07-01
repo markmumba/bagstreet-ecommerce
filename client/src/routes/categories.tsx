@@ -1,12 +1,20 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useState, useEffect } from 'react';
 import type { ColumnDef } from '@tanstack/react-table';
-import { useCategories, useDeleteCategory } from '@/hooks/useCategories';
+import { useCategories, useDeleteCategory, useImportCategoriesCsv } from '@/hooks/useCategories';
 import { CategoryDialog } from '@/components/categories/CategoryDialog';
 import { CategoriesDataTable } from '@/components/categories/CategoriesDataTable';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
+import { CsvImportDialog } from '@/components/import/CsvImportDialog';
 import type { Category } from 'shared';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 export const Route = createFileRoute('/categories')({
   component: CategoriesPage,
@@ -16,7 +24,9 @@ const LIMIT = 50;
 
 function CategoriesPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Category | null>(null);
 
   // Server-side filter state
   const [search, setSearch] = useState('');
@@ -39,6 +49,7 @@ function CategoriesPage() {
   const totalPages = Math.max(1, Math.ceil(total / LIMIT));
 
   const deleteMutation = useDeleteCategory();
+  const importMutation = useImportCategoriesCsv();
 
   const handleCreate = () => {
     setEditingCategory(null);
@@ -50,12 +61,17 @@ function CategoriesPage() {
     setDialogOpen(true);
   };
 
-  const handleDelete = async (category: Category) => {
-    if (!window.confirm(`Delete "${category.name}"? This action cannot be undone.`)) return;
+  const handleDelete = (category: Category) => {
+    setDeleteTarget(category);
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
     try {
-      await deleteMutation.mutateAsync(category.id);
+      await deleteMutation.mutateAsync(deleteTarget.id);
+      setDeleteTarget(null);
     } catch (error: unknown) {
-      alert((error as { message?: string })?.message || 'Failed to delete category');
+      console.error('Failed to delete category:', error);
     }
   };
 
@@ -176,17 +192,56 @@ function CategoriesPage() {
             data={categories}
             columns={columns}
             onCreateNew={handleCreate}
+            onImportCsv={() => setImportOpen(true)}
             search={search}
             onSearchChange={setSearch}
             total={categories.length}
             page={page}
             totalPages={totalPages}
             onPageChange={setPage}
+            onEdit={handleEdit}
+            onDelete={handleDelete}
+            isDeleting={deleteMutation.isPending}
           />
         )}
       </div>
 
       <CategoryDialog open={dialogOpen} onOpenChange={setDialogOpen} category={editingCategory} />
+      <CsvImportDialog
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        title="Import categories"
+        description="Upload categories in CSV format. Parent categories must already exist or appear earlier in the same import."
+        templateFilename="bagstreet-categories-template.csv"
+        templateCsv={'name,description,parent_name\nHandbags,All handbag products,\nCrossbody Bags,Small crossbody bags,Handbags\n'}
+        onImport={async (file) => {
+          const response = await importMutation.mutateAsync(file);
+          return response.data!;
+        }}
+      />
+      <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+        <DialogContent className="sm:max-w-[420px]">
+          <DialogHeader>
+            <DialogTitle>Delete category?</DialogTitle>
+            <DialogDescription>
+              This will permanently delete "{deleteTarget?.name}". Categories with products or subcategories may be blocked by the server.
+            </DialogDescription>
+          </DialogHeader>
+          {deleteMutation.error && (
+            <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+              {(deleteMutation.error as { message?: string })?.message || 'Failed to delete category'}
+            </div>
+          )}
+          <div className="flex justify-end gap-3 pt-2">
+            <Button variant="outline" onClick={() => setDeleteTarget(null)} disabled={deleteMutation.isPending}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={confirmDelete} disabled={deleteMutation.isPending}>
+              {deleteMutation.isPending ? 'Deleting...' : 'Delete'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </DashboardLayout>
   );
 }
