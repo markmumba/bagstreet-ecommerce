@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import type { ProductResponse } from 'shared';
-import { ImageIcon, Star, X } from 'lucide-react';
+import { ImageIcon, Plus, Star, X } from 'lucide-react';
 import { useCreateProduct, useUpdateProduct, useUpdateProductForm } from '@/hooks/useProducts';
 import { useCategoryTree } from '@/hooks/useCategories';
 import type { CategoryTreeNode } from 'shared';
@@ -51,6 +51,7 @@ export function ProductDialog({ open, onOpenChange, product }: ProductDialogProp
   const [imageInputKey, setImageInputKey] = useState(0);
   const [imageError, setImageError] = useState('');
   const [isActive, setIsActive] = useState(true);
+  const imageInputRef = useRef<HTMLInputElement | null>(null);
 
   const { data: categoryTree } = useCategoryTree();
   const createMutation = useCreateProduct();
@@ -98,27 +99,40 @@ export function ProductDialog({ open, onOpenChange, product }: ProductDialogProp
 
   const handleImageChange = (files: FileList | null) => {
     setImageError('');
-    const nextFiles = Array.from(files ?? []);
+    const incomingFiles = Array.from(files ?? []);
 
-    if (nextFiles.length === 0) {
-      clearSelectedImages();
+    if (incomingFiles.length === 0) {
       return;
     }
 
-    if (nextFiles.length > maxImageCount) {
-      clearSelectedImages();
-      setImageError(`Choose up to ${maxImageCount} product images.`);
+    const duplicateKeys = new Set(imageFiles.map((file) => `${file.name}-${file.size}-${file.lastModified}`));
+    const nextFiles = incomingFiles.filter((file) => !duplicateKeys.has(`${file.name}-${file.size}-${file.lastModified}`));
+
+    if (nextFiles.length === 0) {
+      setImageInputKey((key) => key + 1);
+      return;
+    }
+
+    const remainingSlots = maxImageCount - imageFiles.length;
+    if (nextFiles.length > remainingSlots) {
+      setImageInputKey((key) => key + 1);
+      setImageError(
+        remainingSlots > 0
+          ? `You can add ${remainingSlots} more image${remainingSlots === 1 ? '' : 's'}.`
+          : `Choose up to ${maxImageCount} product images.`
+      );
       return;
     }
 
     const oversizedFile = nextFiles.find((file) => file.size > maxImageSizeBytes);
     if (oversizedFile) {
-      clearSelectedImages();
+      setImageInputKey((key) => key + 1);
       setImageError(`Image must be ${maxImageSizeMb}MB or smaller.`);
       return;
     }
 
-    setImageFiles(nextFiles);
+    setImageFiles((currentFiles) => [...currentFiles, ...nextFiles]);
+    setImageInputKey((key) => key + 1);
   };
 
   const removeSelectedImage = (indexToRemove: number) => {
@@ -198,6 +212,7 @@ export function ProductDialog({ open, onOpenChange, product }: ProductDialogProp
     : isEditing
       ? 'Update'
       : 'Create';
+  const canAddImages = imageFiles.length < maxImageCount;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -328,16 +343,31 @@ export function ProductDialog({ open, onOpenChange, product }: ProductDialogProp
               </div>
             )}
 
-            <Input
-              key={imageInputKey}
-              id="imageFile"
-              type="file"
-              accept="image/jpeg,image/png,image/jpg,image/webp,image/heic,image/heif"
-              multiple
-              onChange={(e) => handleImageChange(e.target.files)}
-              required={!isEditing}
-              disabled={isLoading}
-            />
+            <div className="flex flex-wrap items-center gap-3">
+              <Input
+                ref={imageInputRef}
+                key={imageInputKey}
+                id="imageFile"
+                type="file"
+                accept="image/jpeg,image/png,image/jpg,image/webp,image/heic,image/heif"
+                multiple
+                onChange={(e) => handleImageChange(e.target.files)}
+                className="sr-only"
+                disabled={isLoading || !canAddImages}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => imageInputRef.current?.click()}
+                disabled={isLoading || !canAddImages}
+              >
+                <Plus className="h-4 w-4" strokeWidth={1.8} />
+                {imageFiles.length > 0 ? 'Add images' : 'Choose images'}
+              </Button>
+              <p className="text-xs text-muted-foreground">
+                {imageFiles.length}/{maxImageCount} selected
+              </p>
+            </div>
 
             {imageFiles.length > 0 && (
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">

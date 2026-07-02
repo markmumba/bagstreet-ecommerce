@@ -8,9 +8,9 @@ if (!DATABASE_URL) {
 
 const sql = new SQL(DATABASE_URL);
 
-const EMAIL = 'admin@bagstreet.com';
+const EMAIL = 'markmumba01@gmail.com';
 const FULL_NAME = 'Bagstreet Admin';
-const PASSWORD = 'Admin@1234';
+const PASSWORD = 'qwerty1234';
 
 async function seedAdmin() {
     const [existing] = await sql<{ id: number }[]>`SELECT id FROM users WHERE email = ${EMAIL}`;

@@ -146,9 +146,9 @@ function ProductDetailPage() {
   if (isLoading) {
     return (
       <div className="max-w-[1440px] mx-auto px-4 sm:px-8 lg:px-20 pt-[72px]">
-        <div className="grid grid-cols-1 md:grid-cols-12 gap-16 animate-pulse py-16">
-          <div className="md:col-span-7 aspect-[3/4] bg-[var(--surface)]" />
-          <div className="md:col-span-5 space-y-4 pt-8">
+        <div className="grid grid-cols-1 gap-10 py-16 animate-pulse md:grid-cols-[minmax(0,520px)_minmax(320px,480px)] md:justify-center md:gap-14 lg:grid-cols-[minmax(0,560px)_minmax(360px,520px)]">
+          <div className="aspect-[4/5] bg-[var(--surface)]" />
+          <div className="space-y-4 pt-4">
             <div className="h-8 bg-[var(--surface)] w-3/4" />
             <div className="h-6 bg-[var(--surface)] w-1/4" />
           </div>
@@ -178,17 +178,17 @@ function ProductDetailPage() {
         Back
       </button>
 
-      <div className="grid grid-cols-1 md:grid-cols-12 gap-8 pb-24 md:gap-16">
+      <div className="grid grid-cols-1 gap-10 pb-20 md:grid-cols-[minmax(0,520px)_minmax(320px,480px)] md:items-start md:justify-center md:gap-14 lg:grid-cols-[minmax(0,560px)_minmax(360px,520px)] lg:gap-20">
         {/* Image gallery */}
-        <div className="md:col-span-7 space-y-3">
-          <div className="aspect-[3/4] overflow-hidden bg-[var(--surface)]">
+        <div className="space-y-3">
+          <div className="aspect-[4/5] overflow-hidden bg-[var(--surface)]">
             {selectedImage ? (
               <img
                 src={selectedImage.url}
                 alt={selectedImage.alt}
                 loading="eager"
                 decoding="async"
-                sizes="(min-width: 768px) 58vw, 100vw"
+                sizes="(min-width: 1024px) 560px, (min-width: 768px) 520px, 100vw"
                 className="w-full h-full object-cover"
               />
             ) : (
@@ -205,7 +205,7 @@ function ProductDetailPage() {
                   key={`${image.url}-${index}`}
                   type="button"
                   onClick={() => setSelectedImageIndex(index)}
-                  className={`h-20 w-16 shrink-0 overflow-hidden border transition-colors duration-200 sm:h-24 sm:w-20 ${
+                  className={`h-16 w-14 shrink-0 overflow-hidden border transition-colors duration-200 sm:h-20 sm:w-16 ${
                     selectedImageIndex === index
                       ? 'border-foreground'
                       : 'border-[var(--border)] hover:border-[var(--foreground-muted)]'
@@ -227,7 +227,7 @@ function ProductDetailPage() {
         </div>
 
         {/* Info */}
-        <div className="md:col-span-5 flex flex-col gap-8 pt-2">
+        <div className="flex flex-col gap-8 pt-2 md:pt-4 lg:pt-6">
           <div>
             <h1
               className="text-3xl font-normal text-foreground leading-snug"

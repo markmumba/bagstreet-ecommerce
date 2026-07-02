@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Bagstreet order {{orderRef}} confirmed</title>
+</head>
+<body style="margin:0;padding:0;background:#f0ece6;font-family:'DM Sans',Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="background:#f0ece6;padding:40px 16px;">
+    <tr>
+      <td align="center">
+        <table width="600" cellpadding="0" cellspacing="0" role="presentation" style="background:#F7F4EF;max-width:600px;width:100%;">
+          <tr>
+            <td style="padding:40px 40px 0;">
+              <p style="margin:0;font-size:22px;font-weight:300;letter-spacing:0.2em;text-transform:uppercase;color:#3D1A14;">
+                Bagstreet
+              </p>
+              <p style="margin:6px 0 0;font-size:11px;letter-spacing:0.18em;text-transform:uppercase;color:#9a8a7a;">
+                Order Ready For Fulfilment
+              </p>
+            </td>
+          </tr>
+
+          <tr><td style="padding:24px 40px 0;"><hr style="border:none;border-top:1px solid #e8e0d5;margin:0;" /></td></tr>
+
+          <tr>
+            <td style="padding:32px 40px 0;">
+              <p style="margin:0 0 14px;font-size:15px;color:#3D1A14;">Hi {{name}},</p>
+              <h1 style="margin:0 0 12px;font-size:28px;line-height:1.2;font-weight:500;color:#241212;">
+                New paid order confirmed
+              </h1>
+              <p style="margin:0;font-size:14px;line-height:1.7;color:#5a4a3a;">
+                {{orderRef}} is paid and ready for fulfilment. Open the order to review delivery details, items, notes, and receipt status.
+              </p>
+            </td>
+          </tr>
+
+          <tr>
+            <td style="padding:28px 40px 0;">
+              <table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="background:#EDE8E0;">
+                <tr>
+                  <td style="padding:18px 20px;border-bottom:1px solid #ddd3c8;">
+                    <p style="margin:0;font-size:11px;letter-spacing:0.16em;text-transform:uppercase;color:#9a8a7a;">Order</p>
+                    <p style="margin:6px 0 0;font-size:18px;font-weight:600;color:#3D1A14;">{{orderRef}}</p>
+                  </td>
+                  <td align="right" style="padding:18px 20px;border-bottom:1px solid #ddd3c8;">
+                    <p style="margin:0;font-size:11px;letter-spacing:0.16em;text-transform:uppercase;color:#9a8a7a;">Total</p>
+                    <p style="margin:6px 0 0;font-family:monospace;font-size:18px;font-weight:600;color:#3D1A14;">{{totalAmount}}</p>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:16px 20px;">
+                    <p style="margin:0;font-size:11px;letter-spacing:0.16em;text-transform:uppercase;color:#9a8a7a;">Customer</p>
+                    <p style="margin:6px 0 0;font-size:14px;color:#3D1A14;">{{customerName}}</p>
+                  </td>
+                  <td align="right" style="padding:16px 20px;">
+                    <p style="margin:0;font-size:11px;letter-spacing:0.16em;text-transform:uppercase;color:#9a8a7a;">Phone</p>
+                    <p style="margin:6px 0 0;font-size:14px;color:#3D1A14;">{{customerPhone}}</p>
+                  </td>
+                </tr>
+                <tr>
+                  <td colspan="2" style="padding:0 20px 18px;">
+                    <p style="margin:0;font-size:11px;letter-spacing:0.16em;text-transform:uppercase;color:#9a8a7a;">Items</p>
+                    <p style="margin:6px 0 0;font-size:14px;color:#3D1A14;">{{itemCount}} item(s)</p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <tr>
+            <td align="center" style="padding:30px 40px 0;">
+              <a href="{{adminOrderUrl}}"
+                 style="display:inline-block;background:#3D1A14;color:#F7F4EF;
+                        text-decoration:none;font-size:12px;letter-spacing:0.18em;
+                        text-transform:uppercase;padding:14px 34px;">
+                Open Order
+              </a>
+              <p style="margin:16px 0 0;font-size:11px;color:#9a8a7a;word-break:break-all;">
+                Or copy this link: {{adminOrderUrl}}
+              </p>
+            </td>
+          </tr>
+
+          <tr>
+            <td style="padding:32px 40px 0;">
+              <table width="100%" cellpadding="0" cellspacing="0" role="presentation">
+                <tr>
+                  <td style="padding:14px 16px;border-left:3px solid #3D1A14;background:#fffaf5;">
+                    <p style="margin:0;font-size:13px;line-height:1.6;color:#5a4a3a;">
+                      Next: verify stock picked, package the item(s), and keep the order open until the customer confirms receipt or the team marks it received.
+                    </p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <tr>
+            <td style="padding:32px 40px;border-top:1px solid #e8e0d5;text-align:center;">
+              <p style="margin:0;font-size:11px;color:#b0a090;">
+                © {{year}} Bagstreet
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

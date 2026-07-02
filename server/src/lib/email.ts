@@ -17,6 +17,27 @@ async function send(to: string, subject: string, html: string) {
     await transporter.sendMail({ from: env.EMAIL_FROM, to, subject, html });
 }
 
+function escapeHtml(value: string | number | null | undefined) {
+    return String(value ?? '')
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#039;');
+}
+
+function formatMoney(amount: number) {
+    return `KES ${amount.toFixed(2)}`;
+}
+
+function buildAdminUrl(pathname: string, searchParams?: Record<string, string | number | undefined>) {
+    const url = new URL(pathname, env.CLIENT_URL);
+    for (const [key, value] of Object.entries(searchParams ?? {})) {
+        if (value != null && value !== '') url.searchParams.set(key, String(value));
+    }
+    return url.toString();
+}
+
 
 export async function sendInviteEmail(to: string, name: string, inviteUrl: string) {
     if (!env.SMTP_USER || !env.SMTP_PASS) {
@@ -119,38 +140,24 @@ export async function sendAdminOrderConfirmedEmail(
 ) {
     const orderRef = providedOrderRef ?? `#${String(orderId).padStart(6, '0').toUpperCase()}`;
     const subject = `Bagstreet order ${orderRef} confirmed`;
+    const adminOrderUrl = buildAdminUrl('/orders', { order_id: providedOrderRef ?? orderId });
 
     if (!env.SMTP_USER || !env.SMTP_PASS) {
         console.log(`[DEV] Admin order confirmation for ${name} <${to}> - ${orderRef}`);
+        console.log(`[DEV] Open order: ${adminOrderUrl}`);
         return;
     }
 
-    const html = `
-        <div style="font-family:Arial,sans-serif;line-height:1.5;color:#241212;">
-          <h2 style="margin:0 0 12px;">Order confirmed</h2>
-          <p>Hello ${name},</p>
-          <p><strong>${orderRef}</strong> has been confirmed.</p>
-          <table style="border-collapse:collapse;margin:16px 0;width:100%;max-width:520px;">
-            <tr>
-              <td style="padding:8px 0;color:#6f5d55;">Customer</td>
-              <td style="padding:8px 0;text-align:right;"><strong>${customerName}</strong></td>
-            </tr>
-            <tr>
-              <td style="padding:8px 0;color:#6f5d55;">Phone</td>
-              <td style="padding:8px 0;text-align:right;">${customerPhone}</td>
-            </tr>
-            <tr>
-              <td style="padding:8px 0;color:#6f5d55;">Items</td>
-              <td style="padding:8px 0;text-align:right;">${itemCount}</td>
-            </tr>
-            <tr>
-              <td style="padding:8px 0;color:#6f5d55;">Total</td>
-              <td style="padding:8px 0;text-align:right;"><strong>KES ${totalAmount.toFixed(2)}</strong></td>
-            </tr>
-          </table>
-          <p>Please continue processing this order in the admin dashboard.</p>
-        </div>
-    `;
+    const html = await renderTemplate('admin-order-confirmed', {
+        name: escapeHtml(name),
+        orderRef: escapeHtml(orderRef),
+        customerName: escapeHtml(customerName || 'Customer'),
+        customerPhone: escapeHtml(customerPhone || 'No phone provided'),
+        itemCount: String(itemCount),
+        totalAmount: escapeHtml(formatMoney(totalAmount)),
+        adminOrderUrl,
+        year: String(new Date().getFullYear()),
+    });
 
     await send(to, subject, html);
 }
@@ -194,21 +201,29 @@ export async function sendLowStockEmail(
     const subject = stock === 0
         ? `Bagstreet stock alert: ${productName} is out of stock`
         : `Bagstreet stock alert: ${productName} is low`;
+    const productUrl = buildAdminUrl('/products');
+    const stockLabel = stock === 0 ? 'Out of stock' : 'Low stock';
+    const actionHint = stock === 0
+        ? 'Deactivate the variant if it cannot be restocked immediately, or restock before selling again.'
+        : 'Restock soon, or review the threshold if this variant is intentionally limited.';
 
     if (!env.SMTP_USER || !env.SMTP_PASS) {
         console.log(`[DEV] Low stock email for ${name} <${to}> - ${productName} ${variantLabel}: ${stock}/${threshold}`);
+        console.log(`[DEV] Open products: ${productUrl}`);
         return;
     }
 
-    const html = `
-        <div style="font-family:Arial,sans-serif;line-height:1.5;color:#241212;">
-          <h2 style="margin:0 0 12px;">Stock alert</h2>
-          <p>Hello ${name},</p>
-          <p><strong>${productName}</strong>${variantLabel ? ` (${variantLabel})` : ''} has ${stock} unit${stock === 1 ? '' : 's'} remaining.</p>
-          <p>The alert threshold is ${threshold}.</p>
-          <p>Please restock or deactivate the variant if it should no longer be sold.</p>
-        </div>
-    `;
+    const html = await renderTemplate('low-stock-alert', {
+        name: escapeHtml(name),
+        productName: escapeHtml(productName),
+        variantLabel: escapeHtml(variantLabel || 'Default variant'),
+        stock: String(stock),
+        threshold: String(threshold),
+        stockLabel,
+        actionHint: escapeHtml(actionHint),
+        productUrl,
+        year: String(new Date().getFullYear()),
+    });
     await send(to, subject, html);
 }
 

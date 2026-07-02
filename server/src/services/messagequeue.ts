@@ -134,6 +134,9 @@ export async function publishEmail(job: EmailJob): Promise<void> {
     try {
         const ch = await getChannel();
         ch.sendToQueue(QUEUE, Buffer.from(JSON.stringify(job)), { persistent: true });
+        if (env.NODE_ENV !== 'production') {
+            console.log(`[mq] queued ${job.type} email to ${job.to}`);
+        }
     } catch (err) {
         console.error('[mq] publish failed, falling back to direct send:', err);
         await handleJob(job).catch((e) => console.error('[email] fallback send failed:', e));
@@ -151,8 +154,11 @@ export async function startEmailWorker(): Promise<void> {
         await ch.consume(QUEUE, async (msg) => {
             if (!msg) return;
             try {
-                const job: EmailJob = JSON.parse(msg.content.toString());
+                const job = JSON.parse(msg.content.toString()) as EmailJob;
                 await handleJob(job);
+                if (env.NODE_ENV !== 'production') {
+                    console.log(`[email-worker] sent ${job.type} email to ${job.to}`);
+                }
                 ch.ack(msg);
             } catch (err) {
                 console.error('[email-worker] job failed, sending to DLQ:', err);

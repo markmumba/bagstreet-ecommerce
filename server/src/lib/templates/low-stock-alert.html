@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Bagstreet stock alert</title>
+</head>
+<body style="margin:0;padding:0;background:#f0ece6;font-family:'DM Sans',Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="background:#f0ece6;padding:40px 16px;">
+    <tr>
+      <td align="center">
+        <table width="600" cellpadding="0" cellspacing="0" role="presentation" style="background:#F7F4EF;max-width:600px;width:100%;">
+          <tr>
+            <td style="padding:40px 40px 0;">
+              <p style="margin:0;font-size:22px;font-weight:300;letter-spacing:0.2em;text-transform:uppercase;color:#3D1A14;">
+                Bagstreet
+              </p>
+              <p style="margin:6px 0 0;font-size:11px;letter-spacing:0.18em;text-transform:uppercase;color:#9a8a7a;">
+                Inventory Alert
+              </p>
+            </td>
+          </tr>
+
+          <tr><td style="padding:24px 40px 0;"><hr style="border:none;border-top:1px solid #e8e0d5;margin:0;" /></td></tr>
+
+          <tr>
+            <td style="padding:32px 40px 0;">
+              <p style="margin:0 0 14px;font-size:15px;color:#3D1A14;">Hi {{name}},</p>
+              <table cellpadding="0" cellspacing="0" role="presentation">
+                <tr>
+                  <td style="background:#F3D7D9;color:#8C1D2D;padding:6px 10px;font-size:11px;font-weight:600;letter-spacing:0.14em;text-transform:uppercase;">
+                    {{stockLabel}}
+                  </td>
+                </tr>
+              </table>
+              <h1 style="margin:16px 0 12px;font-size:28px;line-height:1.2;font-weight:500;color:#241212;">
+                {{productName}} needs attention
+              </h1>
+              <p style="margin:0;font-size:14px;line-height:1.7;color:#5a4a3a;">
+                This variant has reached its stock alert threshold. Review the product before more orders come in.
+              </p>
+            </td>
+          </tr>
+
+          <tr>
+            <td style="padding:28px 40px 0;">
+              <table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="background:#EDE8E0;">
+                <tr>
+                  <td colspan="2" style="padding:18px 20px;border-bottom:1px solid #ddd3c8;">
+                    <p style="margin:0;font-size:11px;letter-spacing:0.16em;text-transform:uppercase;color:#9a8a7a;">Product</p>
+                    <p style="margin:6px 0 0;font-size:18px;font-weight:600;color:#3D1A14;">{{productName}}</p>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:16px 20px;border-bottom:1px solid #ddd3c8;">
+                    <p style="margin:0;font-size:11px;letter-spacing:0.16em;text-transform:uppercase;color:#9a8a7a;">Variant</p>
+                    <p style="margin:6px 0 0;font-size:14px;color:#3D1A14;">{{variantLabel}}</p>
+                  </td>
+                  <td align="right" style="padding:16px 20px;border-bottom:1px solid #ddd3c8;">
+                    <p style="margin:0;font-size:11px;letter-spacing:0.16em;text-transform:uppercase;color:#9a8a7a;">Remaining</p>
+                    <p style="margin:6px 0 0;font-family:monospace;font-size:22px;font-weight:600;color:#3D1A14;">{{stock}}</p>
+                  </td>
+                </tr>
+                <tr>
+                  <td colspan="2" style="padding:16px 20px;">
+                    <p style="margin:0;font-size:11px;letter-spacing:0.16em;text-transform:uppercase;color:#9a8a7a;">Alert threshold</p>
+                    <p style="margin:6px 0 0;font-size:14px;color:#3D1A14;">{{threshold}} unit(s)</p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <tr>
+            <td style="padding:28px 40px 0;">
+              <table width="100%" cellpadding="0" cellspacing="0" role="presentation">
+                <tr>
+                  <td style="padding:14px 16px;border-left:3px solid #8C1D2D;background:#fffaf5;">
+                    <p style="margin:0;font-size:13px;line-height:1.6;color:#5a4a3a;">
+                      {{actionHint}}
+                    </p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <tr>
+            <td align="center" style="padding:30px 40px 0;">
+              <a href="{{productUrl}}"
+                 style="display:inline-block;background:#3D1A14;color:#F7F4EF;
+                        text-decoration:none;font-size:12px;letter-spacing:0.18em;
+                        text-transform:uppercase;padding:14px 34px;">
+                Open Products
+              </a>
+              <p style="margin:16px 0 0;font-size:11px;color:#9a8a7a;word-break:break-all;">
+                Or copy this link: {{productUrl}}
+              </p>
+            </td>
+          </tr>
+
+          <tr>
+            <td style="padding:32px 40px;border-top:1px solid #e8e0d5;text-align:center;">
+              <p style="margin:0;font-size:11px;color:#b0a090;">
+                © {{year}} Bagstreet
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
