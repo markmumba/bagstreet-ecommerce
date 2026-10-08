@@ -9,7 +9,7 @@ import {
     NotFoundError,
     ValidationError,
 } from '@server/lib/errors';
-import { publishEmail } from '@server/services/messagequeue';
+import { enqueueEmail } from '@server/services/email-outbox';
 import { env } from '@server/config/env';
 import type { User, UserResponse } from 'shared/dist';
 import { auditFromContext } from '@server/lib/audit';
@@ -75,7 +75,7 @@ export const userHandlers = {
         await UsersQueries.createInvitation(Number(user.id), tokenHash, expiresAt);
 
         const inviteUrl = `${env.CLIENT_URL}/accept-invite?token=${rawToken}`;
-        await publishEmail({ type: 'INVITE', to: validated.data.email, name: validated.data.full_name, inviteUrl });
+        await enqueueEmail({ type: 'INVITE', to: validated.data.email, name: validated.data.full_name, inviteUrl });
         await auditFromContext(c, {
             action: 'USER_INVITED',
             entityType: 'user',

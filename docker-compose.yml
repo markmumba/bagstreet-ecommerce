@@ -9,19 +9,6 @@ services:
       - 5433:5432
     volumes:
       - postgres_data:/var/lib/postgresql/data
-  rabbitmq:
-    image: rabbitmq:4-management-alpine
-    container_name: rabbitmq
-    volumes:
-      - rabbitmq_data:/var/lib/rabbitmq
-    ports:
-      - 15672:15672
-      - 5672:5672
-    environment:
-      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
-    restart: unless-stopped
-
   redis:
     image: redis:7-alpine
     container_name: redis
@@ -67,6 +54,5 @@ services:
 
 volumes:
   postgres_data:
-  rabbitmq_data:
   redis_data:
   minio_data:

@@ -1,4 +1,5 @@
 import type { AppContext } from '@server/lib/hono';
+import { emailOutboxStats } from '@server/services/email-outbox';
 import { env } from '../../config/env';
 import { sql } from '../../lib/db';
 import { isPesapalConfigured, pesapalBulkhead, pesapalCircuit } from '../../services/pesapal';
@@ -41,8 +42,17 @@ export const healthHandlers = {
         checks.bulkheads = {
             pesapal: pesapalBulkhead.snapshot(),
         };
+        try {
+            const outbox = await emailOutboxStats();
+            checks.email_outbox = {
+                ...outbox,
+                // Not a readiness failure (the API still works), but worth alerting on.
+                backlog_warning: outbox.failed > 0 || (outbox.oldest_pending_seconds ?? 0) > 15 * 60,
+            };
+        } catch (error) {
+            checks.email_outbox = { status: 'UNKNOWN', error: (error as Error).message };
+        }
         checks.integrations = {
-            rabbitmq_configured: Boolean(env.RABBITMQ_URL),
             email_provider: env.EMAIL_PROVIDER,
             email_configured: env.EMAIL_PROVIDER === 'resend'
                 ? Boolean(env.RESEND_API_KEY)
