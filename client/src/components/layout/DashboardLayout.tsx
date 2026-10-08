@@ -13,7 +13,7 @@ import {
   SidebarProvider,
   SidebarTrigger,
 } from '@/components/ui/sidebar';
-import { ChevronDown, LayoutDashboard, Tag, Package, ClipboardList, Users, LogOut, Settings, ShoppingBag, Truck, BadgePercent, Scale } from 'lucide-react';
+import { ChevronDown, LayoutDashboard, Tag, Package, ClipboardList, Users, LogOut, Settings, ShoppingBag, Truck, BadgePercent, Scale, ShieldCheck } from 'lucide-react';
 import { NotificationBell } from './NotificationBell';
 import { useNotificationStream } from '@/hooks/useNotifications';
 import { USER_ROLE } from 'shared';
@@ -21,7 +21,7 @@ import type { UserRole } from 'shared';
 
 type NavigationItem = {
   title: string;
-  href: '/dashboard' | '/categories' | '/products' | '/orders' | '/reconciliation' | '/promotions' | '/shipping' | '/users';
+  href: '/dashboard' | '/categories' | '/products' | '/orders' | '/reconciliation' | '/promotions' | '/shipping' | '/users' | '/compliance';
   icon: ComponentType<{ className?: string; strokeWidth?: number }>;
   roles: UserRole[];
 };
@@ -35,6 +35,7 @@ const navigation: NavigationItem[] = [
   { title: 'Promotions', href: '/promotions', icon: BadgePercent, roles: [USER_ROLE.ADMIN] },
   { title: 'Shipping', href: '/shipping', icon: Truck, roles: [USER_ROLE.ADMIN] },
   { title: 'Users', href: '/users', icon: Users, roles: [USER_ROLE.ADMIN] },
+  { title: 'Compliance', href: '/compliance', icon: ShieldCheck, roles: [USER_ROLE.ADMIN] },
 ];
 
 interface DashboardLayoutProps {
@@ -58,6 +59,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   const { user, isAuthenticated, isLoading, logout } = useAuth();
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const accountMenuRef = useRef<HTMLDivElement>(null);
+  const accountButtonRef = useRef<HTMLButtonElement>(null);
 
   useNotificationStream();
 
@@ -89,6 +91,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === 'Escape') {
         setAccountMenuOpen(false);
+        accountButtonRef.current?.focus();
       }
     }
 
@@ -188,9 +191,10 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                 <NotificationBell />
                 <div ref={accountMenuRef} className="relative">
                   <button
+                    ref={accountButtonRef}
                     type="button"
                     onClick={() => setAccountMenuOpen((open) => !open)}
-                    className="flex h-9 items-center gap-2 rounded-full border border-border bg-card px-1.5 pr-2 text-sm transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/15"
+                    className="ui-press flex h-9 items-center gap-2 rounded-full border border-border bg-card px-1.5 pr-2 text-sm hover:bg-accent focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/15"
                     aria-haspopup="menu"
                     aria-expanded={accountMenuOpen}
                     aria-label="Open account menu"
@@ -201,40 +205,40 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                     <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" strokeWidth={1.5} />
                   </button>
 
-                  {accountMenuOpen && (
-                    <div
-                      role="menu"
-                      className="absolute right-0 top-11 z-[100] w-64 overflow-hidden rounded-xl border border-border bg-background shadow-[var(--shadow-dropdown)]"
-                    >
-                      <div className="border-b border-border px-4 py-3">
-                        <p className="truncate text-sm font-medium">{user?.full_name}</p>
-                        <p className="mt-0.5 truncate text-xs text-muted-foreground">{user?.email}</p>
-                        <p className="mt-1 text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">{user?.role}</p>
-                      </div>
-                      <div className="p-1.5">
-                        {user?.role === USER_ROLE.ADMIN && (
-                          <button
-                            type="button"
-                            role="menuitem"
-                            onClick={handleSettings}
-                            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-accent hover:text-accent-foreground"
-                          >
-                            <Settings className="h-4 w-4" strokeWidth={1.5} />
-                            Settings
-                          </button>
-                        )}
+                  <div
+                    inert={!accountMenuOpen}
+                    data-state={accountMenuOpen ? 'open' : 'closed'}
+                    role="menu"
+                    className="ui-menu absolute right-0 top-11 z-[100] w-64 overflow-hidden rounded-xl border border-border bg-background shadow-[var(--shadow-dropdown)]"
+                  >
+                    <div className="border-b border-border px-4 py-3">
+                      <p className="truncate text-sm font-medium">{user?.full_name}</p>
+                      <p className="mt-0.5 truncate text-xs text-muted-foreground">{user?.email}</p>
+                      <p className="mt-1 text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">{user?.role}</p>
+                    </div>
+                    <div className="p-1.5">
+                      {user?.role === USER_ROLE.ADMIN && (
                         <button
                           type="button"
                           role="menuitem"
-                          onClick={handleLogout}
-                          className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-destructive transition-colors hover:bg-destructive/10"
+                          onClick={handleSettings}
+                          className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-accent hover:text-accent-foreground"
                         >
-                          <LogOut className="h-4 w-4" strokeWidth={1.5} />
-                          Logout
+                          <Settings className="h-4 w-4" strokeWidth={1.5} />
+                          Settings
                         </button>
-                      </div>
+                      )}
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={handleLogout}
+                        className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-destructive transition-colors hover:bg-destructive/10"
+                      >
+                        <LogOut className="h-4 w-4" strokeWidth={1.5} />
+                        Logout
+                      </button>
                     </div>
-                  )}
+                  </div>
                 </div>
               </div>
             </div>

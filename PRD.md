@@ -600,6 +600,26 @@ Implementation status:
 - Payment failure email is sent when Pesapal status verification returns a failed or reversed payment.
 - In development, missing transactional email credentials logs the email instead of blocking checkout.
 
+Email presentation:
+- Customer confirmation, account setup, staff invitation, password reset, staff order alerts, stock alerts and payment failure share a responsive branded layout.
+- Customer emails use clear headings and order details; staff emails prioritise payment totals, stock quantities and dashboard actions.
+- A hidden inbox preview, readable mobile layouts, plain-text alternatives and WhatsApp/email support links are included. Security links retain their existing expiry and single-use behaviour.
+- Preview designs locally with `bun run emails:preview`; the command uses fictional data and does not send email.
+
+### Cart and checkout recovery (implemented)
+
+The 45-minute unpaid-order expiry releases reserved stock. It does not expire the saved cart. The storefront currently stores the shopping bag locally, then clears it when an order is created; unfinished payment is resumed separately.
+
+Starting policy, to validate against actual recovery and unsubscribe rates:
+- Keep a recoverable cart snapshot for 7 days, separate from the 45-minute inventory reservation. A snapshot never guarantees stock or locks prices.
+- Send one helpful reminder after 2 hours of inactivity, checked every 5 minutes. A final reminder after 24 hours is available via `CART_RECOVERY_FOLLOWUP_ENABLED=true` (off by default). At most two reminders per email in seven days, at least two hours apart, including across devices. Do not send a reminder just because the stock hold is expiring.
+- Track cart abandonment separately from unfinished payment. For an expired order, revalidate availability and current prices and create a fresh checkout; do not revive its old payment session.
+- Explicitly opt in via checkout or account email preferences; unchecked by default. Guests must provide an email and consent before a snapshot can be saved. Existing unsubscribes cannot be reversed by an anonymous checkout: re-enable from the signed-in account or contact support. Every reminder links to an unsubscribe confirmation page. Unsubscribe stops future recovery reminders, not order confirmations or receipts. Anonymous browser carts alone cannot receive email.
+- Save the minimal server-side cart/checkout snapshot, last activity, recipient preferences and an expiring, opaque recovery token. A recovery link must not expose account data or grant login.
+- Use the durable Postgres email outbox, with a scheduler and persistent deduplication keys. Recheck payment (including ledger money held for review), activity, email preferences and live stock/prices before sending; suppress on purchase, active checkout, empty cart, opt-out or expiry. The recovery page rechecks again before restoration and cannot restart an active or paid checkout. Links grant access only to saved item selections, not account or order details. Email scanner GETs never restore bags or unsubscribe. Snapshot rows are deleted after seven days of inactivity; opted-out email preferences are retained to enforce suppression.
+- First reminder: actual item names/images, current availability, one recovery action and support. Do not promise that items are reserved.
+- Coupon emails are a separate, opt-in campaign capability, not enabled by this redesign. Use real, validated promo codes and clearly show expiry and restrictions; do not automatically discount every abandoned cart.
+
 ---
 
 ## 10. Non-Functional Requirements
@@ -642,4 +662,20 @@ Implementation status:
 | **4 — Promotions** | Promo codes (% off, single-use per phone) + free delivery threshold + flash sale prices | ✅ Done |
 | **5 — Email notifications** | Order confirmation, low stock, payment failure, staff alerts | ✅ Done |
 | **6 — Storefront polish** | Mobile UX, SEO, performance | ✅ Done |
+| **6b — Compliance controls** | Policies and agreement copies, privacy requests, incident/evidence registers, accounting exports | Implemented; legal and operational launch gates remain |
 | **7 — Launch** | Domain, SSL, production env, smoke tests | 🔲 After |
+
+## 13. Compliance Readiness
+
+Reviewed against the Kenya legal compliance brief on 8 October 2026. These controls support compliance; they are not a legal certification. The implementation register and operating procedures are in `docs/compliance-readiness.md`.
+
+- Public terms, returns, delivery, privacy, cookie/storage and support pages. The shop's 24-hour-from-dispatch voluntary return window does not override statutory consumer remedies.
+- Explicit, unchecked purchase acceptance, independently of optional saved-bag email consent. The order transaction retains the policy version and original order details and queues an agreement-copy email; payment confirmation remains separate.
+- Customers can download account-linked data and submit access, correction, erasure or objection requests. Verified guest requests are handled manually; an email match alone never grants account/order access.
+- Admin-only Compliance workspace for privacy decisions, incident assessments, supplier/invoice/authenticity/image-rights evidence and Nairobi-month accounting exports. Managers cannot access these records.
+- Reviewed account erasure removes credentials, profile, sessions and cart, while retaining necessary financial, delivery and suppression evidence. Active orders block erasure; protected requests use the current account activity and role.
+- Staff order reads, receipt access and sensitive compliance actions are audited. New audit records redact credential fields. Monthly CSVs retain separate ledger fee/refund entries and include integrity manifests; encrypted offsite archiving is still an operator responsibility.
+
+**Owner-confirmed details:** business name Bagstreet; privacy/compliance contact bagstreetke@gmail.com.
+
+**Prelaunch approval still required:** verify registration particulars and policy wording, ODPC registration and vendor/transfer safeguards, KRA/eTIMS and the retention schedule, supplier/image evidence, staff MFA, encrypted offsite backups and tested restores. Validate live email delivery, payment reconciliation and the refund procedure. BagStreet receipts are not a substitute for eTIMS tax invoices.

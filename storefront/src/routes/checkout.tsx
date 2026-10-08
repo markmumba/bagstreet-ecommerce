@@ -1,8 +1,9 @@
 import { createFileRoute, useNavigate, Link } from '@tanstack/react-router';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { z } from 'zod';
 import { AlertCircle, Check, Lock } from 'lucide-react';
 import type { ShippingLocationResponse } from 'shared';
+import { POLICY_VERSION } from 'shared';
 import { useCart, useCartQuote, useClearCart } from '@/hooks/useCart';
 import { useCompleteDevPayment, useInitiatePesapalPayment, usePaymentStatus, usePlaceOrder } from '@/hooks/useOrders';
 import { useAuth } from '@/context/AuthContext';
@@ -12,6 +13,8 @@ import { useSeo } from '@/hooks/useSeo';
 import { formatPrice } from '@/lib/format';
 import { SHOP_INFO } from '@/lib/shop-info';
 import { clearPendingPayment, readPendingPayment, savePendingPayment } from '@/lib/pending-payment';
+import { syncRecoveryBag, useRecoveryPreferences } from '@/hooks/useCartRecovery';
+import { BagReminderPreference } from '@/components/checkout/BagReminderPreference';
 
 export const Route = createFileRoute('/checkout')({
   validateSearch: z.object({
@@ -248,7 +251,7 @@ function ResumePaymentBanner() {
       <Link
         to="/checkout"
         search={{ order_id: pending.ref, token: pending.token }}
-        className="inline-flex h-10 items-center bg-espresso px-5 text-label-caps text-background transition-colors duration-300 hover:bg-espresso-hover"
+        className="ui-press inline-flex h-10 items-center bg-espresso px-5 text-label-caps text-background hover:bg-espresso-hover"
       >
         Complete payment
       </Link>
@@ -266,6 +269,11 @@ function CheckoutForm() {
   const placeOrder = usePlaceOrder();
   const { data: locationsRes } = useActiveShippingLocations();
   const validateDiscount = useValidateDiscountCode();
+  const recoveryPreferences = useRecoveryPreferences();
+  const [guestReminders, setGuestReminders] = useState(false);
+  const [termsAccepted, setTermsAccepted] = useState(false);
+  const [recoveryError, setRecoveryError] = useState('');
+  const previousActivity = useRef('');
 
   const [form, setForm] = useState<FormState>({
     full_name: user?.full_name ?? '',
@@ -301,6 +309,19 @@ function CheckoutForm() {
   const grandTotal = subtotalAfterDiscount + deliveryCost;
 
   const set = (k: keyof FormState, v: string) => setForm((f) => ({ ...f, [k]: v }));
+  const remindersEnabled = user ? recoveryPreferences.data?.data?.recovery_opt_in ?? false : guestReminders;
+  const recoveryItems = JSON.stringify(items.map(item => ({ variant_id: item.variant_id, quantity: item.quantity })));
+  const activity = JSON.stringify(form);
+  useEffect(() => {
+    const touch = previousActivity.current !== '' && previousActivity.current !== activity;
+    previousActivity.current = activity;
+    if (!z.string().email().safeParse(form.email).success || items.length === 0) return;
+    const timer = window.setTimeout(() => {
+      void syncRecoveryBag(JSON.parse(recoveryItems), { email: form.email, consent: remindersEnabled, touch })
+        .then(() => setRecoveryError('')).catch(() => setRecoveryError("We couldn't save your bag for reminders. You can still place your order."));
+    }, 1000);
+    return () => window.clearTimeout(timer);
+  }, [activity, form.email, recoveryItems, remindersEnabled, items.length]);
 
   // Auth can resolve after first render — fill name/email then, without overwriting what was typed.
   useEffect(() => {
@@ -324,7 +345,7 @@ function CheckoutForm() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setOrderError('');
-    if (!shippingLocationId || cartNeedsReview) return;
+    if (!shippingLocationId || cartNeedsReview || !termsAccepted) return;
 
     const { notes, county, ...addressFields } = form;
     const address = {
@@ -335,6 +356,10 @@ function CheckoutForm() {
       phone: form.phone,
     };
     try {
+      // Recovery is optional: an email outage or failed snapshot must never block a purchase.
+      await syncRecoveryBag(items.map(item => ({ variant_id: item.variant_id, quantity: item.quantity })), {
+        email: form.email, consent: remindersEnabled, touch: true,
+      }).catch(() => undefined);
       const res = await placeOrder.mutateAsync({
         items: items.map((i) => ({ variant_id: i.variant_id, quantity: i.quantity })),
         shipping_address: address,
@@ -343,6 +368,7 @@ function CheckoutForm() {
         email: form.email,
         discount_code: discountPreview?.code || undefined,
         notes: notes || undefined,
+        policy_acceptance: { accepted: true, version: POLICY_VERSION },
       });
       const order = res.data;
       if (!order) throw new Error('Your order could not be created. Please try again.');
@@ -407,7 +433,7 @@ function CheckoutForm() {
         <h1 className="mt-4 text-display">Your bag is <em>empty</em></h1>
         <Link
           to="/shop"
-          className="mt-9 inline-flex h-[52px] items-center bg-espresso px-8 text-label-caps text-background transition-colors duration-300 hover:bg-espresso-hover"
+          className="ui-press mt-9 inline-flex h-[52px] items-center bg-espresso px-8 text-label-caps text-background hover:bg-espresso-hover"
         >
           Discover the collection
         </Link>
@@ -416,7 +442,7 @@ function CheckoutForm() {
   }
 
   // ── Form ─────────────────────────────────────────────────────────────────
-  const canPlaceOrder = Boolean(shippingLocationId) && !cartNeedsReview && !placeOrder.isPending && !quoteQuery.isLoading;
+  const canPlaceOrder = termsAccepted && Boolean(shippingLocationId) && !cartNeedsReview && !placeOrder.isPending && !quoteQuery.isLoading;
 
   return (
     <div className="max-w-[1440px] mx-auto px-4 pt-[104px] pb-24 sm:px-8 lg:px-20 lg:pt-32">
@@ -453,6 +479,15 @@ function CheckoutForm() {
                   className={inputClass}
                 />
               </Field>
+            </div>
+            <div className="mt-6">
+              {user ? <BagReminderPreference /> : (
+                <label className="flex items-start gap-3 text-sm leading-6">
+                  <input type="checkbox" className="mt-1 h-4 w-4 shrink-0 accent-primary" checked={guestReminders} onChange={event => setGuestReminders(event.target.checked)} />
+                  <span>Email me about my unfinished shopping. I can unsubscribe at any time.</span>
+                </label>
+              )}
+              {recoveryError && <p role="status" className="mt-2 text-sm text-muted-foreground">{recoveryError}</p>}
             </div>
           </FormSection>
 
@@ -595,7 +630,7 @@ function CheckoutForm() {
                   type="button"
                   onClick={handleValidateDiscount}
                   disabled={validateDiscount.isPending || !discountCode.trim()}
-                  className="h-10 border border-espresso px-5 text-label-caps transition-colors duration-300 hover:bg-background disabled:cursor-not-allowed disabled:opacity-40"
+                  className="ui-press h-10 border border-espresso px-5 text-label-caps hover:bg-background disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   {validateDiscount.isPending ? 'Checking…' : 'Apply'}
                 </button>
@@ -633,10 +668,17 @@ function CheckoutForm() {
               <span className="text-[28px] tabular-nums" style={{ fontFamily: 'var(--font-display)' }}>{formatPrice(grandTotal)}</span>
             </div>
 
+            <div className="mt-6 text-sm leading-6">
+              <label className="flex items-start gap-3">
+                <input type="checkbox" checked={termsAccepted} onChange={event => setTermsAccepted(event.target.checked)} required className="mt-1 h-4 w-4 shrink-0 accent-espresso" />
+                <span>I accept the <Link to="/terms" target="_blank" rel="noopener noreferrer" className="underline">terms of sale</Link>, <Link to="/delivery" target="_blank" rel="noopener noreferrer" className="underline">delivery policy</Link> and <Link to="/returns" target="_blank" rel="noopener noreferrer" className="underline">returns policy</Link>.</span>
+              </label>
+              <p className="mt-3 text-xs text-foreground-muted">How we use your order details: <Link to="/privacy" target="_blank" rel="noopener noreferrer" className="underline">privacy notice</Link>. Optional email reminders are a separate choice.</p>
+            </div>
             <button
               type="submit"
               disabled={!canPlaceOrder}
-              className="mt-8 h-[52px] w-full bg-espresso text-label-caps text-background transition-colors duration-300
+              className="ui-press mt-8 h-[52px] w-full bg-espresso text-label-caps text-background
                          hover:bg-espresso-hover disabled:cursor-not-allowed disabled:bg-surface-oat disabled:text-foreground-faint"
             >
               {placeOrder.isPending ? 'Placing order…' : 'Place order & pay'}
@@ -656,13 +698,6 @@ function CheckoutForm() {
               Secure payment with Pesapal
             </p>
 
-            <p className="mt-6 text-[12px] leading-6 text-foreground-muted">
-              By placing your order you agree to our{' '}
-              <Link to="/terms" target="_blank" rel="noopener noreferrer" className="text-foreground underline underline-offset-4">terms of sale</Link>,{' '}
-              <Link to="/delivery" target="_blank" rel="noopener noreferrer" className="text-foreground underline underline-offset-4">delivery policy</Link>{' '}
-              and{' '}
-              <Link to="/returns" target="_blank" rel="noopener noreferrer" className="text-foreground underline underline-offset-4">returns policy</Link>.
-            </p>
           </div>
           <HelpLine />
         </aside>
@@ -720,7 +755,7 @@ function PrimaryButton({ children, ...props }: React.ButtonHTMLAttributes<HTMLBu
     <button
       type="button"
       {...props}
-      className="h-[52px] bg-espresso px-8 text-label-caps text-background transition-colors duration-300 hover:bg-espresso-hover disabled:cursor-not-allowed disabled:opacity-50"
+      className="ui-press h-[52px] bg-espresso px-8 text-label-caps text-background hover:bg-espresso-hover disabled:cursor-not-allowed disabled:opacity-50"
     >
       {children}
     </button>
@@ -732,7 +767,7 @@ function SecondaryButton({ children, ...props }: React.ButtonHTMLAttributes<HTML
     <button
       type="button"
       {...props}
-      className="h-[52px] border border-espresso px-8 text-label-caps transition-colors duration-300 hover:bg-surface disabled:cursor-not-allowed disabled:opacity-50"
+      className="ui-press h-[52px] border border-espresso px-8 text-label-caps hover:bg-surface disabled:cursor-not-allowed disabled:opacity-50"
     >
       {children}
     </button>

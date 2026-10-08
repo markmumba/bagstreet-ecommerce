@@ -17,6 +17,7 @@ import {
     type ImportReport,
 } from "@server/lib/csv-import";
 import { auditFromContext } from "@server/lib/audit";
+import { sql } from "@server/lib/db";
 
 function toProductResponse(product: any): ProductResponse {
     const images = (product.images ?? []).map((image: any) => ({
@@ -462,7 +463,8 @@ export const productsHandlers = {
         }
 
         const isInOrder = await ordersQueries.findProductInOrders(Number(product.id));
-        if (isInOrder) {
+        const [hasEvidence] = await sql`SELECT product_id FROM product_compliance_evidence WHERE product_id = ${Number(product.id)}`;
+        if (isInOrder || hasEvidence) {
             await productsQueries.deactivate(Number(product.id));
             const response: ProductDeleteResponse = {
                 action: 'deactivated',
@@ -474,10 +476,10 @@ export const productsHandlers = {
                 entityId: product.id,
                 before: product,
                 after: { ...product, is_active: false },
-                metadata: { reason: 'product_has_order_history' },
+                metadata: { reason: isInOrder ? 'product_has_order_history' : 'product_has_compliance_evidence' },
             });
 
-            return success(c, response, 'Product has order history and was deactivated');
+            return success(c, response, 'Product has retained order or supplier evidence and was deactivated');
         }
 
         await productsQueries.delete(id);

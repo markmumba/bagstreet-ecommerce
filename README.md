@@ -189,7 +189,7 @@ PESAPAL_CURRENCY=KES
 - [x] **Low Stock Alerts** — in-app notification when variant stock drops below per-variant threshold
 - [x] **Customer Account Page** — profile management on storefront
 - [x] **Storefront Search** — URL-driven, debounced
-- [ ] **Abandoned Cart Recovery** — scheduled job emails customers with cart items left > 24 hrs
+- [ ] **Abandoned Cart Recovery** — proposed 2-hour reminder with an optional 24-hour follow-up; requires server-side recovery snapshots, communication preferences and safe recovery links (see PRD)
 - [ ] **Admin Sales Reports + CSV Export** — date-range revenue, top products, orders export
 - [ ] **Wishlist** — save products for later (important for luxury repeat-browse behaviour)
 

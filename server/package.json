@@ -8,15 +8,17 @@
     "dev": "bun --watch run src/index.ts",
     "preview": "RUN_MIGRATIONS_ON_STARTUP=true NODE_ENV=production bun dist/server.js",
     "db:migrate": "bun run src/scripts/migrate.ts",
+    "emails:preview": "bun run src/scripts/preview-emails.ts",
     "seed:demo": "bun run src/scripts/seed-products.ts",
     "seed:products": "bun run src/scripts/seed-products.ts",
     "seed:catalog": "bun run src/scripts/seed-catalog.ts",
     "test": "bun test",
+    "test:recovery": "bun run src/scripts/test-cart-recovery.ts",
+    "test:compliance": "bun run src/scripts/test-compliance.ts",
     "test:integration": "bun run src/scripts/test-order-integrity.ts"
   },
   "dependencies": {
     "@hono/zod-openapi": "^1.2.0",
-    "amqplib": "^2.0.1",
     "hono": "^4.12.27",
     "minio": "^8.0.7",
     "nodemailer": "^6.9.16",
@@ -26,7 +28,6 @@
     "zod-openapi": "^5.4.6"
   },
   "devDependencies": {
-    "@types/amqplib": "^0.10.8",
     "@types/bun": "latest",
     "@types/nodemailer": "^6.4.17",
     "@types/uuid": "^11.0.0"

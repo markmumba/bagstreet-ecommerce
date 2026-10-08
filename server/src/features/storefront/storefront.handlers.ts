@@ -1,9 +1,8 @@
 import type { AppContext } from '@server/lib/hono';
 import { success } from '@server/lib/response';
-import { sql } from '@server/lib/db';
 import { NotFoundError, ValidationError } from '@server/lib/errors';
-import { settingsQueries } from '../settings/settings.queries';
-import { buildCartQuote, cartQuoteSchema, mergeQuoteItems, type QuoteVariantRow } from './cart-quote';
+import { cartQuoteSchema } from './cart-quote';
+import { getCartQuote } from './cart-quote.queries';
 import { categoriesQueries } from '../categories/categories.queries';
 import { productsQueries } from '../products/products.queries';
 import { catalogPagination, catalogQuerySchema } from './catalog.schema';
@@ -167,25 +166,6 @@ export const storefrontHandlers = {
             throw new ValidationError('Invalid cart', validated.error.errors);
         }
 
-        const variantIds = mergeQuoteItems(validated.data.items).map((item) => item.variant_id);
-        const [rows, threshold] = await Promise.all([
-            variantIds.length === 0
-                ? Promise.resolve([] as QuoteVariantRow[])
-                : sql<QuoteVariantRow[]>`
-                    SELECT
-                        pv.id AS variant_id, pv.product_id, pv.size, pv.color, pv.stock, pv.price_override,
-                        pv.is_active AS variant_active,
-                        p.name, p.slug, p.image_url, p.price, p.sale_price, p.sale_ends_at,
-                        p.is_active AS product_active
-                    FROM product_variants pv
-                    JOIN products p ON p.id = pv.product_id
-                    WHERE pv.id IN ${sql(variantIds)}
-                `,
-            settingsQueries.getNumber('free_delivery_threshold'),
-        ]);
-
-        // bun:sql returns BIGINT ids as strings; normalise for the id lookup.
-        const normalised = rows.map((row) => ({ ...row, variant_id: Number(row.variant_id), product_id: Number(row.product_id) }));
-        return success(c, buildCartQuote(validated.data.items, normalised, threshold));
+        return success(c, await getCartQuote(validated.data.items));
     },
 };

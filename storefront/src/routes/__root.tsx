@@ -2,6 +2,7 @@ import { createRootRoute, Outlet } from '@tanstack/react-router';
 import { Navbar } from '@/components/layout/Navbar';
 import { Footer } from '@/components/layout/Footer';
 import { useCartStorageSync } from '@/hooks/useCart';
+import { useCartRecoverySync } from '@/hooks/useCartRecovery';
 
 export const Route = createRootRoute({
   component: RootLayout,
@@ -9,6 +10,7 @@ export const Route = createRootRoute({
 
 function RootLayout() {
   useCartStorageSync();
+  useCartRecoverySync();
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
