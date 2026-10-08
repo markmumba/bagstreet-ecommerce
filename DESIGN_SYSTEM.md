@@ -590,34 +590,35 @@ For high-stakes actions (bulk delete, cancel paid order): require typing the ent
 
 ## 9. Interaction & Motion
 
-**All durations use this scale:**
+Both frontends import `shared/styles/motion.css`. Use motion for feedback or spatial
+context, not to decorate every interaction. Tables, frequent navigation and initial
+hero content remain steady.
 
 ```css
---duration-instant:  0ms      /* no animation — checkbox state changes */
---duration-fast:     100ms    /* hover colour changes */
---duration-normal:   150ms    /* sidebar item transitions, button states */
---duration-moderate: 200ms    /* dropdown open/close */
---duration-slow:     300ms    /* sheet/modal enter/exit */
+--motion-press:    120ms;
+--motion-tooltip:  125ms;
+--motion-menu:     180ms;
+--motion-dialog:   200ms;
+--motion-drawer:   240ms;
+--motion-ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+--motion-ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
 ```
 
-**Easing:**
-```css
---ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);   /* default — most transitions */
---ease-out:    cubic-bezier(0, 0, 0.2, 1);      /* elements entering the screen */
---ease-in:     cubic-bezier(0.4, 0, 1, 1);      /* elements leaving the screen */
-```
-
-**Card hover (interactive tiles only, not table rows):**
-```css
-transition: box-shadow 150ms ease, transform 150ms ease;
-&:hover {
-  box-shadow: var(--shadow-card);
-  transform: translateY(-1px);
-}
-&:active {
-  transform: translateY(0);
-}
-```
+- Buttons use `ui-press`: a subtle `scale(0.97)` while pressed, including on touch.
+  Disabled controls never scale. Focus outlines and element dimensions stay stable.
+- Menus start at `scale(0.97)`, not zero. Use the trigger's transform origin;
+  Radix selects and tooltips use their collision-aware origin variables.
+- Persistent menus use transitions and `inert` when closed. Radix dialogs and
+  sheets use CSS entry/exit animations so unmount waits for the exit. Selects
+  animate in and dismiss instantly using the installed Radix primitive.
+- One dashboard tooltip provider delays initial hover by 350ms and skips the delay for
+  300ms when moving between controls. Subsequent and keyboard tooltips do not animate.
+- Prefer explicit `transform` and `opacity` transitions. Do not use `transition-all`
+  or animate table widths, padding, hero content, or gallery control dimensions.
+- Image hover is limited to devices with a fine pointer and actual hover support.
+- Respect `prefers-reduced-motion`: no scaling, sliding, shimmer, pulse or smooth
+  programmatic scrolling. Radix overlays use a near-instant opacity change.
+- Blur is optional, not a default. Do not blur products or dense operational data.
 
 **Table row hover:** background colour shift only — no translate, no shadow.
 
@@ -658,13 +659,7 @@ These tokens need to be added to the `:root` block:
   --shadow-dropdown: 0 4px 16px rgba(0,0,0,0.10), 0 1px 4px rgba(0,0,0,0.06);
   --shadow-modal:   0 20px 60px rgba(0,0,0,0.15), 0 4px 12px rgba(0,0,0,0.08);
 
-  /* Motion */
-  --duration-fast:     100ms;
-  --duration-normal:   150ms;
-  --duration-moderate: 200ms;
-  --duration-slow:     300ms;
-  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
-  --ease-out:    cubic-bezier(0, 0, 0.2, 1);
+  /* Motion is imported from shared/styles/motion.css. */
 }
 ```
 

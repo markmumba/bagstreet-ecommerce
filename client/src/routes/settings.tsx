@@ -92,7 +92,7 @@ function SettingsPage() {
                 }`}
               >
                 <span
-                  className={`absolute left-1 top-1 h-5 w-5 rounded-full bg-background shadow-sm transition-transform ${
+                  className={`ui-toggle-thumb absolute left-1 top-1 h-5 w-5 rounded-full bg-background shadow-sm ${
                     handoverEnabled ? 'translate-x-5' : 'translate-x-0'
                   }`}
                 />

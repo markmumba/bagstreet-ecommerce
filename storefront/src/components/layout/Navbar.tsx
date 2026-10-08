@@ -15,6 +15,8 @@ export function Navbar() {
   const location = useLocation();
   const headerRef = useRef<HTMLElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const searchButtonRef = useRef<HTMLButtonElement>(null);
+  const mobileMenuButtonRef = useRef<HTMLButtonElement>(null);
   const liveSearchStartedRef = useRef(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchValue, setSearchValue] = useState('');
@@ -70,18 +72,23 @@ export function Navbar() {
     const initialSearch = location.pathname.startsWith('/shop') ? currentRouteSearch : '';
     liveSearchStartedRef.current = initialSearch.trim().length > 0;
     setSearchValue(initialSearch);
+    setActiveMenu(null);
+    setMobileOpen(false);
     setSearchOpen(true);
   };
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
+      if (searchOpen) searchButtonRef.current?.focus();
+      else if (mobileOpen) mobileMenuButtonRef.current?.focus();
       setSearchOpen(false);
       setActiveMenu(null);
+      setMobileOpen(false);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, []);
+  }, [searchOpen, mobileOpen]);
 
   useEffect(() => {
     if (!searchOpen) return;
@@ -106,6 +113,7 @@ export function Navbar() {
     e.preventDefault();
     const nextSearch = searchValue.trim();
     setSearchOpen(false);
+    searchButtonRef.current?.focus();
     navigate({ to: '/shop', search: nextSearch ? { search: nextSearch } : {}, replace: true });
   };
 
@@ -117,7 +125,7 @@ export function Navbar() {
     <header
       ref={headerRef}
       onMouseLeave={() => setActiveMenu(null)}
-      className={`fixed top-0 left-0 right-0 z-50 h-[72px] border-b transition-colors duration-300 ${
+      className={`fixed top-0 left-0 right-0 z-50 h-[72px] border-b transition-colors duration-200 ease-[var(--motion-ease-out)] ${
         overHero
           ? 'border-transparent bg-transparent text-background'
           : 'border-border-subtle bg-background/95 text-foreground backdrop-blur-sm'
@@ -125,37 +133,44 @@ export function Navbar() {
     >
       <div className="max-w-[1440px] mx-auto px-4 sm:px-8 lg:px-20 h-full">
         {/* Search overlay */}
-        {searchOpen && (
-          <form onSubmit={submitSearch} className="absolute inset-0 flex items-center px-4 sm:px-8 lg:px-20 bg-background/95 backdrop-blur-sm z-10">
-            <Search strokeWidth={1} className="h-4 w-4 text-foreground-faint flex-shrink-0 mr-3" aria-hidden="true" />
-            <input
-              ref={searchInputRef}
-              type="text"
-              value={searchValue}
-              maxLength={200}
-              onChange={(e) => setSearchValue(e.target.value)}
-              placeholder="Search products..."
-              aria-label="Search products"
-              className="flex-1 bg-transparent border-0 text-sm font-light text-foreground placeholder:text-foreground-faint focus:outline-none"
-            />
-            <button
-              type="button"
-              onClick={() => setSearchOpen(false)}
-              className="ml-4 text-foreground-faint hover:text-foreground transition-colors"
-              aria-label="Close search"
-            >
-              <X strokeWidth={1} className="h-5 w-5" aria-hidden="true" />
-            </button>
-          </form>
-        )}
+        <form
+          onSubmit={submitSearch}
+          inert={!searchOpen}
+          data-state={searchOpen ? 'open' : 'closed'}
+          className="ui-fade-panel absolute inset-0 flex items-center px-4 sm:px-8 lg:px-20 bg-background/95 backdrop-blur-sm z-10"
+        >
+          <Search strokeWidth={1} className="h-4 w-4 text-foreground-faint flex-shrink-0 mr-3" aria-hidden="true" />
+          <input
+            ref={searchInputRef}
+            type="text"
+            value={searchValue}
+            maxLength={200}
+            onChange={(e) => setSearchValue(e.target.value)}
+            placeholder="Search products..."
+            aria-label="Search products"
+            className="flex-1 bg-transparent border-0 text-sm font-light text-foreground placeholder:text-foreground-faint focus:outline-none"
+          />
+          <button
+            type="button"
+            onClick={() => {
+              setSearchOpen(false);
+              searchButtonRef.current?.focus();
+            }}
+            className="ui-press ml-4 text-foreground-faint hover:text-foreground"
+            aria-label="Close search"
+          >
+            <X strokeWidth={1} className="h-5 w-5" aria-hidden="true" />
+          </button>
+        </form>
 
         <div className="grid h-full grid-cols-[1fr_auto_1fr] items-center">
           {/* Left: categories (desktop) / menu toggle (mobile) */}
           <nav aria-label="Primary" className="flex items-center">
             <button
+              ref={mobileMenuButtonRef}
               type="button"
               onClick={() => setMobileOpen((open) => !open)}
-              className={`-ml-2 p-2 lg:hidden ${linkTone}`}
+              className={`ui-press -ml-2 p-2 lg:hidden ${linkTone}`}
               aria-label={mobileOpen ? 'Close menu' : 'Open menu'}
               aria-expanded={mobileOpen}
             >
@@ -173,7 +188,7 @@ export function Navbar() {
                     onFocus={() => setActiveMenu(node.id)}
                     aria-expanded={node.children.length > 0 ? activeMenu === node.id : undefined}
                     className={`relative flex whitespace-nowrap py-7 text-label-caps transition-colors duration-200 ${linkTone}
-                      after:absolute after:inset-x-0 after:bottom-6 after:h-px after:origin-left after:bg-current after:transition-transform after:duration-300
+                      after:absolute after:inset-x-0 after:bottom-6 after:h-px after:origin-left after:bg-current after:transition-transform after:duration-150 after:ease-[var(--motion-ease-out)] motion-reduce:after:transition-none
                       ${activeMenu === node.id ? 'after:scale-x-100' : 'after:scale-x-0'}`}
                   >
                     {node.name}
@@ -201,8 +216,9 @@ export function Navbar() {
           {/* Right icons */}
           <div className="flex items-center justify-end gap-4 sm:gap-6">
             <button
+              ref={searchButtonRef}
               onClick={openSearch}
-              className={`transition-colors duration-200 ${linkTone}`}
+              className={`ui-press ${linkTone}`}
               title="Search"
               aria-label="Search products"
             >
@@ -262,7 +278,7 @@ export function Navbar() {
     {/* Dim the page while the mega menu is open */}
     <div
       aria-hidden="true"
-      className={`fixed inset-0 z-40 bg-espresso/15 transition-opacity duration-500 ${
+      className={`ui-backdrop fixed inset-0 z-40 bg-espresso/15 ${
         activeMenu ? 'opacity-100' : 'pointer-events-none opacity-0'
       }`}
     />
@@ -274,7 +290,7 @@ export function Navbar() {
 
 function MegaMenu({ node, image }: { node: CategoryTreeNode; image?: string }) {
   return (
-    <div className="absolute inset-x-0 top-full hidden lg:block border-b border-border-subtle bg-background text-foreground animate-in fade-in duration-300">
+    <div className="ui-feedback absolute inset-x-0 top-full hidden lg:block border-b border-border-subtle bg-background text-foreground">
       <div className="max-w-[1440px] mx-auto grid grid-cols-12 gap-8 px-20 py-12">
         <div className="col-span-3">
           <p className="text-label-caps text-foreground-faint">{node.name}</p>
@@ -311,7 +327,7 @@ function MegaMenu({ node, image }: { node: CategoryTreeNode; image?: string }) {
               <img
                 src={image}
                 alt=""
-                className="h-full w-full object-cover transition-transform duration-1000 ease-out group-hover:scale-[1.02]"
+                className="ui-image h-full w-full object-cover"
               />
             ) : (
               <Placeholder seed={`menu-${node.id}`} label={node.name} className="h-full w-full" />
@@ -330,8 +346,8 @@ function MobileMenu({ open, tree, signedIn }: { open: boolean; tree: CategoryTre
   return (
     <div
       inert={!open}
-      className={`fixed inset-x-0 top-[72px] bottom-0 z-40 overflow-y-auto bg-background px-4 pt-6 pb-12 sm:px-8 lg:hidden
-        transition-[opacity,transform] duration-500 ${open ? 'opacity-100 translate-y-0' : 'pointer-events-none opacity-0 -translate-y-2'}`}
+      data-state={open ? 'open' : 'closed'}
+      className="ui-mobile-menu fixed inset-x-0 top-[72px] bottom-0 z-40 overflow-y-auto bg-background px-4 pt-6 pb-12 sm:px-8 lg:hidden"
     >
       <nav aria-label="Mobile">
         <ul className="divide-y divide-border-subtle border-y border-border-subtle">

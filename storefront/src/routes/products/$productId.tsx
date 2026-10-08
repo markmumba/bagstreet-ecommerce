@@ -81,7 +81,10 @@ function ProductDetailPage() {
 
   const scrollToImage = (index: number) => {
     const el = galleryRef.current;
-    if (el) el.scrollTo({ left: index * el.clientWidth, behavior: 'smooth' });
+    if (el) el.scrollTo({
+      left: index * el.clientWidth,
+      behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+    });
   };
 
   // Distinct colors and sizes across ALL active variants
@@ -285,10 +288,12 @@ function ProductDetailPage() {
                       onClick={() => scrollToImage(index)}
                       aria-label={`View image ${index + 1} of ${galleryImages.length}`}
                       aria-current={selectedImageIndex === index}
-                      className={`h-px transition-all duration-300 ${
-                        selectedImageIndex === index ? 'w-8 bg-foreground' : 'w-4 bg-stone'
-                      }`}
-                    />
+                      className="flex h-6 w-8 items-center justify-center"
+                    >
+                      <span className={`h-px w-8 transition-[transform,background-color] duration-150 ease-[var(--motion-ease-out)] motion-reduce:transition-none ${
+                        selectedImageIndex === index ? 'scale-x-100 bg-foreground' : 'scale-x-50 bg-stone'
+                      }`} />
+                    </button>
                   ))}
                 </div>
               )}
@@ -341,7 +346,7 @@ function ProductDetailPage() {
                           onClick={() => setSelectedColor(isSelected ? null : color)}
                           disabled={!enabled}
                           aria-pressed={isSelected}
-                          className={`relative h-11 min-w-11 border px-4 text-[13px] capitalize transition-colors duration-300 ${
+                          className={`relative h-11 min-w-11 border px-4 text-[13px] capitalize transition-colors duration-150 motion-reduce:transition-none ${
                             isSelected
                               ? 'border-foreground bg-foreground text-background'
                               : enabled
@@ -380,7 +385,7 @@ function ProductDetailPage() {
                           onClick={() => setSelectedSize(isSelected ? null : size)}
                           disabled={!enabled}
                           aria-pressed={isSelected}
-                          className={`relative h-11 min-w-11 border px-3 text-[13px] transition-colors duration-300 ${
+                          className={`relative h-11 min-w-11 border px-3 text-[13px] transition-colors duration-150 motion-reduce:transition-none ${
                             isSelected
                               ? 'border-foreground bg-foreground text-background'
                               : enabled
@@ -438,7 +443,7 @@ function ProductDetailPage() {
               type="button"
               onClick={handleAddToCart}
               disabled={soldOut || selectedVariant?.stock === 0 || addToCart.isPending}
-              className="h-[52px] flex-1 bg-espresso text-label-caps text-background transition-colors duration-300
+              className="ui-press h-[52px] flex-1 bg-espresso text-label-caps text-background
                          hover:bg-espresso-hover disabled:cursor-not-allowed disabled:bg-surface-oat disabled:text-foreground-faint"
             >
               {buttonLabel}
@@ -451,7 +456,7 @@ function ProductDetailPage() {
 
           {added && (
             <div
-              className="mt-4 flex items-center justify-between border border-border-subtle bg-surface px-4 py-3 text-[13px] animate-in fade-in duration-300"
+              className="ui-feedback mt-4 flex items-center justify-between border border-border-subtle bg-surface px-4 py-3 text-[13px]"
               role="status"
             >
               <span className="inline-flex items-center gap-2">

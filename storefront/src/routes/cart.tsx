@@ -135,8 +135,8 @@ function CartPage() {
                   aria-valuenow={Math.min(subtotal, threshold)}
                 >
                   <div
-                    className="h-px bg-brass transition-[width] duration-500"
-                    style={{ width: `${Math.min(100, (subtotal / threshold) * 100)}%` }}
+                    className="ui-progress h-px w-full origin-left bg-brass"
+                    style={{ transform: `scaleX(${Math.min(1, subtotal / threshold)})` }}
                   />
                 </div>
               </div>
@@ -170,7 +170,7 @@ function CartPage() {
               type="button"
               onClick={() => navigate({ to: '/checkout' })}
               disabled={!canCheckout || quoteQuery.isFetching && !quote}
-              className="mt-8 h-[52px] w-full bg-espresso text-label-caps text-background transition-colors duration-300
+              className="ui-press mt-8 h-[52px] w-full bg-espresso text-label-caps text-background
                          hover:bg-espresso-hover disabled:cursor-not-allowed disabled:bg-surface-oat disabled:text-foreground-faint"
             >
               Checkout
@@ -333,7 +333,7 @@ function EmptyBag() {
         </p>
         <Link
           to="/shop"
-          className="mt-9 inline-flex h-[52px] items-center bg-espresso px-8 text-label-caps text-background transition-colors duration-300 hover:bg-espresso-hover"
+          className="ui-press mt-9 inline-flex h-[52px] items-center bg-espresso px-8 text-label-caps text-background hover:bg-espresso-hover"
         >
           Discover the collection
         </Link>

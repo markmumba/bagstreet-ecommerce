@@ -44,6 +44,7 @@ function normalizeNotificationData(data: NotificationItem['data']): Notification
 export function NotificationBell() {
     const [open, setOpen] = useState(false);
     const ref = useRef<HTMLDivElement>(null);
+    const buttonRef = useRef<HTMLButtonElement>(null);
     const navigate = useNavigate();
 
     const { data: notifications = [] } = useNotifications();
@@ -59,8 +60,20 @@ export function NotificationBell() {
                 setOpen(false);
             }
         }
-        if (open) document.addEventListener('mousedown', handleClick);
-        return () => document.removeEventListener('mousedown', handleClick);
+        function handleKeyDown(e: KeyboardEvent) {
+            if (e.key === 'Escape') {
+                setOpen(false);
+                buttonRef.current?.focus();
+            }
+        }
+        if (open) {
+            document.addEventListener('mousedown', handleClick);
+            document.addEventListener('keydown', handleKeyDown);
+        }
+        return () => {
+            document.removeEventListener('mousedown', handleClick);
+            document.removeEventListener('keydown', handleKeyDown);
+        };
     }, [open]);
 
     function handleNotifClick(notif: NotificationItem) {
@@ -82,11 +95,13 @@ export function NotificationBell() {
     return (
         <div ref={ref} className="relative">
             <Button
+                ref={buttonRef}
                 variant="ghost"
                 size="sm"
                 className="relative h-8 w-8 p-0"
                 onClick={() => setOpen((o) => !o)}
                 aria-label="Notifications"
+                aria-expanded={open}
             >
                 <Bell className="h-4 w-4" />
                 {unreadCount > 0 && (
@@ -96,57 +111,59 @@ export function NotificationBell() {
                 )}
             </Button>
 
-            {open && (
-                <div className="absolute right-0 top-10 z-[100] w-80 rounded-md border border-border bg-background shadow-lg">
-                    {/* Header */}
-                    <div className="flex items-center justify-between border-b border-border px-4 py-2">
-                        <span className="text-sm font-medium">Notifications</span>
-                        {unreadCount > 0 && (
-                            <button
-                                className="text-xs text-muted-foreground hover:text-foreground"
-                                onClick={() => markAllRead.mutate()}
-                            >
-                                Mark all read
-                            </button>
-                        )}
-                    </div>
-
-                    {/* List */}
-                    <div className="max-h-80 overflow-y-auto">
-                        {notifications.length === 0 ? (
-                            <div className="flex items-center justify-center py-10 text-sm text-muted-foreground">
-                                No notifications
-                            </div>
-                        ) : (
-                            notifications.map((notif) => (
-                                <button
-                                    key={notif.id}
-                                    className="flex w-full items-start gap-3 border-b border-border px-4 py-3 text-left hover:bg-muted/50 last:border-0"
-                                    onClick={() => handleNotifClick(notif)}
-                                >
-                                    {/* Unread dot */}
-                                    <span
-                                        className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${
-                                            notif.is_read ? 'bg-transparent' : 'bg-primary'
-                                        }`}
-                                    />
-                                    <div className="min-w-0 flex-1">
-                                        <p className={`text-sm leading-snug ${notif.is_read ? 'text-muted-foreground' : 'font-medium text-foreground'}`}>
-                                            {notif.title}
-                                        </p>
-                                        {notif.body && (
-                                            <p className="mt-0.5 text-xs text-muted-foreground truncate">{notif.body}</p>
-                                        )}
-                                        <p className="mt-1 text-xs text-muted-foreground/70">
-                                            {relativeTime(notif.created_at)}
-                                        </p>
-                                    </div>
-                                </button>
-                            ))
-                        )}
-                    </div>
+            <div
+                inert={!open}
+                data-state={open ? 'open' : 'closed'}
+                className="ui-menu absolute right-0 top-10 z-[100] w-80 rounded-md border border-border bg-background shadow-lg"
+            >
+                {/* Header */}
+                <div className="flex items-center justify-between border-b border-border px-4 py-2">
+                    <span className="text-sm font-medium">Notifications</span>
+                    {unreadCount > 0 && (
+                        <button
+                            className="text-xs text-muted-foreground hover:text-foreground"
+                            onClick={() => markAllRead.mutate()}
+                        >
+                            Mark all read
+                        </button>
+                    )}
                 </div>
-            )}
+
+                {/* List */}
+                <div className="max-h-80 overflow-y-auto">
+                    {notifications.length === 0 ? (
+                        <div className="flex items-center justify-center py-10 text-sm text-muted-foreground">
+                            No notifications
+                        </div>
+                    ) : (
+                        notifications.map((notif) => (
+                            <button
+                                key={notif.id}
+                                className="flex w-full items-start gap-3 border-b border-border px-4 py-3 text-left hover:bg-muted/50 last:border-0"
+                                onClick={() => handleNotifClick(notif)}
+                            >
+                                {/* Unread dot */}
+                                <span
+                                    className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${
+                                        notif.is_read ? 'bg-transparent' : 'bg-primary'
+                                    }`}
+                                />
+                                <div className="min-w-0 flex-1">
+                                    <p className={`text-sm leading-snug ${notif.is_read ? 'text-muted-foreground' : 'font-medium text-foreground'}`}>
+                                        {notif.title}
+                                    </p>
+                                    {notif.body && (
+                                        <p className="mt-0.5 text-xs text-muted-foreground truncate">{notif.body}</p>
+                                    )}
+                                    <p className="mt-1 text-xs text-muted-foreground/70">
+                                        {relativeTime(notif.created_at)}
+                                    </p>
+                                </div>
+                            </button>
+                        ))
+                    )}
+                </div>
+            </div>
         </div>
     );
 }

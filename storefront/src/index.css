@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "tw-animate-css";
+@import "../../shared/styles/motion.css";
 
 @font-face {
   font-family: "Cormorant Garamond";

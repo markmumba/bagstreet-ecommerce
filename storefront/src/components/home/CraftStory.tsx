@@ -35,7 +35,7 @@ export function CraftStory() {
           </p>
           <ul className="mt-10 grid grid-cols-1 gap-5 border-t border-border pt-8 sm:grid-cols-3 lg:grid-cols-1 xl:grid-cols-3">
             {[
-              ['Authentic', 'Every piece verified'],
+              ['Selected', 'Details and photos provided'],
               ['Delivered', 'Countrywide shipping'],
               ['Secure', 'M-Pesa & card payments'],
             ].map(([title, body]) => (

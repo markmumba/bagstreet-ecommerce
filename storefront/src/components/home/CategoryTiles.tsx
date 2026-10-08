@@ -30,7 +30,7 @@ export function CategoryTiles({ tree, products }: { tree: CategoryTreeNode[]; pr
                     height={240}
                     loading="lazy"
                     decoding="async"
-                    className="h-full w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.02] motion-reduce:transition-none motion-reduce:transform-none"
+                    className="ui-image h-full w-full object-cover"
                   />
                 ) : (
                   <Placeholder seed={`tile-${node.id}`} label={node.name} className="h-full w-full" />
