@@ -52,3 +52,6 @@ docs/.DS_Store
 # Generated previews and reports (email previews, PDFs)
 output/
 .DS_Store
+
+# TanStack Router dev cache
+.tanstack/
