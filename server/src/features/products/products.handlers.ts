@@ -134,7 +134,7 @@ export const productsHandlers = {
 
         const [products, total] = await Promise.all([
             productsQueries.findAll(page, limit, categoryId, searchTerm, productStatus),
-            productsQueries.countAll(categoryId, searchTerm)
+            productsQueries.countAll(categoryId, searchTerm, productStatus)
         ]);
 
         const imageRows = await productsQueries.findImagesByProductIds(products.map((product) => Number(product.id)));

@@ -136,6 +136,8 @@ export interface OrderResponse {
     payment_provider?: string;
     payment_redirect_url?: string | null;
     payment_reference?: string | null;
+    /** Returned when an online order is placed: lets a guest check or retry payment for it. */
+    access_token?: string;
     created_at: string;
     updated_at: string;
 }
@@ -148,8 +150,17 @@ export interface PaymentRetryResponse {
 }
 
 export interface PaymentStatusResponse {
-    status: typeof ORDER_STATUS.PENDING | typeof PAYMENT_STATUS.PAID | typeof PAYMENT_STATUS.FAILED;
+    /**
+     * `EXPIRED`: cancelled for non-payment (if `payment_status` is PAID, money arrived late and is owed back).
+     * `REVIEW`: money arrived but not the right amount — held for staff; don't ask the customer to pay again.
+     */
+    status: typeof ORDER_STATUS.PENDING | typeof PAYMENT_STATUS.PAID | typeof PAYMENT_STATUS.FAILED | 'EXPIRED' | 'REVIEW';
     order_id: number;
+    order_ref?: string;
+    order_number?: string | null;
+    total_amount?: number;
+    order_status?: string;
+    payment_status?: string;
     receipt_number?: string;
     payment_method?: string;
 }
@@ -193,4 +204,132 @@ export interface DiscountValidationResponse {
     code: string;
     discount_amount: number;
     message: string;
+}
+
+/** How a refund was paid back to the customer. Refunds are recorded after staff send the money. */
+export const REFUND_METHOD = {
+    MPESA: 'MPESA',
+    PESAPAL: 'PESAPAL',
+    CASH: 'CASH',
+    BANK_TRANSFER: 'BANK_TRANSFER',
+    OTHER: 'OTHER',
+} as const;
+export type RefundMethod = typeof REFUND_METHOD[keyof typeof REFUND_METHOD];
+
+/**
+ * Money position of an order, from its ledger.
+ * - `unpaid`: nothing received
+ * - `paid`: received the order total
+ * - `partially_refunded` / `refunded`: some / all of it given back
+ * - `refund_owed`: order cancelled but money still held (e.g. paid after it expired)
+ * - `underpaid` / `overpaid`: received less / more than the order total
+ */
+export type OrderPaymentState =
+    | 'unpaid'
+    | 'paid'
+    | 'partially_refunded'
+    | 'refunded'
+    | 'refund_owed'
+    | 'underpaid'
+    | 'overpaid';
+
+export interface OrderPaymentSummary {
+    order_total: number;
+    captured: number;
+    refunded: number;
+    /** captured − refunded (what the customer has paid and not had back) */
+    net: number;
+    /** Payment provider fees recorded from statements. Not deducted from what can be refunded. */
+    fees: number;
+    /** net − fees: what the shop actually keeps. */
+    net_after_fees: number;
+    /** Most that can still be refunded. */
+    refundable: number;
+    state: OrderPaymentState;
+    /** Marked paid before the ledger existed, so `captured` is assumed to be the order total. */
+    legacy_unrecorded_capture: boolean;
+}
+
+export interface LedgerEntryResponse {
+    id: string;
+    entry_type: string;
+    direction: 'CREDIT' | 'DEBIT';
+    amount: number;
+    currency: string;
+    reference: string | null;
+    metadata: Record<string, unknown> | null;
+    created_at: string;
+}
+
+export interface OrderPaymentsResponse {
+    summary: OrderPaymentSummary;
+    entries: LedgerEntryResponse[];
+}
+
+export interface RecordRefundRequest {
+    amount: number;
+    method: RefundMethod;
+    /** M-Pesa / bank transaction code for the refund, if any. */
+    external_reference?: string;
+    reason: string;
+    /** Generated once per refund form; makes double-submits record a single refund. */
+    idempotency_key: string;
+}
+
+/** Something in orders, Pesapal transactions or the ledger that doesn't add up. */
+export type ReconciliationIssueKind =
+    | 'paid_without_capture'
+    | 'completed_payment_without_capture'
+    | 'held_for_review'
+    | 'amount_mismatch'
+    | 'refund_owed'
+    | 'marked_paid_manually';
+
+export interface ReconciliationIssue {
+    kind: ReconciliationIssueKind;
+    order_id: string;
+    order_number: string | null;
+    amount: number | null;
+    expected: number | null;
+    message: string;
+}
+
+export interface ReconciliationReport {
+    from: string;
+    to: string;
+    totals: {
+        captured: number;
+        refunded: number;
+        fees: number;
+        net: number;
+        net_after_fees: number;
+        paid_orders: number;
+    };
+    issues: ReconciliationIssue[];
+}
+
+export interface StatementIssueResponse {
+    row: number;
+    kind: 'not_in_ledger' | 'amount_mismatch' | 'unknown_reference' | 'not_successful' | 'unreadable_amount';
+    reference: string | null;
+    order_number: string | null;
+    statement_amount: number | null;
+    ledger_amount: number | null;
+    message: string;
+}
+
+export interface StatementReconciliationReport {
+    /** Which statement column was used for what — check these if results look wrong. */
+    columns: Record<string, string | null>;
+    rows: number;
+    matched: number;
+    fees_found: number;
+    fees_total: number;
+    /** False for a preview; true when fees were written to the ledger. */
+    recorded: boolean;
+    fees_recorded: number;
+    issues: StatementIssueResponse[];
+    /** Payments in the ledger, dated within the statement's range, that the statement doesn't list. */
+    missing_from_statement: { order_number: string | null; reference: string | null; amount: number; date: string }[];
+    date_range: { from: string; to: string } | null;
 }

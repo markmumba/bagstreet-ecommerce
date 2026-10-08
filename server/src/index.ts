@@ -14,8 +14,9 @@ import cartRoutes from './features/cart/cart.routes';
 import notificationsRoutes from './features/notifications/notifications.routes';
 import { requireAuth, requireRole } from './middleware/auth.middleware';
 import { USER_ROLE } from 'shared/dist';
-import { authRateLimit, generalRateLimit, orderRateLimit, paymentRateLimit } from './middleware/rate-limit.middleware';
+import { authRateLimit, generalRateLimit, orderPlacementRateLimit, orderRateLimit, paymentRateLimit } from './middleware/rate-limit.middleware';
 import { startEmailWorker } from './services/messagequeue';
+import { startUnpaidOrderExpiry } from './services/unpaid-order-expiry';
 import shippingRoutes from './features/shipping/shipping.routes';
 import paymentsRoutes from './features/payments/payments.routes';
 import discountsRoutes from './features/discounts/discounts.routes';
@@ -48,6 +49,7 @@ app.get('/health/ready', healthHandlers.ready);
 app.use('/api/auth/login', authRateLimit);
 app.use('/api/auth/register', authRateLimit);
 app.use('/api/orders', orderRateLimit);
+app.on('POST', '/api/orders', orderPlacementRateLimit);
 app.use('/api/payments/*', paymentRateLimit);
 app.use('/api/*', generalRateLimit);
 
@@ -82,6 +84,7 @@ const prepareDatabase = shouldRunMigrationsOnStartup ? migrateDatabase : assertD
 prepareDatabase()
   .then(() => {
     console.log('Database ready');
+    startUnpaidOrderExpiry();
     return startEmailWorker();
   })
   .catch((error) => {

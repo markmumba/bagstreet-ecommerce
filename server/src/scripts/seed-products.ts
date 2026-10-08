@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import path from 'path';
 import { sql } from '../lib/db';
+import { toJsonbParam } from '../lib/json-column';
 import { migrateDatabase } from '../lib/migrations';
 import { imageUploadService } from '../services/image-upload-service';
 import { slugify } from '../lib/util';
@@ -618,7 +619,7 @@ async function seedOrder(order: SeedOrder, shippingLocationIds: Map<string, numb
             customer_name, customer_phone, customer_email
         )
         VALUES (
-            ${userId}, ${order.status}, ${totalAmount}, ${JSON.stringify(shippingAddress)}::jsonb,
+            ${userId}, ${order.status}, ${totalAmount}, ${toJsonbParam(shippingAddress)}::jsonb,
             ${`${order.notes ?? 'Demo order'} seed:${order.ref}`}, ${createdAt}, ${createdAt},
             ${shippingLocationId}, ${shippingCost}, ${order.payment_status}, ${order.discount_code ?? null},
             ${discountAmount}, ${order.customer_name}, ${order.customer_phone}, ${customerEmail}
@@ -649,7 +650,7 @@ async function seedOrder(order: SeedOrder, shippingLocationIds: Map<string, numb
             VALUES (
                 ${createdOrder!.id}, 'pesapal', ${`seed-pesapal-${order.ref}`}, ${`BS-SEED-${order.ref}`},
                 ${null}, ${totalAmount}, 'KES', 'COMPLETED', 'SEED', ${`SEED${createdOrder!.id}`},
-                'Seed payment completed', ${JSON.stringify({ seed: true, order_ref: order.ref })}::jsonb,
+                'Seed payment completed', ${toJsonbParam({ seed: true, order_ref: order.ref })}::jsonb,
                 ${createdAt}, ${createdAt}
             )
             ON CONFLICT (provider, merchant_reference) DO NOTHING

@@ -1,5 +1,5 @@
 import { sql } from "../../lib/db";
-import type { Product, ProductImage, ProductRequest } from "shared/dist";
+import type { Product, ProductImage, ProductRequest, StorefrontSort } from "shared/dist";
 
 type ProductImageRow = Omit<ProductImage, 'id' | 'product_id'> & {
     id: number;
@@ -12,7 +12,8 @@ export const productsQueries = {
         limit: number,
         categoryId: number | null,
         searchTerm: string,
-        status: boolean | null
+        status: boolean | null,
+        sort: StorefrontSort = 'name_asc'
     ): Promise<(Product & {
         total_stock: number | null;
         low_stock_variant_count: number;
@@ -51,14 +52,25 @@ export const productsQueries = {
               AND (${pattern}::text IS NULL OR p.name ILIKE ${pattern}::text)
               AND (${status}::boolean IS NULL OR p.is_active = ${status}::boolean)
             GROUP BY p.id
-            ORDER BY p.name ASC
+            ORDER BY
+                CASE WHEN ${sort}::text = 'newest' THEN p.created_at END DESC,
+                CASE WHEN ${sort}::text = 'price_asc' THEN
+                    CASE WHEN p.sale_price IS NOT NULL AND (p.sale_ends_at IS NULL OR p.sale_ends_at > NOW())
+                         THEN p.sale_price ELSE p.price END
+                END ASC,
+                CASE WHEN ${sort}::text = 'price_desc' THEN
+                    CASE WHEN p.sale_price IS NOT NULL AND (p.sale_ends_at IS NULL OR p.sale_ends_at > NOW())
+                         THEN p.sale_price ELSE p.price END
+                END DESC,
+                p.name ASC, p.id ASC
             LIMIT ${limit} OFFSET ${offset}
         `;
     },
 
     countAll: async (
         categoryId: number | null,
-        searchTerm: string
+        searchTerm: string,
+        status: boolean | null = null
     ): Promise<number> => {
         const pattern = searchTerm && searchTerm.trim() !== ""
             ? `%${searchTerm.trim()}%`
@@ -74,6 +86,7 @@ export const productsQueries = {
             FROM products
             WHERE (${categoryId}::integer IS NULL OR category_id IN (SELECT id FROM descendants))
               AND (${pattern}::text IS NULL OR name ILIKE ${pattern}::text)
+              AND (${status}::boolean IS NULL OR is_active = ${status}::boolean)
         `;
         return parseInt(result.count, 10);
     },

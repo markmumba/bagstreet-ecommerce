@@ -1,4 +1,5 @@
 import { apiClient } from './api';
+import type { StorefrontHero } from 'shared';
 
 export interface OrderHandoverSettings {
   enabled: boolean;
@@ -22,4 +23,25 @@ export const settingsService = {
 
   updateOrderHandover: (data: OrderHandoverUpdate) =>
     apiClient.put<OrderHandoverSettings>('/api/settings/order-handover', data),
+
+  getStorefrontHero: () =>
+    apiClient.get<StorefrontHero>('/api/settings/storefront-hero'),
+
+  updateStorefrontHero: (data: StorefrontHeroUpdate) => {
+    const form = new FormData();
+    form.append('eyebrow', data.eyebrow);
+    form.append('title', data.title);
+    form.append('subtitle', data.subtitle);
+    if (data.image) form.append('image', data.image);
+    if (data.removeImage) form.append('remove_image', 'true');
+    return apiClient.putForm<StorefrontHero>('/api/settings/storefront-hero', form);
+  },
 };
+
+export interface StorefrontHeroUpdate {
+  eyebrow: string;
+  title: string;
+  subtitle: string;
+  image?: File | null;
+  removeImage?: boolean;
+}

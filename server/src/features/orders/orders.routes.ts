@@ -13,11 +13,13 @@ ordersRoutes.get('/', requireAuth, ordersHandlers.list);
 ordersRoutes.post('/', optionalAuth, ordersHandlers.create);
 ordersRoutes.post('/:id/confirm-received', ordersHandlers.confirmReceived);
 ordersRoutes.get('/:id/receipt', requireAuth, ordersHandlers.receipt);
+ordersRoutes.get('/:id/payments', requireAuth, requireRole(USER_ROLE.ADMIN, USER_ROLE.MANAGER), ordersHandlers.payments);
 ordersRoutes.get('/:id', requireAuth, ordersHandlers.get);
 ordersRoutes.post('/:id/cancel', requireAuth, ordersHandlers.cancel);
 
 // Status/payment changes are admin-only. Managers can view orders.
 ordersRoutes.patch('/:id/status', requireAuth, requireRole(USER_ROLE.ADMIN), ordersHandlers.updateStatus);
 ordersRoutes.patch('/:id/confirm-payment', requireAuth, requireRole(USER_ROLE.ADMIN), ordersHandlers.confirmPayment);
+ordersRoutes.post('/:id/refunds', requireAuth, requireRole(USER_ROLE.ADMIN), ordersHandlers.recordRefund);
 
 export default ordersRoutes;

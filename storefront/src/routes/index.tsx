@@ -1,321 +1,97 @@
-import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
-import { useState, useEffect } from 'react';
+import { createFileRoute, Link, redirect } from '@tanstack/react-router';
+import { ArrowRight } from 'lucide-react';
 import { z } from 'zod';
-import { Search } from 'lucide-react';
 import { useStorefrontHome } from '@/hooks/useStorefrontHome';
 import { useSeo } from '@/hooks/useSeo';
-import type { ProductResponse, CategoryTreeNode } from 'shared';
+import { ProductCard, ProductCardSkeleton } from '@/components/product/ProductCard';
+import { Hero } from '@/components/home/Hero';
+import { ProductRail } from '@/components/home/ProductRail';
+import { CategoryTiles } from '@/components/home/CategoryTiles';
+import { CraftStory } from '@/components/home/CraftStory';
 
 export const Route = createFileRoute('/')({
-  validateSearch: z.object({ search: z.string().optional() }),
+  validateSearch: z.object({
+    search: z.string().optional(),
+    category: z.coerce.number().int().positive().optional().catch(undefined),
+  }),
+  beforeLoad: ({ search }) => {
+    if (search.search || search.category) {
+      throw redirect({
+        to: '/shop',
+        search: { search: search.search, category: search.category },
+        replace: true,
+      });
+    }
+  },
   component: HomePage,
 });
 
-function formatPrice(price: number) {
-  return new Intl.NumberFormat('en-KE', { style: 'currency', currency: 'KES' }).format(price);
-}
-
-const FEATURED_SKELETON_COUNT = 4;
-const PRODUCT_SKELETON_COUNT = 8;
-
-function ProductCard({ product, priority = false }: { product: ProductResponse; priority?: boolean }) {
-  const saleIsActive = product.sale_price != null
-    && (!product.sale_ends_at || new Date(product.sale_ends_at).getTime() > Date.now());
-
-  return (
-    <Link to="/products/$productId" params={{ productId: product.slug || product.id }}>
-      <article className="product-card group cursor-pointer">
-        {/* Portrait image — 3:4 ratio */}
-        <div className="relative aspect-[3/4] overflow-hidden bg-[var(--surface)]">
-          {product.image_url ? (
-            <img
-              src={product.image_url}
-              alt={product.name}
-              width={600}
-              height={800}
-              loading={priority ? 'eager' : 'lazy'}
-              decoding="async"
-              fetchPriority={priority ? 'high' : 'auto'}
-              sizes="(min-width: 1280px) 25vw, (min-width: 1024px) 33vw, 50vw"
-              className="w-full h-full object-cover transition-transform duration-700 ease-out group-hover:scale-[1.04]"
-            />
-          ) : (
-            <div className="w-full h-full flex items-center justify-center text-[var(--foreground-faint)] text-xs tracking-[0.18em] uppercase">
-              No Image
-            </div>
-          )}
-
-          {saleIsActive && (
-            <span className="absolute left-3 top-3 bg-foreground px-2 py-1 text-[10px] font-medium uppercase tracking-[0.18em] text-background">
-              Sale
-            </span>
-          )}
-
-          {/* Slide-up quick view */}
-          <div
-            className="absolute bottom-0 left-0 right-0 translate-y-full group-hover:translate-y-0
-                       transition-transform duration-300 ease-out
-                       bg-foreground/90 px-4 py-3 flex items-center justify-center"
-          >
-            <span
-              className="text-xs tracking-[0.18em] uppercase text-background"
-              style={{ fontFamily: 'var(--font-sans)' }}
-            >
-              Quick View
-            </span>
-          </div>
-        </div>
-
-        {/* Info */}
-        <div className="min-h-[4.5rem] pt-4 pb-2">
-          <p
-            className="line-clamp-2 text-sm font-light tracking-wide text-foreground leading-snug"
-            style={{ fontFamily: 'var(--font-sans)' }}
-          >
-            {product.name}
-          </p>
-          <p
-            className="text-sm font-light text-[var(--foreground-muted)] mt-1.5"
-            style={{ fontFamily: 'var(--font-mono)' }}
-          >
-            {saleIsActive ? (
-              <>
-                <span className="text-foreground">{formatPrice(product.sale_price!)}</span>
-                <span className="ml-2 text-[var(--foreground-faint)] line-through">{formatPrice(product.price)}</span>
-              </>
-            ) : (
-              formatPrice(product.price)
-            )}
-          </p>
-        </div>
-      </article>
-    </Link>
-  );
-}
-
-function ProductCardSkeleton() {
-  return (
-    <article className="product-card" aria-hidden="true">
-      <div className="aspect-[3/4] bg-[var(--surface)] animate-pulse" />
-      <div className="min-h-[4.5rem] pt-4 pb-2">
-        <div className="h-4 w-3/4 bg-[var(--surface)] animate-pulse" />
-        <div className="mt-3 h-3 w-1/3 bg-[var(--surface)] animate-pulse" />
-      </div>
-    </article>
-  );
-}
-
-function ProductGridSkeleton({ count = PRODUCT_SKELETON_COUNT }: { count?: number }) {
-  return (
-    <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-x-6 gap-y-12">
-      {Array.from({ length: count }).map((_, i) => (
-        <ProductCardSkeleton key={i} />
-      ))}
-    </div>
-  );
-}
-
 function HomePage() {
-  const { search: urlSearch } = Route.useSearch();
-  const navigate = useNavigate();
+  const homeQuery = useStorefrontHome({ limit: 48 });
+  const featuredProducts = homeQuery.data?.data?.featured_products ?? [];
+  const products = homeQuery.data?.data?.products ?? [];
+  const tree = homeQuery.data?.data?.category_tree ?? [];
+  const railProducts = featuredProducts.length > 0 ? featuredProducts : products.slice(0, 8);
+
   useSeo({
-    title: urlSearch ? `Search: ${urlSearch}` : 'Bagstreet - Luxury Handbags & Accessories',
-    description: 'Shop curated luxury handbags, shoes, and cashmere scarves from Bagstreet.',
+    title: 'Bagstreet - Luxury Handbags & Accessories',
+    description: 'Shop curated luxury handbags, shoes, and silk from Bagstreet.',
     canonicalPath: '/',
   });
-  const [search, setSearch] = useState(urlSearch ?? '');
-  const [debouncedSearch, setDebouncedSearch] = useState(urlSearch ?? '');
-  const [selectedParentId, setSelectedParentId] = useState('');
-  const [categoryId, setCategoryId] = useState('');
-
-  // Sync URL search param → local state, including when the param is cleared.
-  useEffect(() => {
-    const nextSearch = urlSearch ?? '';
-    setSearch(nextSearch);
-    setDebouncedSearch(nextSearch);
-  }, [urlSearch]);
-
-  useEffect(() => {
-    const t = setTimeout(() => {
-      const nextSearch = search.trim();
-      setDebouncedSearch(nextSearch);
-      // Keep URL in sync so search is shareable
-      if ((urlSearch ?? '') !== nextSearch) {
-        navigate({ to: '/', search: nextSearch ? { search: nextSearch } : {}, replace: true });
-      }
-    }, 350);
-    return () => clearTimeout(t);
-  }, [search, urlSearch, navigate]);
-
-  const homeQuery = useStorefrontHome({
-    search: debouncedSearch || undefined,
-    categoryId: categoryId || undefined,
-    limit: 48,
-  });
-
-  const hasSearchInput = search.trim().length > 0;
-  const isLoading = homeQuery.isLoading;
-  const featuredProducts = hasSearchInput ? [] : ((homeQuery.data?.data?.featured_products as ProductResponse[]) ?? []);
-  const products = (homeQuery.data?.data?.products as ProductResponse[]) ?? [];
-  const tree = (homeQuery.data?.data?.category_tree as CategoryTreeNode[]) ?? [];
-
-  const selectedParent = tree.find((p) => p.id === selectedParentId) ?? null;
-
-  const handleParentClick = (parent: CategoryTreeNode) => {
-    if (selectedParentId === parent.id) {
-      setSelectedParentId('');
-      setCategoryId('');
-    } else {
-      setSelectedParentId(parent.id);
-      setCategoryId(parent.id);
-    }
-  };
-
-  const handleSubClick = (childId: string) => {
-    setCategoryId(categoryId === childId ? selectedParentId : childId);
-  };
-
-  const handleAllClick = () => {
-    setSelectedParentId('');
-    setCategoryId('');
-  };
 
   return (
-    <div className="max-w-360 mx-auto px-4 sm:px-8 lg:px-20">
-      {/* Hero */}
-      <div className="pt-28 pb-16 text-center sm:pt-36 sm:pb-24">
-        <p
-          className="text-xs tracking-[0.3em] uppercase text-(--foreground-faint) mb-6"
-          style={{ fontFamily: 'var(--font-sans)' }}
-        >
-          New Arrivals
-        </p>
-        <h1
-          className="mb-6 min-h-[7.5rem] text-5xl font-light italic leading-tight text-foreground sm:min-h-[9rem] sm:text-6xl lg:min-h-[10.5rem] lg:text-7xl"
-          style={{ fontFamily: 'var(--font-display)' }}
-        >
-          Crafted for<br />the discerning eye
-        </h1>
-        <p
-          className="text-sm font-light text-(--foreground-muted) max-w-sm mx-auto leading-relaxed tracking-wide"
-          style={{ fontFamily: 'var(--font-sans)' }}
-        >
-          Luxury handbags, shoes &amp; cashmere scarves — curated for the modern woman.
-        </p>
-      </div>
+    <>
+      <Hero />
+      <ProductRail
+        eyebrow={featuredProducts.length > 0 ? 'The Edit' : 'Just In'}
+        title={featuredProducts.length > 0 ? 'Featured pieces' : 'New arrivals'}
+        products={railProducts}
+        isLoading={homeQuery.isLoading}
+      />
+      <CategoryTiles tree={tree} products={[...featuredProducts, ...products]} />
+      <CraftStory />
 
-      {/* Featured */}
-      {!hasSearchInput && (isLoading || featuredProducts.length > 0) && (
-        <section className="mb-24">
-          <div className="flex items-baseline justify-between mb-10 border-b border-(--border-subtle) pb-4">
-            <h2
-              className="text-2xl font-light text-foreground"
-              style={{ fontFamily: 'var(--font-display)' }}
-            >
-              Featured
-            </h2>
+      <section
+        id="collection"
+        className="mx-auto max-w-[1440px] scroll-mt-[72px] px-4 pt-20 pb-24 sm:px-8 lg:px-20 lg:pt-28"
+      >
+        <div className="mb-10 flex flex-wrap items-end justify-between gap-6 border-b border-border pb-8">
+          <div>
+            <p className="text-label-caps text-foreground-faint">Shop</p>
+            <h2 className="mt-4 text-headline-lg">The collection</h2>
           </div>
-          {isLoading ? (
-            <ProductGridSkeleton count={FEATURED_SKELETON_COUNT} />
-          ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-x-6 gap-y-12">
-              {featuredProducts.map((product, index) => (
-                <ProductCard key={product.id} product={product} priority={index < 2} />
-              ))}
-            </div>
-          )}
-        </section>
-      )}
-
-      {/* Filters */}
-      <div className="mb-16">
-        {/* Search */}
-        <div className="relative max-w-xs mb-8">
-          <Search strokeWidth={1} className="absolute left-0 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--foreground-faint)]" />
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search..."
-            className="w-full pl-6 pr-0 py-2
-                       bg-transparent border-0 border-b border-[var(--border)]
-                       text-sm font-light text-foreground
-                       placeholder:text-[var(--foreground-faint)]
-                       focus:outline-none focus:border-foreground
-                       transition-colors duration-200"
-            style={{ fontFamily: 'var(--font-sans)' }}
-          />
-        </div>
-
-        {/* Row 1: top-level category tabs */}
-        <nav className="-mx-4 flex gap-8 overflow-x-auto border-b border-[var(--border)] px-4 pb-px sm:mx-0 sm:px-0">
-          <button
-            onClick={handleAllClick}
-            className={`pb-3 text-xs tracking-[0.15em] uppercase whitespace-nowrap transition-colors duration-200 -mb-px
-              ${categoryId === ''
-                ? 'text-foreground border-b-2 border-foreground'
-                : 'text-[var(--foreground-faint)] hover:text-[var(--foreground-muted)]'
-              }`}
-            style={{ fontFamily: 'var(--font-sans)' }}
+          <Link
+            to="/shop"
+            className="inline-flex items-center gap-3 text-sm underline underline-offset-4 hover:text-brass-text"
           >
-            All
-          </button>
-          {tree.map((parent) => (
+            Shop all products <ArrowRight className="size-4" />
+          </Link>
+        </div>
+        {homeQuery.isError ? (
+          <div className="py-10 text-center text-sm">
+            <p>The collection could not load.</p>
             <button
-              key={parent.id}
-              onClick={() => handleParentClick(parent)}
-              className={`pb-3 text-xs tracking-[0.15em] uppercase whitespace-nowrap transition-colors duration-200 -mb-px
-                ${selectedParentId === parent.id
-                  ? 'text-foreground border-b-2 border-foreground'
-                  : 'text-[var(--foreground-faint)] hover:text-[var(--foreground-muted)]'
-                }`}
-              style={{ fontFamily: 'var(--font-sans)' }}
+              type="button"
+              onClick={() => homeQuery.refetch()}
+              className="mt-4 underline underline-offset-4"
             >
-              {parent.name}
+              Try again
             </button>
-          ))}
-        </nav>
-
-        {/* Row 2: subcategory pills */}
-        {selectedParent && selectedParent.children.length > 0 && (
-          <div className="-mx-4 flex gap-6 overflow-x-auto px-4 pt-4 sm:mx-0 sm:px-0">
-            {selectedParent.children.map((child) => (
-              <button
-                key={child.id}
-                onClick={() => handleSubClick(child.id)}
-                className={`text-xs tracking-[0.12em] uppercase transition-colors duration-200
-                  ${categoryId === child.id
-                    ? 'text-foreground underline underline-offset-4'
-                    : 'text-[var(--foreground-faint)] hover:text-[var(--foreground-muted)]'
-                  }`}
-                style={{ fontFamily: 'var(--font-sans)' }}
-              >
-                {child.name}
-              </button>
-            ))}
+          </div>
+        ) : !homeQuery.isLoading && products.length === 0 ? (
+          <p className="py-10 text-center text-sm text-foreground-muted">
+            New pieces are on their way.
+          </p>
+        ) : (
+          <div className="grid grid-cols-2 gap-x-4 gap-y-12 sm:gap-x-6 lg:grid-cols-3 xl:grid-cols-4">
+            {homeQuery.isLoading
+              ? Array.from({ length: 8 }, (_, index) => <ProductCardSkeleton key={index} />)
+              : products
+                  .slice(0, 8)
+                  .map((product) => <ProductCard key={product.id} product={product} />)}
           </div>
         )}
-      </div>
-
-      {/* Product grid */}
-      {isLoading ? (
-        <div className="pb-24">
-          <ProductGridSkeleton />
-        </div>
-      ) : products.length === 0 ? (
-        <div
-          className="text-center py-32 text-[var(--foreground-faint)] text-xs tracking-[0.2em] uppercase"
-          style={{ fontFamily: 'var(--font-sans)' }}
-        >
-          No products found
-        </div>
-      ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-x-6 gap-y-12 pb-24">
-          {products.map((product, index) => (
-            <ProductCard key={product.id} product={product} priority={index < 2 && featuredProducts.length === 0} />
-          ))}
-        </div>
-      )}
-    </div>
+      </section>
+    </>
   );
 }

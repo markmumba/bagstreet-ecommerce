@@ -1,4 +1,6 @@
 import type { AppContext, AuthUser } from '@server/lib/hono';
+import { getClientIp } from './client-ip';
+import { toJsonbParam } from './json-column';
 import { getOptionalUser } from '@server/lib/hono';
 import { sql } from './db';
 
@@ -60,9 +62,9 @@ export async function createAuditLog(data: {
             ${data.action},
             ${data.entityType},
             ${data.entityId == null ? null : String(data.entityId)},
-            ${data.before == null ? null : JSON.stringify(data.before)}::jsonb,
-            ${data.after == null ? null : JSON.stringify(data.after)}::jsonb,
-            ${data.metadata == null ? null : JSON.stringify(data.metadata)}::jsonb,
+            ${toJsonbParam(data.before)}::jsonb,
+            ${toJsonbParam(data.after)}::jsonb,
+            ${toJsonbParam(data.metadata)}::jsonb,
             ${data.ipAddress ?? null},
             ${data.userAgent ?? null}
         )
@@ -79,7 +81,7 @@ export async function auditFromContext(c: AppContext, data: {
 }) {
     await createAuditLog({
         actor: getOptionalUser(c),
-        ipAddress: c.req.header('x-forwarded-for') ?? c.req.header('x-real-ip') ?? null,
+        ipAddress: getClientIp(c),
         userAgent: c.req.header('user-agent') ?? null,
         ...data,
     });

@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ordersService, type OrderListParams } from '@/services/orders.service';
 import { productKeys } from '@/hooks/useProducts';
-import type { OrderStatus, WalkInSaleRequest } from 'shared';
+import type { OrderStatus, RecordRefundRequest, WalkInSaleRequest } from 'shared';
 
 export const orderKeys = {
   all: ['orders'] as const,
@@ -9,6 +9,7 @@ export const orderKeys = {
   list: (params?: OrderListParams) => [...orderKeys.lists(), params] as const,
   detail: (id: string) => [...orderKeys.all, 'detail', id] as const,
   receipt: (id: string) => [...orderKeys.all, 'receipt', id] as const,
+  payments: (id: string) => [...orderKeys.all, 'payments', id] as const,
   walkInCatalog: (search?: string) => [...orderKeys.all, 'walk-in-catalog', search ?? ''] as const,
 };
 
@@ -73,6 +74,26 @@ export function useCreateWalkInSale() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: orderKeys.lists() });
       queryClient.invalidateQueries({ queryKey: productKeys.lists() });
+    },
+  });
+}
+
+/** What an order has been paid and refunded, with its ledger history (staff only). */
+export function useOrderPayments(id: string | undefined) {
+  return useQuery({
+    queryKey: id ? orderKeys.payments(id) : [...orderKeys.all, 'payments', 'missing'],
+    queryFn: () => ordersService.getPayments(id!),
+    enabled: Boolean(id),
+  });
+}
+
+export function useRecordRefund() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: RecordRefundRequest }) => ordersService.recordRefund(id, data),
+    onSuccess: (_res, { id }) => {
+      queryClient.invalidateQueries({ queryKey: orderKeys.payments(id) });
+      queryClient.invalidateQueries({ queryKey: orderKeys.lists() });
     },
   });
 }

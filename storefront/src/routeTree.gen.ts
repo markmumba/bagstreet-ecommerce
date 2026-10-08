@@ -9,23 +9,39 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as TermsRouteImport } from './routes/terms'
 import { Route as SetupAccountRouteImport } from './routes/setup-account'
+import { Route as ReturnsRouteImport } from './routes/returns'
 import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as OrdersRouteImport } from './routes/orders'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as ForgotPasswordRouteImport } from './routes/forgot-password'
+import { Route as DeliveryRouteImport } from './routes/delivery'
+import { Route as ContactRouteImport } from './routes/contact'
 import { Route as CheckoutRouteImport } from './routes/checkout'
 import { Route as CartRouteImport } from './routes/cart'
 import { Route as AccountRouteImport } from './routes/account'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ShopIndexRouteImport } from './routes/shop/index'
 import { Route as OrdersIndexRouteImport } from './routes/orders/index'
+import { Route as ShopCategorySlugRouteImport } from './routes/shop/$categorySlug'
 import { Route as ProductsProductIdRouteImport } from './routes/products/$productId'
 import { Route as OrdersConfirmReceivedRouteImport } from './routes/orders/confirm-received'
 import { Route as OrdersOrderIdRouteImport } from './routes/orders/$orderId'
 
+const TermsRoute = TermsRouteImport.update({
+  id: '/terms',
+  path: '/terms',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SetupAccountRoute = SetupAccountRouteImport.update({
   id: '/setup-account',
   path: '/setup-account',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ReturnsRoute = ReturnsRouteImport.update({
+  id: '/returns',
+  path: '/returns',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ResetPasswordRoute = ResetPasswordRouteImport.update({
@@ -48,6 +64,16 @@ const ForgotPasswordRoute = ForgotPasswordRouteImport.update({
   path: '/forgot-password',
   getParentRoute: () => rootRouteImport,
 } as any)
+const DeliveryRoute = DeliveryRouteImport.update({
+  id: '/delivery',
+  path: '/delivery',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ContactRoute = ContactRouteImport.update({
+  id: '/contact',
+  path: '/contact',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const CheckoutRoute = CheckoutRouteImport.update({
   id: '/checkout',
   path: '/checkout',
@@ -68,10 +94,20 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ShopIndexRoute = ShopIndexRouteImport.update({
+  id: '/shop/',
+  path: '/shop/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const OrdersIndexRoute = OrdersIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => OrdersRoute,
+} as any)
+const ShopCategorySlugRoute = ShopCategorySlugRouteImport.update({
+  id: '/shop/$categorySlug',
+  path: '/shop/$categorySlug',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const ProductsProductIdRoute = ProductsProductIdRouteImport.update({
   id: '/products/$productId',
@@ -94,29 +130,41 @@ export interface FileRoutesByFullPath {
   '/account': typeof AccountRoute
   '/cart': typeof CartRoute
   '/checkout': typeof CheckoutRoute
+  '/contact': typeof ContactRoute
+  '/delivery': typeof DeliveryRoute
   '/forgot-password': typeof ForgotPasswordRoute
   '/login': typeof LoginRoute
   '/orders': typeof OrdersRouteWithChildren
   '/reset-password': typeof ResetPasswordRoute
+  '/returns': typeof ReturnsRoute
   '/setup-account': typeof SetupAccountRoute
+  '/terms': typeof TermsRoute
   '/orders/$orderId': typeof OrdersOrderIdRoute
   '/orders/confirm-received': typeof OrdersConfirmReceivedRoute
   '/products/$productId': typeof ProductsProductIdRoute
+  '/shop/$categorySlug': typeof ShopCategorySlugRoute
   '/orders/': typeof OrdersIndexRoute
+  '/shop/': typeof ShopIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/account': typeof AccountRoute
   '/cart': typeof CartRoute
   '/checkout': typeof CheckoutRoute
+  '/contact': typeof ContactRoute
+  '/delivery': typeof DeliveryRoute
   '/forgot-password': typeof ForgotPasswordRoute
   '/login': typeof LoginRoute
   '/reset-password': typeof ResetPasswordRoute
+  '/returns': typeof ReturnsRoute
   '/setup-account': typeof SetupAccountRoute
+  '/terms': typeof TermsRoute
   '/orders/$orderId': typeof OrdersOrderIdRoute
   '/orders/confirm-received': typeof OrdersConfirmReceivedRoute
   '/products/$productId': typeof ProductsProductIdRoute
+  '/shop/$categorySlug': typeof ShopCategorySlugRoute
   '/orders': typeof OrdersIndexRoute
+  '/shop': typeof ShopIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -124,15 +172,21 @@ export interface FileRoutesById {
   '/account': typeof AccountRoute
   '/cart': typeof CartRoute
   '/checkout': typeof CheckoutRoute
+  '/contact': typeof ContactRoute
+  '/delivery': typeof DeliveryRoute
   '/forgot-password': typeof ForgotPasswordRoute
   '/login': typeof LoginRoute
   '/orders': typeof OrdersRouteWithChildren
   '/reset-password': typeof ResetPasswordRoute
+  '/returns': typeof ReturnsRoute
   '/setup-account': typeof SetupAccountRoute
+  '/terms': typeof TermsRoute
   '/orders/$orderId': typeof OrdersOrderIdRoute
   '/orders/confirm-received': typeof OrdersConfirmReceivedRoute
   '/products/$productId': typeof ProductsProductIdRoute
+  '/shop/$categorySlug': typeof ShopCategorySlugRoute
   '/orders/': typeof OrdersIndexRoute
+  '/shop/': typeof ShopIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -141,44 +195,62 @@ export interface FileRouteTypes {
     | '/account'
     | '/cart'
     | '/checkout'
+    | '/contact'
+    | '/delivery'
     | '/forgot-password'
     | '/login'
     | '/orders'
     | '/reset-password'
+    | '/returns'
     | '/setup-account'
+    | '/terms'
     | '/orders/$orderId'
     | '/orders/confirm-received'
     | '/products/$productId'
+    | '/shop/$categorySlug'
     | '/orders/'
+    | '/shop/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/account'
     | '/cart'
     | '/checkout'
+    | '/contact'
+    | '/delivery'
     | '/forgot-password'
     | '/login'
     | '/reset-password'
+    | '/returns'
     | '/setup-account'
+    | '/terms'
     | '/orders/$orderId'
     | '/orders/confirm-received'
     | '/products/$productId'
+    | '/shop/$categorySlug'
     | '/orders'
+    | '/shop'
   id:
     | '__root__'
     | '/'
     | '/account'
     | '/cart'
     | '/checkout'
+    | '/contact'
+    | '/delivery'
     | '/forgot-password'
     | '/login'
     | '/orders'
     | '/reset-password'
+    | '/returns'
     | '/setup-account'
+    | '/terms'
     | '/orders/$orderId'
     | '/orders/confirm-received'
     | '/products/$productId'
+    | '/shop/$categorySlug'
     | '/orders/'
+    | '/shop/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -186,21 +258,41 @@ export interface RootRouteChildren {
   AccountRoute: typeof AccountRoute
   CartRoute: typeof CartRoute
   CheckoutRoute: typeof CheckoutRoute
+  ContactRoute: typeof ContactRoute
+  DeliveryRoute: typeof DeliveryRoute
   ForgotPasswordRoute: typeof ForgotPasswordRoute
   LoginRoute: typeof LoginRoute
   OrdersRoute: typeof OrdersRouteWithChildren
   ResetPasswordRoute: typeof ResetPasswordRoute
+  ReturnsRoute: typeof ReturnsRoute
   SetupAccountRoute: typeof SetupAccountRoute
+  TermsRoute: typeof TermsRoute
   ProductsProductIdRoute: typeof ProductsProductIdRoute
+  ShopCategorySlugRoute: typeof ShopCategorySlugRoute
+  ShopIndexRoute: typeof ShopIndexRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/terms': {
+      id: '/terms'
+      path: '/terms'
+      fullPath: '/terms'
+      preLoaderRoute: typeof TermsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/setup-account': {
       id: '/setup-account'
       path: '/setup-account'
       fullPath: '/setup-account'
       preLoaderRoute: typeof SetupAccountRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/returns': {
+      id: '/returns'
+      path: '/returns'
+      fullPath: '/returns'
+      preLoaderRoute: typeof ReturnsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/reset-password': {
@@ -231,6 +323,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ForgotPasswordRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/delivery': {
+      id: '/delivery'
+      path: '/delivery'
+      fullPath: '/delivery'
+      preLoaderRoute: typeof DeliveryRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/contact': {
+      id: '/contact'
+      path: '/contact'
+      fullPath: '/contact'
+      preLoaderRoute: typeof ContactRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/checkout': {
       id: '/checkout'
       path: '/checkout'
@@ -259,12 +365,26 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/shop/': {
+      id: '/shop/'
+      path: '/shop'
+      fullPath: '/shop/'
+      preLoaderRoute: typeof ShopIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/orders/': {
       id: '/orders/'
       path: '/'
       fullPath: '/orders/'
       preLoaderRoute: typeof OrdersIndexRouteImport
       parentRoute: typeof OrdersRoute
+    }
+    '/shop/$categorySlug': {
+      id: '/shop/$categorySlug'
+      path: '/shop/$categorySlug'
+      fullPath: '/shop/$categorySlug'
+      preLoaderRoute: typeof ShopCategorySlugRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/products/$productId': {
       id: '/products/$productId'
@@ -310,12 +430,18 @@ const rootRouteChildren: RootRouteChildren = {
   AccountRoute: AccountRoute,
   CartRoute: CartRoute,
   CheckoutRoute: CheckoutRoute,
+  ContactRoute: ContactRoute,
+  DeliveryRoute: DeliveryRoute,
   ForgotPasswordRoute: ForgotPasswordRoute,
   LoginRoute: LoginRoute,
   OrdersRoute: OrdersRouteWithChildren,
   ResetPasswordRoute: ResetPasswordRoute,
+  ReturnsRoute: ReturnsRoute,
   SetupAccountRoute: SetupAccountRoute,
+  TermsRoute: TermsRoute,
   ProductsProductIdRoute: ProductsProductIdRoute,
+  ShopCategorySlugRoute: ShopCategorySlugRoute,
+  ShopIndexRoute: ShopIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

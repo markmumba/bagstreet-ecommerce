@@ -1,5 +1,39 @@
 import { sql } from '../../lib/db';
+import { toJsonbParam } from '../../lib/json-column';
 import { ORDER_STATUS, PAYMENT_STATUS } from 'shared/dist';
+import type { RefundMethod } from 'shared/dist';
+import { BadRequestError, NotFoundError } from '../../lib/errors';
+import { roundMoney } from '../../lib/pricing';
+import { LEDGER_ENTRY, summariseOrderPayments, type BalanceEntry } from './order-balance';
+
+export interface LedgerEntryRow {
+    id: number;
+    order_id: number;
+    payment_transaction_id: number | null;
+    entry_type: string;
+    direction: 'CREDIT' | 'DEBIT';
+    amount: string;
+    currency: string;
+    reference: string | null;
+    metadata: Record<string, unknown> | null;
+    created_at: string;
+}
+
+export interface RecordRefundInput {
+    orderId: number;
+    amount: number;
+    method: RefundMethod;
+    externalReference?: string | null;
+    reason: string;
+    idempotencyKey: string;
+    recordedBy: { id: string; email?: string | null };
+}
+
+export interface RecordRefundResult {
+    /** False when this idempotency key was already used (double-submit): nothing new was written. */
+    recorded: boolean;
+    statusChangedTo: string | null;
+}
 
 interface MpesaTransactionRow {
     id: number;
@@ -84,7 +118,7 @@ export const paymentsQueries = {
                 ${data.amount},
                 ${data.currency},
                 ${data.status ?? 'INITIATED'},
-                ${data.raw_payload == null ? null : JSON.stringify(data.raw_payload)}::jsonb
+                ${toJsonbParam(data.raw_payload)}::jsonb
             )
             ON CONFLICT (provider, merchant_reference) DO UPDATE
             SET
@@ -144,7 +178,7 @@ export const paymentsQueries = {
                 payment_method = ${data.payment_method ?? null},
                 confirmation_code = ${data.confirmation_code ?? null},
                 result_desc = ${data.result_desc ?? null},
-                raw_payload = ${data.raw_payload == null ? null : JSON.stringify(data.raw_payload)}::jsonb
+                raw_payload = ${toJsonbParam(data.raw_payload)}::jsonb
             WHERE id = ${id}
         `;
     },
@@ -161,7 +195,7 @@ export const paymentsQueries = {
                 ${data.provider},
                 ${data.event_key},
                 ${data.payment_transaction_id ?? null},
-                ${data.raw_payload == null ? null : JSON.stringify(data.raw_payload)}::jsonb
+                ${toJsonbParam(data.raw_payload)}::jsonb
             )
             ON CONFLICT (provider, event_key) DO NOTHING
             RETURNING id
@@ -198,7 +232,7 @@ export const paymentsQueries = {
                 ${data.amount},
                 ${data.currency},
                 ${data.reference ?? null},
-                ${data.metadata == null ? null : JSON.stringify(data.metadata)}::jsonb
+                ${toJsonbParam(data.metadata)}::jsonb
             )
             ON CONFLICT (entry_type, reference) WHERE reference IS NOT NULL DO NOTHING
             RETURNING *
@@ -287,7 +321,7 @@ export const paymentsQueries = {
                 ${data.phone},
                 ${data.amount},
                 ${data.bill_ref_number ?? null},
-                ${JSON.stringify(data.raw_payload)}::jsonb
+                ${toJsonbParam(data.raw_payload)}::jsonb
             )
             ON CONFLICT (transaction_id) DO UPDATE
             SET raw_payload = EXCLUDED.raw_payload
@@ -329,6 +363,23 @@ export const paymentsQueries = {
                 paid_at = COALESCE(paid_at, CURRENT_TIMESTAMP)
             WHERE id = ${orderId}
               AND payment_status <> ${PAYMENT_STATUS.PAID}
+              AND status <> ${ORDER_STATUS.CANCELLED}
+            RETURNING id
+        `;
+        return Boolean(row);
+    },
+
+    /**
+     * Records money received for an order that stays cancelled (it expired and its stock is gone).
+     * Staff must refund it; returns false if it was already recorded.
+     */
+    markCancelledOrderPaid: async (orderId: number): Promise<boolean> => {
+        const [row] = await sql<{ id: number }[]>`
+            UPDATE orders
+            SET payment_status = ${PAYMENT_STATUS.PAID}, paid_at = COALESCE(paid_at, CURRENT_TIMESTAMP)
+            WHERE id = ${orderId}
+              AND status = ${ORDER_STATUS.CANCELLED}
+              AND payment_status <> ${PAYMENT_STATUS.PAID}
             RETURNING id
         `;
         return Boolean(row);
@@ -338,5 +389,72 @@ export const paymentsQueries = {
         await sql`
             UPDATE orders SET payment_status = ${PAYMENT_STATUS.FAILED} WHERE id = ${orderId}
         `;
+    },
+
+    findLedgerByOrderId: async (orderId: number): Promise<LedgerEntryRow[]> => {
+        return await sql<LedgerEntryRow[]>`
+            SELECT * FROM payment_ledger_entries WHERE order_id = ${orderId} ORDER BY created_at ASC, id ASC
+        `;
+    },
+
+    /**
+     * Records money returned to a customer. Locks the order row so two admins (or a double click)
+     * can't refund more than was received, and checks the limit against the ledger inside the same
+     * transaction. Marks the order REFUNDED once nothing is left to refund (cancelled orders stay cancelled).
+     */
+    recordRefund: async (input: RecordRefundInput): Promise<RecordRefundResult> => {
+        return await sql.begin(async (tx: typeof sql) => {
+            const [order] = await tx<{ id: number; total_amount: string; status: string; payment_status: string }[]>`
+                SELECT id, total_amount, status, payment_status FROM orders WHERE id = ${input.orderId} FOR UPDATE
+            `;
+            if (!order) throw new NotFoundError('Order', input.orderId);
+            if (order.payment_status !== PAYMENT_STATUS.PAID) {
+                throw new BadRequestError('Only paid orders can be refunded');
+            }
+
+            const reference = `refund:${input.idempotencyKey}`;
+            const [duplicate] = await tx`
+                SELECT id FROM payment_ledger_entries
+                WHERE entry_type = ${LEDGER_ENTRY.REFUND_ISSUED} AND reference = ${reference}
+            `;
+            if (duplicate) return { recorded: false, statusChangedTo: null };
+
+            const entries = await tx<BalanceEntry[]>`
+                SELECT entry_type, direction, amount FROM payment_ledger_entries WHERE order_id = ${input.orderId}
+            `;
+            const before = summariseOrderPayments(order, entries);
+            const amount = roundMoney(input.amount);
+            if (amount <= 0) throw new BadRequestError('Refund amount must be more than zero');
+            if (amount > before.refundable) {
+                throw new BadRequestError(
+                    before.refundable > 0
+                        ? `Only KES ${before.refundable.toFixed(2)} can still be refunded on this order`
+                        : 'This order has already been fully refunded',
+                );
+            }
+
+            await tx`
+                INSERT INTO payment_ledger_entries (order_id, entry_type, direction, amount, currency, reference, metadata)
+                VALUES (
+                    ${input.orderId}, ${LEDGER_ENTRY.REFUND_ISSUED}, 'DEBIT', ${amount}, 'KES', ${reference},
+                    ${toJsonbParam({
+                        method: input.method,
+                        external_reference: input.externalReference || null,
+                        reason: input.reason,
+                        recorded_by: input.recordedBy.id,
+                        recorded_by_email: input.recordedBy.email ?? null,
+                        legacy_unrecorded_capture: before.legacy_unrecorded_capture,
+                    })}::jsonb
+                )
+            `;
+
+            const after = summariseOrderPayments(order, [...entries, { entry_type: LEDGER_ENTRY.REFUND_ISSUED, direction: 'DEBIT', amount }]);
+            let statusChangedTo: string | null = null;
+            if (after.state === 'refunded' && order.status !== ORDER_STATUS.CANCELLED && order.status !== ORDER_STATUS.REFUNDED) {
+                await tx`UPDATE orders SET status = ${ORDER_STATUS.REFUNDED}, updated_at = CURRENT_TIMESTAMP WHERE id = ${input.orderId}`;
+                statusChangedTo = ORDER_STATUS.REFUNDED;
+            }
+            return { recorded: true, statusChangedTo };
+        }) as unknown as Promise<RecordRefundResult>;
     },
 };

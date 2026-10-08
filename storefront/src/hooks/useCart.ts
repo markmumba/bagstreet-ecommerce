@@ -1,4 +1,7 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useState } from 'react';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import type { CartQuoteResponse } from 'shared';
+import { apiClient } from '@/services/api';
 
 const CART_STORAGE_KEY = 'bagstreet_guest_cart';
 
@@ -141,4 +144,78 @@ export function useClearCart() {
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: cartKeys.all }),
   });
+}
+
+/**
+ * Prices and stock-checks the local cart against the server — the same pricing
+ * order creation uses. Re-runs when quantities change and when the tab regains focus.
+ */
+export function useCartQuote(items: StorefrontCartItem[]) {
+  const request = items.map((item) => ({ variant_id: item.variant_id, quantity: item.quantity }));
+  return useQuery({
+    queryKey: [...cartKeys.all, 'quote', request],
+    queryFn: () => apiClient.post<CartQuoteResponse>('/api/storefront/cart/quote', { items: request }),
+    enabled: items.length > 0,
+    placeholderData: keepPreviousData,
+    staleTime: 1000 * 15,
+    refetchOnWindowFocus: true,
+  });
+}
+
+/**
+ * Writes current prices, names and images from a quote back into the saved cart, so checkout
+ * and the cart badge agree with the server. Returns the names of items whose price changed.
+ */
+export function useReconcileCart(quote: CartQuoteResponse | undefined) {
+  const qc = useQueryClient();
+  const [changedPrices, setChangedPrices] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (!quote) return;
+    const lines = new Map(quote.lines.map((line) => [line.variant_id, line]));
+    const priceChanges: string[] = [];
+    let dirty = false;
+
+    const items = readCartItems().map((item) => {
+      const line = lines.get(item.variant_id);
+      if (!line || line.unit_price == null) return item;
+
+      const next = {
+        ...item,
+        unit_price: line.unit_price,
+        product_name: line.product_name ?? item.product_name,
+        product_image_url: line.image_url ?? item.product_image_url,
+        subtotal: line.unit_price * item.quantity,
+      };
+      if (next.unit_price !== item.unit_price) priceChanges.push(next.product_name);
+      if (
+        next.unit_price !== item.unit_price
+        || next.product_name !== item.product_name
+        || next.product_image_url !== item.product_image_url
+      ) dirty = true;
+      return next;
+    });
+
+    if (!dirty) return;
+    writeCartItems(items);
+    if (priceChanges.length > 0) setChangedPrices((prev) => [...new Set([...prev, ...priceChanges])]);
+    // Exact: refresh the cart itself without re-requesting the quote we just applied.
+    qc.invalidateQueries({ queryKey: cartKeys.all, exact: true });
+  }, [quote, qc]);
+
+  return { changedPrices, dismissPriceNotice: () => setChangedPrices([]) };
+}
+
+/** Keeps the cart in step when it's changed in another tab. Mount once at the app root. */
+export function useCartStorageSync() {
+  const qc = useQueryClient();
+  useEffect(() => {
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === CART_STORAGE_KEY || event.key === null) {
+        qc.invalidateQueries({ queryKey: cartKeys.all });
+      }
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, [qc]);
 }

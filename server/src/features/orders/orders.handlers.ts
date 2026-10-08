@@ -3,6 +3,7 @@ import { createOrderSchema, createWalkInSaleSchema, updateOrderStatusSchema } fr
 import { sql } from '../../lib/db';
 import { success, paginated } from '@server/lib/response';
 import {
+    AppError,
     BadRequestError,
     ForbiddenError,
     InternalServerError,
@@ -30,6 +31,13 @@ import { verifyOrderReceivedToken } from '../../lib/order-received-token';
 import { normalizeShippingAddress } from '../../lib/shipping-address';
 import { auditFromContext } from '@server/lib/audit';
 import { randomUUID } from 'node:crypto';
+import { resolveUnitPrice, roundMoney, saleIsActive } from '@server/lib/pricing';
+import { createOrderAccessToken, orderTokenRef } from '../../lib/order-received-token';
+import { summariseOrderPayments } from '../payments/order-balance';
+import { readJsonColumn } from '../../lib/json-column';
+import { REFUND_METHOD } from 'shared/dist';
+import type { OrderPaymentsResponse } from 'shared/dist';
+import { z } from 'zod';
 
 interface VariantRow {
     id: number;
@@ -101,17 +109,6 @@ function toOrderResponse(order: any, items: any[]): OrderResponse {
         created_at: order.created_at,
         updated_at: order.updated_at,
     };
-}
-
-function saleIsActive(product: ProductPricingRow) {
-    return product.sale_price != null
-        && (!product.sale_ends_at || new Date(product.sale_ends_at).getTime() > Date.now());
-}
-
-function resolveUnitPrice(product: ProductPricingRow, variant: Pick<VariantRow, 'price_override'>) {
-    if (variant.price_override != null) return parseFloat(variant.price_override);
-    if (saleIsActive(product)) return parseFloat(product.sale_price!);
-    return parseFloat(product.price);
 }
 
 async function buildPricedOrderItems(items: OrderLineInput[]): Promise<PricedOrderItem[]> {
@@ -220,6 +217,53 @@ async function findOrderByParam(param: string) {
     return order;
 }
 
+const recordRefundSchema = z.object({
+    amount: z.number().positive('Refund amount must be more than zero').multipleOf(0.01, 'Use at most 2 decimal places'),
+    method: z.nativeEnum(REFUND_METHOD),
+    external_reference: z.string().trim().max(100).optional(),
+    reason: z.string().trim().min(3, 'Add a short reason').max(500),
+    idempotency_key: z.string().min(8).max(100),
+});
+
+async function orderPaymentsResponse(order: any): Promise<OrderPaymentsResponse> {
+    const entries = await paymentsQueries.findLedgerByOrderId(Number(order.id));
+    return {
+        summary: summariseOrderPayments(order, entries),
+        entries: entries.map((entry) => ({
+            id: String(entry.id),
+            entry_type: entry.entry_type,
+            direction: entry.direction,
+            amount: parseFloat(entry.amount),
+            currency: entry.currency,
+            reference: entry.reference,
+            metadata: readJsonColumn(entry.metadata),
+            created_at: entry.created_at,
+        })),
+    };
+}
+
+/** Tells staff when an order was created but Pesapal couldn't start the payment (e.g. Pesapal is down). */
+async function notifyPaymentInitFailed(order: any, totalAmount: number, err: unknown) {
+    try {
+        const handover = await settingsQueries.getOrderHandover();
+        const recipients = await UsersQueries.findActiveOrderAlertRecipients(handover.enabled ? handover.managerId : null);
+        const staffIds = recipients.map((user) => Number(user.id));
+        if (staffIds.length === 0) return;
+
+        const orderNumber = order.order_number ?? `#${order.id}`;
+        const created = await notificationsQueries.create(staffIds.map((id) => ({
+            recipient_id: id,
+            type: 'PAYMENT_INIT_FAILED',
+            title: `Payment could not start for ${orderNumber}`,
+            body: `KES ${totalAmount.toFixed(2)} — Pesapal error: ${err instanceof Error ? err.message : 'unknown'}. The customer can retry from checkout.`,
+            data: { link: '/orders', order_id: String(order.id) },
+        })));
+        pushToMany(staffIds, 'notification', { notifications: created });
+    } catch (notifyErr) {
+        console.error('[notifications] payment init failure alert failed:', notifyErr);
+    }
+}
+
 export const ordersHandlers = {
 
     list: async (c: AppContext) => {
@@ -262,6 +306,55 @@ export const ordersHandlers = {
 
         const items = await ordersQueries.findItemsByOrderId(order.id);
         return success(c, toOrderResponse(order, items));
+    },
+
+    /** Staff only: what the order has been paid and refunded, with the ledger history. */
+    payments: async (c: AppContext) => {
+        const order = await findOrderByParam(c.req.param('id')!);
+        return success(c, await orderPaymentsResponse(order));
+    },
+
+    /** Admin only: record money returned to the customer (full or partial). */
+    recordRefund: async (c: AppContext) => {
+        const authUser = getAuthUser(c);
+        const order = await findOrderByParam(c.req.param('id')!);
+        const validated = recordRefundSchema.safeParse(await c.req.json().catch(() => null));
+        if (!validated.success) throw new ValidationError('Invalid refund', validated.error.errors);
+
+        const before = await orderPaymentsResponse(order);
+        const result = await paymentsQueries.recordRefund({
+            orderId: Number(order.id),
+            amount: validated.data.amount,
+            method: validated.data.method,
+            externalReference: validated.data.external_reference,
+            reason: validated.data.reason,
+            idempotencyKey: validated.data.idempotency_key,
+            recordedBy: { id: authUser.sub, email: authUser.email },
+        });
+
+        const after = await orderPaymentsResponse(await findOrderByParam(String(order.id)));
+        if (result.recorded) {
+            await auditFromContext(c, {
+                action: 'ORDER_REFUND_RECORDED',
+                entityType: 'order',
+                entityId: order.id,
+                before: { status: order.status, ...before.summary },
+                after: { status: result.statusChangedTo ?? order.status, ...after.summary },
+                metadata: {
+                    amount: validated.data.amount,
+                    method: validated.data.method,
+                    external_reference: validated.data.external_reference ?? null,
+                    reason: validated.data.reason,
+                },
+            });
+        }
+
+        return success(
+            c,
+            after,
+            result.recorded ? 'Refund recorded' : 'This refund was already recorded',
+            result.recorded ? 201 : 200,
+        );
     },
 
     receipt: async (c: AppContext) => {
@@ -520,21 +613,21 @@ export const ordersHandlers = {
 
         const itemsWithPrice = await buildPricedOrderItems(validated.data.items);
 
-        const itemsTotal = itemsWithPrice.reduce(
+        const itemsTotal = roundMoney(itemsWithPrice.reduce(
             (sum, item) => sum + item.unit_price * item.quantity,
             0
-        );
+        ));
         const normalizedPhone = normalisePhone(validated.data.phone);
         const discount = await validateDiscount(validated.data.discount_code, itemsTotal, normalizedPhone);
         if (!discount.valid) throw new BadRequestError(discount.reason ?? 'Discount code is invalid');
 
         const discountAmount = discount.discountAmount;
-        const subtotalAfterDiscount = Math.max(0, itemsTotal - discountAmount);
+        const subtotalAfterDiscount = roundMoney(Math.max(0, itemsTotal - discountAmount));
         const freeDeliveryThreshold = await settingsQueries.getNumber('free_delivery_threshold');
         const shippingCost = freeDeliveryThreshold > 0 && subtotalAfterDiscount >= freeDeliveryThreshold
             ? 0
             : zoneShippingCost;
-        const totalAmount = subtotalAfterDiscount + shippingCost;
+        const totalAmount = roundMoney(subtotalAfterDiscount + shippingCost);
 
         let order;
         try {
@@ -550,17 +643,17 @@ export const ordersHandlers = {
                 discountAmount,
                 shippingAddress.full_name,
                 normalizedPhone,
-                customerEmail
+                customerEmail,
+                {
+                    customerLimits: { phone: normalizedPhone, email: customerEmail },
+                    ...(discount.codeId && discountAmount > 0
+                        ? { discountUsage: { codeId: discount.codeId, phone: normalizedPhone, amount: discountAmount } }
+                        : {}),
+                }
             );
-            if (discount.codeId && discountAmount > 0) {
-                await discountsQueries.recordUsage({
-                    code_id: discount.codeId,
-                    order_id: order.id,
-                    phone: normalizedPhone,
-                    discount_amount: discountAmount,
-                });
-            }
         } catch (err: any) {
+            // Discount and order-limit errors are thrown inside the transaction — nothing was saved.
+            if (err instanceof AppError) throw err;
             if (err.message?.includes('Insufficient stock') || err.message?.includes('not found')) {
                 throw new BadRequestError(err.message);
             }
@@ -572,25 +665,8 @@ export const ordersHandlers = {
 
         const items = await ordersQueries.findItemsByOrderId(order.id);
 
-        // Notify admins, plus the assigned duty manager when order handover is enabled.
-        const orderHandover = await settingsQueries.getOrderHandover();
-        const orderAlertRecipients = await UsersQueries.findActiveOrderAlertRecipients(
-            orderHandover.enabled ? orderHandover.managerId : null
-        );
-        const staffIds = orderAlertRecipients.map((user) => Number(user.id));
-        if (staffIds.length > 0) {
-            const orderNumber = (order as any).order_number ?? `BS-${String(order.id).padStart(6, '0').toUpperCase()}`;
-            const notifRows = staffIds.map((id) => ({
-                recipient_id: id,
-                type: 'NEW_ORDER',
-                title: `New Order ${orderNumber}`,
-                body: `Order placed for KES ${totalAmount.toFixed(2)}`,
-                data: { link: '/orders', order_id: String(order.id) },
-            }));
-            const created = await notificationsQueries.create(notifRows);
-            pushToMany(staffIds, 'notification', { notifications: created });
-        }
-
+        // Staff are alerted about new orders once payment is confirmed (see confirmOrderPayment),
+        // not here — most unpaid orders are abandoned checkouts. Stock was taken, so low-stock alerts stay.
         await notifyLowStockAlerts(itemsWithPrice);
 
         let paymentRedirectUrl: string | null = null;
@@ -623,6 +699,7 @@ export const ordersHandlers = {
             });
         } catch (err) {
             console.error('[pesapal] payment initialization failed:', err);
+            await notifyPaymentInitFailed(order, totalAmount, err);
         }
 
         const orderResponse = toOrderResponse(order, items);
@@ -633,6 +710,8 @@ export const ordersHandlers = {
                 payment_provider: 'pesapal',
                 payment_redirect_url: paymentRedirectUrl,
                 payment_reference: paymentReference,
+                // Lets a guest check or retry payment for this order without an account.
+                access_token: createOrderAccessToken(orderTokenRef(order as any)),
                 message: paymentRedirectUrl ? 'Continue to secure payment' : 'Order placed — payment is pending',
             },
             paymentRedirectUrl ? 'Order placed — continue to secure payment' : 'Order placed — payment is pending',
@@ -665,14 +744,19 @@ export const ordersHandlers = {
         if (validated.data.status === ORDER_STATUS.DELIVERED && (order as any).payment_status !== PAYMENT_STATUS.PAID) {
             throw new BadRequestError('Only paid orders can be marked as received');
         }
-        if (validated.data.status === ORDER_STATUS.REFUNDED && (order as any).payment_status !== PAYMENT_STATUS.PAID) {
-            throw new BadRequestError('Only paid orders can be refunded');
+        if (validated.data.status === ORDER_STATUS.REFUNDED) {
+            // Status follows the money: recording refunds marks the order REFUNDED once fully refunded.
+            throw new BadRequestError('Record the refund instead — the order is marked refunded automatically once fully refunded');
         }
         if (validated.data.status === ORDER_STATUS.CANCELLED && (order as any).payment_status === PAYMENT_STATUS.PAID) {
             throw new BadRequestError('Paid orders should be refunded instead of cancelled');
         }
 
-        if (validated.data.status === ORDER_STATUS.CANCELLED) {
+        if (validated.data.status === ORDER_STATUS.CANCELLED && order.status === ORDER_STATUS.PENDING) {
+            // Atomic: status, stock and discount use change together, and a concurrent payment wins.
+            const cancelled = await ordersQueries.cancelUnpaid(id);
+            if (!cancelled) throw new BadRequestError('Order changed while cancelling — refresh and try again');
+        } else if (validated.data.status === ORDER_STATUS.CANCELLED) {
             await ordersQueries.restoreStock(id);
         }
 
@@ -711,8 +795,9 @@ export const ordersHandlers = {
             throw new BadRequestError('Only PENDING orders can be cancelled');
         }
 
-        await ordersQueries.restoreStock(id);
-        const updated = await ordersQueries.updateStatus(id, ORDER_STATUS.CANCELLED);
+        const cancelled = await ordersQueries.cancelUnpaid(id);
+        if (!cancelled) throw new BadRequestError('This order can no longer be cancelled');
+        const updated = await ordersQueries.findById(id);
         if (!updated) throw new InternalServerError('Failed to cancel order');
 
         const items = await ordersQueries.findItemsByOrderId(id);

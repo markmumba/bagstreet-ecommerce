@@ -1,4 +1,5 @@
 import { sql } from '../../lib/db';
+import { toJsonbParam } from '../../lib/json-column';
 import { USER_ROLE } from 'shared/dist';
 
 export interface NotificationRow {
@@ -60,7 +61,7 @@ export const notificationsQueries = {
         for (const row of rows) {
             const [notif] = await sql<NotificationRow[]>`
                 INSERT INTO in_app_notifications(recipient_id, type, title, body, data)
-                VALUES (${row.recipient_id}, ${row.type}, ${row.title}, ${row.body}, ${JSON.stringify(row.data)}::jsonb)
+                VALUES (${row.recipient_id}, ${row.type}, ${row.title}, ${row.body}, ${toJsonbParam(row.data)}::jsonb)
                 RETURNING *
             `;
             if (notif) result.push(notif);

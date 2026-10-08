@@ -25,5 +25,12 @@ settingsRoutes.put(
     requireRole(USER_ROLE.ADMIN),
     settingsHandlers.updateOrderHandover
 );
+settingsRoutes.get('/storefront-hero', settingsHandlers.getStorefrontHero);
+settingsRoutes.put(
+    '/storefront-hero',
+    requireAuth,
+    requireRole(USER_ROLE.ADMIN),
+    settingsHandlers.updateStorefrontHero
+);
 
 export default settingsRoutes;

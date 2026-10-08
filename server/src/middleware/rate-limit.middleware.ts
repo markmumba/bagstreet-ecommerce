@@ -1,6 +1,7 @@
 import type { Next } from 'hono';
 import { env } from '../config/env';
 import type { AppContext } from '@server/lib/hono';
+import { getClientIp } from '@server/lib/client-ip';
 
 interface Entry {
     count: number;
@@ -23,19 +24,9 @@ setInterval(() => {
     }
 }, 5 * 60 * 1000);
 
-function getIp(c: AppContext): string {
-    const forwarded = c.req.header('x-forwarded-for');
-    if (forwarded) {
-        const firstIp = forwarded.split(',')[0];
-        if (firstIp) return firstIp.trim();
-    }
-
-    return c.req.header('x-real-ip') ?? 'unknown';
-}
-
 function bucketKey(c: AppContext, scope: string) {
     const user = c.get('user');
-    const actor = user?.sub ? `user:${user.sub}` : `ip:${getIp(c)}`;
+    const actor = user?.sub ? `user:${user.sub}` : `ip:${getClientIp(c)}`;
     return `rl:${scope}:${actor}:${c.req.method}:${c.req.path}`;
 }
 
@@ -152,6 +143,17 @@ export const orderRateLimit = rateLimit({
     scope: 'orders',
     limit: 20,
     windowMs: 60 * 1000,
+});
+
+/**
+ * Placing orders, per IP per hour. Deliberately loose: Kenyan mobile networks put many customers
+ * behind one IP, so the real per-customer limits live in order creation (see order-limits.ts).
+ */
+export const orderPlacementRateLimit = rateLimit({
+    scope: 'order-placement',
+    limit: 10,
+    windowMs: 60 * 60 * 1000,
+    message: 'Too many orders from this network in the last hour. Please try again later.',
 });
 
 export const paymentRateLimit = rateLimit({

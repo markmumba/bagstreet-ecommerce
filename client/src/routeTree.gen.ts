@@ -13,6 +13,7 @@ import { Route as UsersRouteImport } from './routes/users'
 import { Route as ShippingRouteImport } from './routes/shipping'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as ResetPasswordRouteImport } from './routes/reset-password'
+import { Route as ReconciliationRouteImport } from './routes/reconciliation'
 import { Route as PromotionsRouteImport } from './routes/promotions'
 import { Route as ProductsRouteImport } from './routes/products'
 import { Route as OrdersRouteImport } from './routes/orders'
@@ -41,6 +42,11 @@ const SettingsRoute = SettingsRouteImport.update({
 const ResetPasswordRoute = ResetPasswordRouteImport.update({
   id: '/reset-password',
   path: '/reset-password',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ReconciliationRoute = ReconciliationRouteImport.update({
+  id: '/reconciliation',
+  path: '/reconciliation',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PromotionsRoute = PromotionsRouteImport.update({
@@ -99,6 +105,7 @@ export interface FileRoutesByFullPath {
   '/orders': typeof OrdersRoute
   '/products': typeof ProductsRoute
   '/promotions': typeof PromotionsRoute
+  '/reconciliation': typeof ReconciliationRoute
   '/reset-password': typeof ResetPasswordRoute
   '/settings': typeof SettingsRoute
   '/shipping': typeof ShippingRoute
@@ -114,6 +121,7 @@ export interface FileRoutesByTo {
   '/orders': typeof OrdersRoute
   '/products': typeof ProductsRoute
   '/promotions': typeof PromotionsRoute
+  '/reconciliation': typeof ReconciliationRoute
   '/reset-password': typeof ResetPasswordRoute
   '/settings': typeof SettingsRoute
   '/shipping': typeof ShippingRoute
@@ -130,6 +138,7 @@ export interface FileRoutesById {
   '/orders': typeof OrdersRoute
   '/products': typeof ProductsRoute
   '/promotions': typeof PromotionsRoute
+  '/reconciliation': typeof ReconciliationRoute
   '/reset-password': typeof ResetPasswordRoute
   '/settings': typeof SettingsRoute
   '/shipping': typeof ShippingRoute
@@ -147,6 +156,7 @@ export interface FileRouteTypes {
     | '/orders'
     | '/products'
     | '/promotions'
+    | '/reconciliation'
     | '/reset-password'
     | '/settings'
     | '/shipping'
@@ -162,6 +172,7 @@ export interface FileRouteTypes {
     | '/orders'
     | '/products'
     | '/promotions'
+    | '/reconciliation'
     | '/reset-password'
     | '/settings'
     | '/shipping'
@@ -177,6 +188,7 @@ export interface FileRouteTypes {
     | '/orders'
     | '/products'
     | '/promotions'
+    | '/reconciliation'
     | '/reset-password'
     | '/settings'
     | '/shipping'
@@ -193,6 +205,7 @@ export interface RootRouteChildren {
   OrdersRoute: typeof OrdersRoute
   ProductsRoute: typeof ProductsRoute
   PromotionsRoute: typeof PromotionsRoute
+  ReconciliationRoute: typeof ReconciliationRoute
   ResetPasswordRoute: typeof ResetPasswordRoute
   SettingsRoute: typeof SettingsRoute
   ShippingRoute: typeof ShippingRoute
@@ -227,6 +240,13 @@ declare module '@tanstack/react-router' {
       path: '/reset-password'
       fullPath: '/reset-password'
       preLoaderRoute: typeof ResetPasswordRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/reconciliation': {
+      id: '/reconciliation'
+      path: '/reconciliation'
+      fullPath: '/reconciliation'
+      preLoaderRoute: typeof ReconciliationRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/promotions': {
@@ -305,6 +325,7 @@ const rootRouteChildren: RootRouteChildren = {
   OrdersRoute: OrdersRoute,
   ProductsRoute: ProductsRoute,
   PromotionsRoute: PromotionsRoute,
+  ReconciliationRoute: ReconciliationRoute,
   ResetPasswordRoute: ResetPasswordRoute,
   SettingsRoute: SettingsRoute,
   ShippingRoute: ShippingRoute,

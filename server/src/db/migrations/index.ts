@@ -4,6 +4,7 @@ import { orderPaidAtMigration } from './003_order_paid_at';
 import { auditLedgerIdempotencyMigration } from './004_audit_ledger_idempotency';
 import { publicIdentifiersMigration } from './005_public_identifiers';
 import { walkInSalesMigration } from './006_walk_in_sales';
+import { unwrapJsonbStringsMigration } from './007_unwrap_jsonb_strings';
 import type { Migration } from './types';
 
 export const migrations: Migration[] = [
@@ -13,4 +14,5 @@ export const migrations: Migration[] = [
     auditLedgerIdempotencyMigration,
     publicIdentifiersMigration,
     walkInSalesMigration,
+    unwrapJsonbStringsMigration,
 ];

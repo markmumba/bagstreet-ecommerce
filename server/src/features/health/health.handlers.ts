@@ -43,6 +43,10 @@ export const healthHandlers = {
         };
         checks.integrations = {
             rabbitmq_configured: Boolean(env.RABBITMQ_URL),
+            email_provider: env.EMAIL_PROVIDER,
+            email_configured: env.EMAIL_PROVIDER === 'resend'
+                ? Boolean(env.RESEND_API_KEY)
+                : Boolean(env.SMTP_USER && env.SMTP_PASS),
             payment_provider: 'pesapal',
             pesapal_configured: isPesapalConfigured(),
         };

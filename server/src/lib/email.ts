@@ -11,10 +11,51 @@ async function createTransporter() {
     });
 }
 
-async function send(to: string, subject: string, html: string) {
-    if (!env.SMTP_USER || !env.SMTP_PASS) return;
+function emailDeliveryConfigured() {
+    if (env.EMAIL_PROVIDER === 'resend') return Boolean(env.RESEND_API_KEY);
+    return Boolean(env.SMTP_USER && env.SMTP_PASS);
+}
+
+async function sendWithSmtp(to: string, subject: string, html: string) {
     const transporter = await createTransporter();
     await transporter.sendMail({ from: env.EMAIL_FROM, to, subject, html });
+}
+
+async function sendWithResend(to: string, subject: string, html: string) {
+    if (!env.RESEND_API_KEY) return;
+
+    const response = await fetch(env.RESEND_API_URL, {
+        method: 'POST',
+        headers: {
+            Authorization: `Bearer ${env.RESEND_API_KEY}`,
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            from: env.EMAIL_FROM,
+            to: [to],
+            subject,
+            html,
+        }),
+    });
+
+    if (!response.ok) {
+        const body = await response.text().catch(() => '');
+        throw new Error(`Resend email failed with ${response.status}: ${body.slice(0, 500)}`);
+    }
+
+    if (env.NODE_ENV !== 'production') {
+        const data = await response.json().catch(() => null) as { id?: string } | null;
+        console.log(`[email] Resend accepted ${subject} for ${to}${data?.id ? ` (${data.id})` : ''}`);
+    }
+}
+
+async function send(to: string, subject: string, html: string) {
+    if (!emailDeliveryConfigured()) return;
+    if (env.EMAIL_PROVIDER === 'resend') {
+        await sendWithResend(to, subject, html);
+        return;
+    }
+    await sendWithSmtp(to, subject, html);
 }
 
 function escapeHtml(value: string | number | null | undefined) {
@@ -40,7 +81,7 @@ function buildAdminUrl(pathname: string, searchParams?: Record<string, string | 
 
 
 export async function sendInviteEmail(to: string, name: string, inviteUrl: string) {
-    if (!env.SMTP_USER || !env.SMTP_PASS) {
+    if (!emailDeliveryConfigured()) {
         console.log(`[DEV] Invite for ${name} <${to}>`);
         console.log(`[DEV] ${inviteUrl}`);
         return;
@@ -59,7 +100,7 @@ export async function sendCustomerAccountSetupEmail(to: string, name: string, se
         console.log(`[DEV] ${setupUrl}`);
     }
 
-    if (!env.SMTP_USER || !env.SMTP_PASS) return;
+    if (!emailDeliveryConfigured()) return;
 
     const html = await renderTemplate('customer-account-setup', {
         name,
@@ -107,7 +148,7 @@ export async function sendOrderConfirmationEmail(
     const shippingRegion = shippingAddress.county ?? shippingAddress.state;
     const shippingCity = shippingAddress.city + (shippingRegion ? `, ${shippingRegion}` : '');
 
-    if (!env.SMTP_USER || !env.SMTP_PASS) {
+    if (!emailDeliveryConfigured()) {
         console.log(`[DEV] Order confirmation for ${name} <${to}> — Order ${orderRef}`);
         console.log(`[DEV] Confirm received: ${confirmReceivedUrl}`);
         return;
@@ -142,7 +183,7 @@ export async function sendAdminOrderConfirmedEmail(
     const subject = `Bagstreet order ${orderRef} confirmed`;
     const adminOrderUrl = buildAdminUrl('/orders', { order_id: providedOrderRef ?? orderId });
 
-    if (!env.SMTP_USER || !env.SMTP_PASS) {
+    if (!emailDeliveryConfigured()) {
         console.log(`[DEV] Admin order confirmation for ${name} <${to}> - ${orderRef}`);
         console.log(`[DEV] Open order: ${adminOrderUrl}`);
         return;
@@ -172,7 +213,7 @@ export async function sendPaymentFailedEmail(
     const orderRef = providedOrderRef ?? `#${String(orderId).padStart(6, '0').toUpperCase()}`;
     const subject = `Payment not completed for Bagstreet order ${orderRef}`;
 
-    if (!env.SMTP_USER || !env.SMTP_PASS) {
+    if (!emailDeliveryConfigured()) {
         console.log(`[DEV] Payment failure email for ${name} <${to}> - ${orderRef}`);
         return;
     }
@@ -207,7 +248,7 @@ export async function sendLowStockEmail(
         ? 'Deactivate the variant if it cannot be restocked immediately, or restock before selling again.'
         : 'Restock soon, or review the threshold if this variant is intentionally limited.';
 
-    if (!env.SMTP_USER || !env.SMTP_PASS) {
+    if (!emailDeliveryConfigured()) {
         console.log(`[DEV] Low stock email for ${name} <${to}> - ${productName} ${variantLabel}: ${stock}/${threshold}`);
         console.log(`[DEV] Open products: ${productUrl}`);
         return;
@@ -229,7 +270,7 @@ export async function sendLowStockEmail(
 
 
 export async function sendPasswordResetEmail(to: string, name: string, resetUrl: string) {
-    if (!env.SMTP_USER || !env.SMTP_PASS) {
+    if (!emailDeliveryConfigured()) {
         console.log(`[DEV] Password reset for ${name} <${to}>`);
         console.log(`[DEV] ${resetUrl}`);
         return;
