@@ -169,34 +169,4 @@ PESAPAL_CURRENCY=KES
 
 ## Roadmap 🗺️
 
-### 🔴 Must-Have
-
-- [x] **Forgot / Reset Password** — email link flow for all users
-- [x] **Order Confirmation Email** — transactional email after order placement
-- [x] **Pesapal Hosted Payments** — Pesapal API 3.0; hosted checkout, callback/IPN, status verification
-- [ ] **Shipping Locations** — admin-managed location list with flat delivery prices; customer picks at checkout; cost added to order total
-
-### 🔴 Critical Gaps
-
-- [x] **Customer Receipt Confirmation** — order confirmation email includes a signed button for customers to mark packages as received
-- [ ] **VAT / Tax** — 16% VAT line on orders (legal requirement); configurable rate in admin
-- [ ] **Saved Address Book** — customer saves multiple delivery addresses; pre-fill at checkout
-
-### 🟡 Important
-
-- [x] **Low Stock Alerts** — in-app notification when variant stock drops below per-variant threshold
-- [x] **Customer Account Page** — profile management on storefront
-- [x] **Storefront Search** — URL-driven, debounced
-- [ ] **Abandoned Cart Recovery** — proposed 2-hour reminder with an optional 24-hour follow-up; requires server-side recovery snapshots, communication preferences and safe recovery links (see PRD)
-- [ ] **Admin Sales Reports + CSV Export** — date-range revenue, top products, orders export
-- [ ] **Wishlist** — save products for later (important for luxury repeat-browse behaviour)
-
-### 🟢 Nice-to-Have
-
-- [ ] **Product Reviews & Ratings** — verified-purchase reviews on PDP
-- [ ] **Discount Codes / Promotions** — coupon codes applied at checkout
-- [ ] **Returns / Refunds Module** — structured return request flow (`REFUNDED` status exists)
-- [ ] **Order Shipping Tracking** — tracking number field only if dispatch becomes less manual
-- [ ] **Order Lifecycle Emails** — focused emails for payment failure, refund, and recovery flows
-- [ ] **Social Login** — Google OAuth to reduce registration friction
-- [ ] **Product Recommendations** — "You may also like" on PDP (same category / purchase co-occurrence)
+What remains (launch checklist, code health, open decisions and later features) is tracked in one place: [docs/roadmap.md](docs/roadmap.md).
