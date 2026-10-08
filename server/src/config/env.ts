@@ -30,7 +30,10 @@ const envSchema = z.object({
     SMTP_SECURE: z.string().transform(v => v === 'true').default('false'),
     SMTP_USER: z.string().optional(),
     SMTP_PASS: z.string().optional(),
+    EMAIL_PROVIDER: z.enum(['smtp', 'resend']).default('smtp'),
     EMAIL_FROM: z.string().default('Bagstreet <no-reply@bagstreet.com>'),
+    RESEND_API_KEY: z.string().optional(),
+    RESEND_API_URL: z.string().url().default('https://api.resend.com/emails'),
     CLIENT_URL: z.string().default('http://localhost:5173'),
     STOREFRONT_URL: z.string().default('http://localhost:5174'),
     RABBITMQ_URL: z.string().optional(),
@@ -46,6 +49,10 @@ const envSchema = z.object({
     PESAPAL_CANCELLATION_URL: z.string().url().optional(),
     PESAPAL_CURRENCY: z.string().default('KES'),
     PESAPAL_TIMEOUT_MS: z.coerce.number().int().positive().default(10_000),
+    /** Unpaid online orders are cancelled (stock released) after this many minutes. 0 disables expiry. */
+    UNPAID_ORDER_TTL_MINUTES: z.coerce.number().int().min(0).default(45),
+    /** Reverse proxies / load balancers in front of the server (see lib/client-ip.ts). 0 = none. */
+    TRUST_PROXY_HOPS: z.coerce.number().int().min(0).default(0),
 });
 
 

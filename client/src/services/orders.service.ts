@@ -1,6 +1,8 @@
 import { apiClient } from './api';
 import type {
+  OrderPaymentsResponse,
   OrderReceiptResponse,
+  RecordRefundRequest,
   OrderResponse,
   OrderStatus,
   PaymentStatus,
@@ -37,4 +39,9 @@ export const ordersService = {
 
   createWalkInSale: (data: WalkInSaleRequest) =>
     apiClient.post<OrderResponse>('/api/orders/walk-in', data),
+
+  getPayments: (id: string) => apiClient.get<OrderPaymentsResponse>(`/api/orders/${id}/payments`),
+
+  recordRefund: (id: string, data: RecordRefundRequest) =>
+    apiClient.post<OrderPaymentsResponse>(`/api/orders/${id}/refunds`, data),
 };

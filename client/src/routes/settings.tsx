@@ -13,6 +13,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useAuth } from '@/context/AuthContext';
+import { StorefrontHeroCard } from '@/components/settings/StorefrontHeroCard';
 import { useOrderHandoverSettings, useUpdateOrderHandoverSettings } from '@/hooks/useSettings';
 import { useUsers } from '@/hooks/useUsers';
 import { USER_ROLE, type UserResponse } from 'shared';
@@ -150,6 +151,8 @@ function SettingsPage() {
             )}
           </CardContent>
         </Card>
+
+        {user?.role === USER_ROLE.ADMIN && <StorefrontHeroCard />}
 
         <Card className="max-w-2xl">
           <CardHeader>

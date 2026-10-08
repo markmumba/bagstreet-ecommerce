@@ -1,8 +1,16 @@
 import { createRootRoute, Outlet } from '@tanstack/react-router';
 import { Navbar } from '@/components/layout/Navbar';
+import { Footer } from '@/components/layout/Footer';
+import { useCartStorageSync } from '@/hooks/useCart';
 
 export const Route = createRootRoute({
-  component: () => (
+  component: RootLayout,
+});
+
+function RootLayout() {
+  useCartStorageSync();
+
+  return (
     <div className="min-h-screen bg-background flex flex-col">
       <a
         href="#main-content"
@@ -14,16 +22,7 @@ export const Route = createRootRoute({
       <main id="main-content" className="flex-1">
         <Outlet />
       </main>
-      <footer className="border-t border-[var(--border-subtle)] py-12">
-        <div className="max-w-[1440px] mx-auto px-4 sm:px-8 lg:px-20 text-center">
-          <p
-            className="text-xs tracking-[0.2em] uppercase text-[var(--foreground-faint)]"
-            style={{ fontFamily: 'var(--font-sans)' }}
-          >
-            © {new Date().getFullYear()} Bagstreet — Luxury Handbags &amp; Accessories
-          </p>
-        </div>
-      </footer>
+      <Footer />
     </div>
-  ),
-});
+  );
+}

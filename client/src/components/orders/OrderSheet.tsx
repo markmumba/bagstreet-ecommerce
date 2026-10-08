@@ -4,6 +4,7 @@ import type { OrderResponse, OrderStatus } from 'shared';
 import { useConfirmOrderPayment, useUpdateOrderStatus } from '@/hooks/useOrders';
 import { useAuth } from '@/context/AuthContext';
 import { OrderReceiptDialog } from './OrderReceiptDialog';
+import { OrderPaymentsPanel } from './OrderPaymentsPanel';
 import {
   Sheet,
   SheetContent,
@@ -23,10 +24,10 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Mail, MapPin, Phone, ReceiptText } from 'lucide-react';
 
+// REFUNDED isn't set by hand: recording refunds in the Payments section sets it once fully refunded.
 const ORDER_STATUSES: OrderStatus[] = [
   ORDER_STATUS.DELIVERED,
   ORDER_STATUS.CANCELLED,
-  ORDER_STATUS.REFUNDED,
 ];
 
 const LOCKED_STATUS_UPDATES: OrderStatus[] = [ORDER_STATUS.CANCELLED, ORDER_STATUS.REFUNDED];
@@ -53,8 +54,8 @@ const STATUS_VARIANTS: Record<OrderStatus, React.ComponentProps<typeof Badge>['v
 
 function availableStatusUpdates(current: OrderStatus, paymentStatus: string) {
   if (paymentStatus !== PAYMENT_STATUS.PAID) return [ORDER_STATUS.CANCELLED];
-  if (current === ORDER_STATUS.DELIVERED) return [ORDER_STATUS.REFUNDED];
-  if (current === ORDER_STATUS.CONFIRMED) return [ORDER_STATUS.DELIVERED, ORDER_STATUS.REFUNDED];
+  if (current === ORDER_STATUS.DELIVERED) return [];
+  if (current === ORDER_STATUS.CONFIRMED) return [ORDER_STATUS.DELIVERED];
   return ORDER_STATUSES.filter((status) => status !== current);
 }
 
@@ -138,7 +139,8 @@ export function OrderSheet({ order, open, onOpenChange }: OrderSheetProps) {
               </Badge>
             </div>
 
-            {canManageOrders && !LOCKED_STATUS_UPDATES.includes(order.status) && (
+            {canManageOrders && !LOCKED_STATUS_UPDATES.includes(order.status)
+              && availableStatusUpdates(order.status, (order as any).payment_status).length > 0 && (
               <div className="flex gap-2">
                 <Select
                   value={selectedStatus}
@@ -293,6 +295,10 @@ export function OrderSheet({ order, open, onOpenChange }: OrderSheetProps) {
               </div>
             )}
           </div>
+
+          <Separator />
+
+          <OrderPaymentsPanel orderId={order.id} canRefund={canManageOrders} />
         </div>
       </SheetContent>
     </Sheet>

@@ -64,7 +64,7 @@ function OrdersPage() {
           <Package className="mx-auto h-9 w-9 text-muted-foreground" strokeWidth={1.4} />
           <p className="mt-5 text-muted-foreground">You haven't placed any orders yet.</p>
           <Link
-            to="/"
+            to="/shop"
             className="mt-6 inline-flex h-10 items-center justify-center rounded-md bg-primary px-6 text-sm font-medium text-primary-foreground"
           >
             Start Shopping

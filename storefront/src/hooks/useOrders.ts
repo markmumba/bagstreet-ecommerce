@@ -52,9 +52,12 @@ export function usePlaceOrder() {
   });
 }
 
+/** Identifies an order for payment actions: by id or public ref, proven by the checkout token or phone/email. */
+type OrderPaymentAccess = { order_id?: number; order_ref?: string; token?: string; phone?: string; email?: string };
+
 export function useInitiatePesapalPayment() {
   return useMutation({
-    mutationFn: (data: { order_id: number; phone?: string; email?: string }) =>
+    mutationFn: (data: OrderPaymentAccess) =>
       apiClient.post<PaymentRetryResponse>('/api/payments/pesapal/initiate', data),
   });
 }
@@ -62,7 +65,7 @@ export function useInitiatePesapalPayment() {
 export function useCheckPesapalPayment() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (data: { order_id: number; order_tracking_id?: string; phone?: string; email?: string }) =>
+    mutationFn: (data: OrderPaymentAccess & { order_tracking_id?: string }) =>
       apiClient.post<PaymentStatusResponse>('/api/payments/pesapal/status', data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['orders'] });
@@ -74,11 +77,25 @@ export function useCheckPesapalPayment() {
 export function useCompleteDevPayment() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (data: { order_id: number; phone?: string }) =>
+    mutationFn: (data: OrderPaymentAccess) =>
       apiClient.post<PaymentStatusResponse>('/api/payments/dev-complete', data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['orders'] });
       qc.invalidateQueries({ queryKey: ['cart'] });
     },
+  });
+}
+
+/**
+ * Live payment status for an order, asked of the server (which checks Pesapal) — the checkout
+ * page renders from this, never from the `payment=` value in the return URL.
+ */
+export function usePaymentStatus(orderRef: string | undefined, token: string | undefined) {
+  return useQuery({
+    queryKey: ['payment-status', orderRef],
+    queryFn: () => apiClient.post<PaymentStatusResponse>('/api/payments/pesapal/status', { order_ref: orderRef, token }),
+    enabled: Boolean(orderRef && token),
+    retry: false,
+    staleTime: 0,
   });
 }

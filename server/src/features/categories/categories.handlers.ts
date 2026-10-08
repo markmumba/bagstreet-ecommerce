@@ -12,6 +12,7 @@ function toCategoryResponse(category: any): CategoryResponse {
     return {
         id: category.id.toString(),
         name: category.name,
+        slug: category.slug,
         description: category.description ?? '',
         parent_id: category.parent_id != null ? category.parent_id.toString() : null,
         parent_name: category.parent_name ?? undefined,

@@ -1,8 +1,13 @@
 import type { AppContext } from '@server/lib/hono';
 import { success } from '@server/lib/response';
+import { sql } from '@server/lib/db';
+import { NotFoundError, ValidationError } from '@server/lib/errors';
+import { settingsQueries } from '../settings/settings.queries';
+import { buildCartQuote, cartQuoteSchema, mergeQuoteItems, type QuoteVariantRow } from './cart-quote';
 import { categoriesQueries } from '../categories/categories.queries';
 import { productsQueries } from '../products/products.queries';
-import type { CategoryTreeNode, CategoryResponse, ProductImage, ProductResponse, StorefrontHomeResponse } from 'shared/dist';
+import { catalogPagination, catalogQuerySchema } from './catalog.schema';
+import type { CategoryTreeNode, CategoryResponse, ProductImage, ProductResponse, StorefrontCatalogResponse, StorefrontHomeResponse } from 'shared/dist';
 
 function toProductResponse(product: any): ProductResponse {
     const images = (product.images ?? []).map((image: ProductImage) => ({
@@ -48,6 +53,7 @@ function toCategoryResponse(category: any): CategoryResponse {
     return {
         id: category.id.toString(),
         name: category.name,
+        slug: category.slug,
         description: category.description ?? '',
         parent_id: category.parent_id != null ? category.parent_id.toString() : null,
         parent_name: category.parent_name ?? undefined,
@@ -94,6 +100,30 @@ async function attachImages(products: any[]) {
 }
 
 export const storefrontHandlers = {
+    catalog: async (c: AppContext) => {
+        const validated = catalogQuerySchema.safeParse(c.req.query());
+        if (!validated.success) throw new ValidationError('Invalid catalog filters', validated.error.errors);
+        const { page, limit, search, categorySlug, categoryId, sort } = validated.data;
+
+        const categories = await categoriesQueries.findAllFlat();
+        const category = categorySlug
+            ? categories.find((entry) => entry.slug === categorySlug)
+            : categoryId ? categories.find((entry) => Number(entry.id) === categoryId) : null;
+        if ((categorySlug || categoryId) && !category) throw new NotFoundError('Category', categorySlug ?? categoryId!);
+
+        const selectedId = category ? Number(category.id) : null;
+        const total = await productsQueries.countAll(selectedId, search, true);
+        const pagination = catalogPagination(page, limit, total);
+        const products = await productsQueries.findAll(pagination.page, limit, selectedId, search, true, sort);
+        const response: StorefrontCatalogResponse = {
+            products: (await attachImages(products)).map(toProductResponse),
+            category_tree: toCategoryTree(categories),
+            category: category ? toCategoryResponse(category) : null,
+            pagination,
+        };
+        return success(c, response);
+    },
+
     home: async (c: AppContext) => {
         const rawSearch = c.req.query('search') ?? '';
         const search = rawSearch.trim();
@@ -128,5 +158,34 @@ export const storefrontHandlers = {
         };
 
         return success(c, response);
+    },
+
+    /** Prices and stock-checks a guest cart against current data. Read-only: reserves nothing. */
+    cartQuote: async (c: AppContext) => {
+        const validated = cartQuoteSchema.safeParse(await c.req.json().catch(() => null));
+        if (!validated.success) {
+            throw new ValidationError('Invalid cart', validated.error.errors);
+        }
+
+        const variantIds = mergeQuoteItems(validated.data.items).map((item) => item.variant_id);
+        const [rows, threshold] = await Promise.all([
+            variantIds.length === 0
+                ? Promise.resolve([] as QuoteVariantRow[])
+                : sql<QuoteVariantRow[]>`
+                    SELECT
+                        pv.id AS variant_id, pv.product_id, pv.size, pv.color, pv.stock, pv.price_override,
+                        pv.is_active AS variant_active,
+                        p.name, p.slug, p.image_url, p.price, p.sale_price, p.sale_ends_at,
+                        p.is_active AS product_active
+                    FROM product_variants pv
+                    JOIN products p ON p.id = pv.product_id
+                    WHERE pv.id IN ${sql(variantIds)}
+                `,
+            settingsQueries.getNumber('free_delivery_threshold'),
+        ]);
+
+        // bun:sql returns BIGINT ids as strings; normalise for the id lookup.
+        const normalised = rows.map((row) => ({ ...row, variant_id: Number(row.variant_id), product_id: Number(row.product_id) }));
+        return success(c, buildCartQuote(validated.data.items, normalised, threshold));
     },
 };

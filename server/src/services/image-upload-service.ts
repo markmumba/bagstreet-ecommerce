@@ -55,6 +55,12 @@ const imageSizes = [
     { key: 'large', width: 1200, quality: 82 },
 ] as const;
 
+// Full-bleed banners (e.g. the storefront hero) need more width than product images.
+const bannerSizes = [
+    { key: 'banner-sm', width: 1080, quality: 80 },
+    { key: 'banner', width: 2400, quality: 82 },
+] as const;
+
 function objectUrl(fileName: string) {
     const protocol = env.MINIO_USE_SSL ? 'https' : 'http';
     return `${protocol}://${env.MINIO_ENDPOINT}:${env.MINIO_PORT}/${env.MINIO_BUCKET}/${fileName}`;
@@ -68,50 +74,68 @@ async function uploadObject(fileName: string, buffer: Buffer, contentType: strin
 }
 
 function optimizedSiblingNames(filename: string) {
+    const banner = filename.match(/^(?<base>.+)-(banner|banner-sm)\.webp$/);
+    if (banner?.groups?.base) return bannerSizes.map((size) => `${banner.groups!.base}-${size.key}.webp`);
+
     const match = filename.match(/^(?<base>.+)-(thumb|medium|large)\.webp$/);
     if (!match?.groups?.base) return [filename];
 
     return imageSizes.map((size) => `${match.groups!.base}-${size.key}.webp`);
 }
 
+async function uploadSizes<const S extends readonly { key: string; width: number; quality: number }[]>(file: File, sizes: S) {
+    if (!allowedTypes.includes(file.type)) {
+        throw new BadRequestError('Invalid file type');
+    }
+    const maxSize = 15 * 1024 * 1024;
+    if (file.size > maxSize) {
+        throw new BadRequestError('Image must be 15MB or smaller');
+    }
+
+    await getBucketReady();
+
+    const buffer = Buffer.from(await file.arrayBuffer());
+    const baseName = uuidv4();
+    const uploaded = {} as Record<S[number]['key'], { url: string; filename: string }>;
+
+    try {
+        for (const size of sizes) {
+            const optimizedBuffer = await sharp(buffer, { failOn: 'none' })
+                .rotate()
+                .resize({ width: size.width, withoutEnlargement: true })
+                .webp({ quality: size.quality })
+                .toBuffer();
+            const filename = `${baseName}-${size.key}.webp`;
+            await uploadObject(filename, optimizedBuffer, 'image/webp');
+            uploaded[size.key as S[number]['key']] = { url: objectUrl(filename), filename };
+        }
+    } catch {
+        await Promise.allSettled(
+            Object.values<{ filename: string }>(uploaded).map((image) => minioClient.removeObject(env.MINIO_BUCKET, image.filename)),
+        );
+        throw new BadRequestError('Image could not be processed. Please upload a JPEG, PNG, WebP, HEIC, or HEIF image.');
+    }
+
+    return uploaded;
+}
+
 export const imageUploadService = {
     upload: async (file: File) => {
-        if (!allowedTypes.includes(file.type)) {
-            throw new BadRequestError('Invalid file type');
-        }
-        const maxSize = 15 * 1024 * 1024;
-        if (file.size > maxSize) {
-            throw new BadRequestError('Image must be 15MB or smaller');
-        }
-
-        await getBucketReady();
-
-        const buffer = Buffer.from(await file.arrayBuffer());
-        const baseName = uuidv4();
-        const uploaded: Record<(typeof imageSizes)[number]['key'], { url: string; filename: string }> = {} as Record<(typeof imageSizes)[number]['key'], { url: string; filename: string }>;
-
-        try {
-            for (const size of imageSizes) {
-                const optimizedBuffer = await sharp(buffer, { failOn: 'none' })
-                    .rotate()
-                    .resize({ width: size.width, withoutEnlargement: true })
-                    .webp({ quality: size.quality })
-                    .toBuffer();
-                const filename = `${baseName}-${size.key}.webp`;
-                await uploadObject(filename, optimizedBuffer, 'image/webp');
-                uploaded[size.key] = { url: objectUrl(filename), filename };
-            }
-        } catch {
-            await Promise.allSettled(
-                Object.values(uploaded).map((image) => minioClient.removeObject(env.MINIO_BUCKET, image.filename)),
-            );
-            throw new BadRequestError('Image could not be processed. Please upload a JPEG, PNG, WebP, HEIC, or HEIF image.');
-        }
-
+        const uploaded = await uploadSizes(file, imageSizes);
         return {
             url: uploaded.large.url,
             filename: uploaded.large.filename,
             variants: uploaded,
+        };
+    },
+
+    /** Wide banner for full-bleed placements; returns desktop and phone URLs. */
+    uploadBanner: async (file: File) => {
+        const uploaded = await uploadSizes(file, bannerSizes);
+        return {
+            url: uploaded.banner.url,
+            smallUrl: uploaded['banner-sm'].url,
+            filename: uploaded.banner.filename,
         };
     },
 
