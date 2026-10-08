@@ -12,7 +12,7 @@ A full-stack luxury e-commerce platform built with Bun, Hono, React, and Postgre
 | Frontend (Admin) | React + TanStack Router + TanStack Query |
 | Frontend (Storefront) | React + TanStack Router |
 | Shared Types | TypeScript monorepo (`shared/`) |
-| File Storage | MinIO |
+| File Storage | MinIO (local) / DigitalOcean Spaces + CDN (production) |
 | Monorepo | Turborepo |
 
 ## Project Structure
@@ -58,8 +58,6 @@ POSTGRES_PASSWORD=qwerty1234
 POSTGRES_DB=bagstreet
 MINIO_ACCESS_KEY=minioadmin
 MINIO_SECRET_KEY=minioadmin
-RABBITMQ_DEFAULT_USER=guest
-RABBITMQ_DEFAULT_PASS=guest
 REDIS_REST_TOKEN=change-me
 ```
 
@@ -70,8 +68,9 @@ DATABASE_URL=
 JWT_SECRET=
 JWT_REFRESH_SECRET=
 CORS_ORIGIN=http://localhost:5173,http://localhost:5174,http://localhost:4173,http://localhost:4174
-MINIO_ACCESS_KEY=
-MINIO_SECRET_KEY=
+# Object storage (local MinIO; see docs/deployment.md for Spaces)
+STORAGE_ACCESS_KEY=
+STORAGE_SECRET_KEY=
 
 # Gmail SMTP. SMTP_* is also supported, but MAIL_* matches Spring Boot naming.
 MAIL_HOST=smtp.gmail.com
@@ -81,9 +80,6 @@ MAIL_PASSWORD=
 EMAIL_FROM=
 CLIENT_URL=http://localhost:5173
 STOREFRONT_URL=http://localhost:5174
-
-# RabbitMQ email queue
-RABBITMQ_URL=amqp://guest:guest@localhost:5672
 
 # Redis-backed rate limiting through the local Redis REST bridge
 RATE_LIMIT_STORE=redis
@@ -155,10 +151,12 @@ PESAPAL_CURRENCY=KES
 - New order alerts + low stock / out-of-stock alerts pushed in real time
 - Email alerts for customer order confirmation, payment failure, and admin low-stock events
 
-### Emails (via RabbitMQ queue)
-- Staff invite, order confirmation, payment failure, low-stock alert, password reset
-- External HTML templates (`server/src/lib/templates/`)
-- RabbitMQ queue (`email.queue`) with DLQ fallback; direct send when queue unavailable
+### Emails (transactional outbox)
+- Staff invite, order confirmation, payment failure, low-stock alert, password reset, cart recovery
+- External HTML templates with a shared layout (`server/src/lib/templates/`); preview them with `bun run emails:preview` in `server/`
+- Emails are written to the `email_outbox` table in the same database transaction as the change that caused them, so an email exists only if that change was saved
+- A worker in the API process sends them (`FOR UPDATE SKIP LOCKED`, so multiple instances never double-send), with dedupe keys and retries at 1m / 5m / 15m / 1h / 6h; after 6 failed attempts the email is marked `FAILED` and admins get an in-app alert
+- No message broker needed; `/health/ready` reports the outbox backlog
 
 ### Storefront
 - Luxury design (Cormorant Garamond + DM Sans, ivory + oxblood palette)
