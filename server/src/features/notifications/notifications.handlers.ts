@@ -7,6 +7,7 @@ import { addConnection, removeConnection } from '../../lib/sse';
 import { env } from '../../config/env';
 import type { AppContext, AuthUser } from '@server/lib/hono';
 import { getRequiredUser } from '@server/lib/hono';
+import { getActiveAuthUser } from '../../middleware/auth.middleware';
 
 function normalizeNotificationData(data: unknown): { link?: unknown; order_id?: string | number; variant_id?: string | number } | null {
     if (!data) return null;
@@ -45,13 +46,32 @@ export const notificationsHandlers = {
             throw new UnauthorizedError('Invalid or expired token');
         }
 
-        const userId = Number(payload.sub);
+        const user = await getActiveAuthUser(payload);
+        if (!user) throw new UnauthorizedError('This account is inactive');
+        const userId = Number(user.sub);
 
         return streamSSE(c, async (stream) => {
             let closed = false;
+            const authorised = async () => {
+                if (payload.exp != null && payload.exp <= Date.now() / 1000) return false;
+                const current = await getActiveAuthUser(payload);
+                return Boolean(current && current.role === user.role);
+            };
 
             const sendFn = async (event: string, data: object) => {
-                await stream.writeSSE({ event, data: JSON.stringify(data) });
+                if (closed) return;
+                try {
+                    if (!await authorised()) {
+                        closed = true;
+                        removeConnection(userId, sendFn);
+                        return;
+                    }
+                    await stream.writeSSE({ event, data: JSON.stringify(data) });
+                } catch (error) {
+                    closed = true;
+                    removeConnection(userId, sendFn);
+                    throw error;
+                }
             };
 
             addConnection(userId, sendFn);
@@ -60,20 +80,20 @@ export const notificationsHandlers = {
                 removeConnection(userId, sendFn);
             });
 
-            const unreadCount = await notificationsQueries.countUnread(userId);
-            await stream.writeSSE({ event: 'init', data: JSON.stringify({ unreadCount }) });
+            try {
+                const unreadCount = await notificationsQueries.countUnread(userId);
+                await sendFn('init', { unreadCount });
 
-            while (!closed) {
-                await stream.sleep(25000);
-                if (closed) break;
-                try {
+                while (!closed) {
+                    await stream.sleep(25000);
+                    if (closed) break;
+                    if (!await authorised()) break;
                     await stream.writeSSE({ event: 'ping', data: '' });
-                } catch {
-                    break;
                 }
+            } finally {
+                closed = true;
+                removeConnection(userId, sendFn);
             }
-
-            removeConnection(userId, sendFn);
         });
     },
 
