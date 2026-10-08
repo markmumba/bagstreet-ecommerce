@@ -7,6 +7,8 @@ export const LEDGER_ENTRY = {
     REFUND_ISSUED: 'REFUND_ISSUED',
     /** Charged by Pesapal; recorded from statement imports. */
     PROVIDER_FEE: 'PROVIDER_FEE',
+    /** Captured money taken back by the provider (chargeback / reversal). Money out. */
+    PAYMENT_REVERSED: 'PAYMENT_REVERSED',
 } as const;
 
 /** Differences smaller than this (KES) are rounding noise, not under/overpayment. */
@@ -38,28 +40,31 @@ export function summariseOrderPayments(order: BalanceOrder, entries: BalanceEntr
 
     let captured = sum(LEDGER_ENTRY.PAYMENT_CAPTURED, 'CREDIT');
     const refunded = sum(LEDGER_ENTRY.REFUND_ISSUED, 'DEBIT');
+    const reversed = sum(LEDGER_ENTRY.PAYMENT_REVERSED, 'DEBIT');
     const fees = sum(LEDGER_ENTRY.PROVIDER_FEE, 'DEBIT');
 
     // Orders paid before the ledger existed have no capture entry; trust their PAID flag.
     const legacyUnrecordedCapture = captured === 0 && order.payment_status === 'PAID';
     if (legacyUnrecordedCapture) captured = orderTotal;
 
-    const net = roundMoney(captured - refunded);
+    const net = roundMoney(captured - refunded - reversed);
     return {
         order_total: orderTotal,
         captured,
         refunded,
+        reversed,
         net,
         fees,
         net_after_fees: roundMoney(net - fees),
         refundable: Math.max(0, net),
-        state: paymentState(order.status, orderTotal, captured, refunded, net),
+        state: paymentState(order.status, orderTotal, captured, refunded, reversed, net),
         legacy_unrecorded_capture: legacyUnrecordedCapture,
     };
 }
 
-function paymentState(status: string, total: number, captured: number, refunded: number, net: number): OrderPaymentState {
+function paymentState(status: string, total: number, captured: number, refunded: number, reversed: number, net: number): OrderPaymentState {
     if (captured === 0) return 'unpaid';
+    if (reversed > 0 && net <= TOLERANCE) return 'reversed';
     if (refunded > 0 && net <= TOLERANCE) return 'refunded';
     if (status === 'CANCELLED' && net > TOLERANCE) return 'refund_owed';
     if (refunded > 0) return 'partially_refunded';

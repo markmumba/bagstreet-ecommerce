@@ -1,7 +1,8 @@
 /**
  * Integration checks for order/payment integrity against the dev database:
- * discount limits under concurrency, unpaid-order expiry, late payments, concurrent cancels,
- * per-customer order limits, and refunds against the payment ledger.
+ * discount limits under concurrency, unpaid-order expiry, concurrent cancels, per-customer order
+ * limits, the email outbox, and the Order lifecycle — payments, late payments, reversals, staff and
+ * customer actions and refunds, all through applyOrderEvent as the app does.
  * Creates its own throwaway product, codes and orders and deletes them afterwards.
  *
  *   bun run test:integration
@@ -12,7 +13,10 @@ import { ordersQueries } from '../features/orders/orders.queries';
 import { paymentsQueries } from '../features/payments/payments.queries';
 import { expireUnpaidOrders } from '../services/unpaid-order-expiry';
 import { summariseOrderPayments } from '../features/payments/order-balance';
-import { confirmOrderPayment } from '../services/order-payments';
+import { enqueueEmail, processEmailOutboxBatch } from '../services/email-outbox';
+import type { EmailJob } from '../services/email-jobs';
+import { applyOrderEvent } from '../features/orders/lifecycle/order-lifecycle';
+import type { Actor } from '../features/orders/lifecycle/transitions';
 
 const results: [string, boolean, string?][] = [];
 const check = (name: string, ok: boolean, detail?: string) => results.push([name, ok, detail]);
@@ -43,6 +47,34 @@ const placeLimited = (phone: string, email: string) =>
 const reason = (r: PromiseSettledResult<unknown>) => (r.status === 'rejected' ? (r.reason as Error).message : '');
 
 try {
+  // Every order change goes through the Order lifecycle, as the app does.
+  const PROVIDER: Actor = { kind: 'payment_provider' };
+  const SYSTEM: Actor = { kind: 'system' };
+  const staffIds: number[] = (await sql`SELECT id FROM users`).map((r: any) => Number(r.id));
+  const guardEmails = async (orderId: number) => {
+    const keys = [`order-confirmation:${orderId}`, ...staffIds.map((id) => `admin-order-confirmed:${orderId}:${id}`)];
+    for (const key of keys) {
+      await sql`
+        INSERT INTO email_outbox (job_type, recipient, payload, dedupe_key, status, sent_at)
+        VALUES ('ZZ_TEST', 'zz-outbox-guard@example.invalid', '{}'::jsonb, ${key}, 'SKIPPED', now())
+        ON CONFLICT DO NOTHING`;
+    }
+  };
+  const stateOf = async (id: number) => {
+    const [o] = await sql`SELECT status, payment_status FROM orders WHERE id = ${id}`;
+    return `${o.status}/${o.payment_status}`;
+  };
+  const ledger = async (id: number, type: string) =>
+    (await sql`SELECT count(*)::int AS n, COALESCE(sum(amount), 0)::float AS total FROM payment_ledger_entries WHERE order_id = ${id} AND entry_type = ${type}`)[0] as { n: number; total: number };
+  const realEmailsFor = async (id: number) =>
+    (await sql`SELECT count(*)::int AS n FROM email_outbox WHERE recipient NOT LIKE 'zz-outbox-%' AND (dedupe_key LIKE ${`%:${id}`} OR dedupe_key LIKE ${`%:${id}:%`})`)[0].n as number;
+  const captured = (amount: number, reference: string, currency = 'KES') =>
+    ({ type: 'payment_captured' as const, amount, currency, reference });
+  const [anyAdmin] = await sql`SELECT id, email FROM users WHERE role = 'ADMIN' ORDER BY id LIMIT 1`;
+  const ADMIN: Actor = { kind: 'staff', userId: String(anyAdmin?.id ?? 0), role: 'ADMIN', email: anyAdmin?.email };
+  const MANAGER: Actor = { kind: 'staff', userId: String(anyAdmin?.id ?? 0), role: 'MANAGER' };
+  const cancel = (id: number) => applyOrderEvent(id, { type: 'cancelled' }, ADMIN);
+
   // 1. usage_limit = 1, two phones at once → exactly one order, used_count 1
   const r1 = await Promise.allSettled([
     place('254700000001', { codeId: Number(limited.id), phone: '254700000001', amount: 100 }),
@@ -75,31 +107,12 @@ try {
   const run2 = await expireUnpaidOrders();
   check('second expiry run is a no-op', run2.cancelled === 0 && (await stock(V)) === 3, JSON.stringify(run2));
 
-  // 4. late payment with stock available → reinstated, then paid
-  const [expired] = await sql`SELECT o.id FROM orders o JOIN order_items i ON i.order_id = o.id WHERE i.variant_id = ${V} LIMIT 1`;
-  const paidWhileCancelled = await paymentsQueries.markOrderPaid(Number(expired.id));
-  check('cannot mark a cancelled order paid directly', paidWhileCancelled === false);
-  const reinstated = await ordersQueries.reinstateCancelled(Number(expired.id));
-  const paid = await paymentsQueries.markOrderPaid(Number(expired.id));
-  const [after4] = await sql`SELECT status, payment_status FROM orders WHERE id = ${expired.id}`;
-  check('late payment reinstates order and re-takes stock', reinstated && paid && after4.status === 'CONFIRMED' && (await stock(V)) === 2,
-    `reinstated=${reinstated} paid=${paid} ${after4.status}/${after4.payment_status} stock=${await stock(V)}`);
-
-  // 5. late payment with no stock → stays cancelled, recorded as paid for refund
-  const orderB = await place('254700000009');
-  await ordersQueries.cancelUnpaid(Number(orderB.id));
-  await sql`UPDATE product_variants SET stock = 0 WHERE id = ${V}`;
-  const reinstatedB = await ordersQueries.reinstateCancelled(Number(orderB.id));
-  const refundMarked = await paymentsQueries.markCancelledOrderPaid(Number(orderB.id));
-  const [afterB] = await sql`SELECT status, payment_status FROM orders WHERE id = ${orderB.id}`;
-  check('late payment without stock → no oversell, flagged paid+cancelled', !reinstatedB && refundMarked && afterB.status === 'CANCELLED' && afterB.payment_status === 'PAID' && (await stock(V)) === 0,
-    `reinstated=${reinstatedB} ${afterB.status}/${afterB.payment_status} stock=${await stock(V)}`);
-
   // 6. two cancels at once → stock restored exactly once
   await sql`UPDATE product_variants SET stock = 3 WHERE id = ${V}`;
   const orderC = await place('254700000010');
-  const r6 = await Promise.all([ordersQueries.cancelUnpaid(Number(orderC.id)), ordersQueries.cancelUnpaid(Number(orderC.id))]);
-  check('concurrent cancels restore stock once', r6.filter(Boolean).length === 1 && (await stock(V)) === 3, `wins=${r6} stock=${await stock(V)}`);
+  const r6 = await Promise.all([cancel(Number(orderC.id)), cancel(Number(orderC.id))]);
+  const wins6 = r6.filter((r) => r.outcome === 'changed').length;
+  check('concurrent cancels restore stock once', wins6 === 1 && (await stock(V)) === 3, `wins=${wins6} stock=${await stock(V)}`);
   // 7. three orders at once from one phone → only 2 unpaid allowed
   await sql`UPDATE product_variants SET stock = 20 WHERE id = ${V}`;
   const P = '254711000001', E = 'zz-limits@example.com';
@@ -114,16 +127,16 @@ try {
 
   // 9. once unpaid orders are cancelled the customer can order again
   const openOrders = await sql`SELECT id FROM orders WHERE customer_phone = ${P} AND status = 'PENDING'`;
-  for (const o of openOrders) await ordersQueries.cancelUnpaid(Number(o.id));
+  for (const o of openOrders) await cancel(Number(o.id));
   const r9 = await Promise.allSettled([placeLimited(P, E)]);
   check('can order again after unpaid orders clear', r9[0]!.status === 'fulfilled', reason(r9[0]!));
 
   // 10. hourly cap: 5 orders in the hour, the 6th is refused even with none unpaid
   for (let i = 0; i < 2; i++) {
-    for (const o of await sql`SELECT id FROM orders WHERE customer_phone = ${P} AND status = 'PENDING'`) await ordersQueries.cancelUnpaid(Number(o.id));
+    for (const o of await sql`SELECT id FROM orders WHERE customer_phone = ${P} AND status = 'PENDING'`) await cancel(Number(o.id));
     await placeLimited(P, E);
   }
-  for (const o of await sql`SELECT id FROM orders WHERE customer_phone = ${P} AND status = 'PENDING'`) await ordersQueries.cancelUnpaid(Number(o.id));
+  for (const o of await sql`SELECT id FROM orders WHERE customer_phone = ${P} AND status = 'PENDING'`) await cancel(Number(o.id));
   const hourCount = (await sql`SELECT count(*)::int AS n FROM orders WHERE customer_phone = ${P}`)[0].n;
   const r10 = await Promise.allSettled([placeLimited(P, E)]);
   check('6th order in an hour is refused', hourCount === 5 && r10[0]!.status === 'rejected' && reason(r10[0]!).includes('last hour'), `orders this hour=${hourCount} result=${reason(r10[0]!) || 'accepted'}`);
@@ -132,76 +145,231 @@ try {
   const stockBefore11 = await stock(V);
   await Promise.allSettled([placeLimited(P, E)]);
   check('refused orders take no stock', (await stock(V)) === stockBefore11, `stock ${stockBefore11} → ${await stock(V)}`);
-  // 12–17. refunds against the ledger
-  const paidOrder = async (phone: string, total = 1000) => {
-    const o = await place(phone);
-    await paymentsQueries.markOrderPaid(Number(o.id));
-    await paymentsQueries.createLedgerEntry({ order_id: Number(o.id), entry_type: 'PAYMENT_CAPTURED', direction: 'CREDIT', amount: total, currency: 'KES', reference: `zz-capture:${o.id}`, metadata: {} });
-    return Number(o.id);
+  // 22–28. email outbox. Test rows use an unknown email type, so even if the running dev server's
+  // worker picks one up, the sender rejects it and no real email can go out.
+  const testJob = (n: string) => ({ type: 'ZZ_TEST', to: `zz-outbox-${n}@example.invalid`, name: 'ZZ' } as unknown as EmailJob);
+  const outboxRow = async (n: string) => (await sql`SELECT id, status, attempts, last_error, sent_at, next_attempt_at, now() AS db_now FROM email_outbox WHERE recipient = ${`zz-outbox-${n}@example.invalid`}`)[0];
+  // Park rows in the future so the dev server's worker leaves them alone, then make one due just before claiming it.
+  const dueNow = async (ids: number[]) => { await sql`UPDATE email_outbox SET next_attempt_at = now() WHERE id IN ${sql(ids)}`; };
+  const enqueueParked = async (n: string, dedupeKey?: string) => {
+    const ok = await sql.begin(async (tx: typeof sql) => {
+      const inserted = await enqueueEmail(testJob(n), { tx, dedupeKey });
+      await tx`UPDATE email_outbox SET next_attempt_at = now() + interval '1 day' WHERE recipient = ${`zz-outbox-${n}@example.invalid`}`;
+      return inserted;
+    });
+    return ok as unknown as boolean;
   };
-  const refundOf = (orderId: number, amount: number, key: string) => paymentsQueries.recordRefund({
-    orderId, amount, method: 'MPESA', reason: 'zz test', idempotencyKey: key, recordedBy: { id: '0' },
-  });
-  const summaryOf = async (orderId: number) => {
-    const [o] = await sql`SELECT total_amount, status, payment_status FROM orders WHERE id = ${orderId}`;
-    return { ...summariseOrderPayments(o, await paymentsQueries.findLedgerByOrderId(orderId)), status: o.status as string };
-  };
+
+  await Promise.allSettled([sql.begin(async (tx: typeof sql) => { await enqueueEmail(testJob('rollback'), { tx }); throw new Error('roll back'); })]);
+  check('email queued in a rolled-back transaction leaves no trace', !(await outboxRow('rollback')));
+
+  const firstKey = await enqueueParked('dedupe', 'zz-dedupe-key');
+  const secondKey = await enqueueParked('dedupe-2', 'zz-dedupe-key');
+  check('same dedupe key queues one email', firstKey && !secondKey && !(await outboxRow('dedupe-2')), `first=${firstKey} second=${secondKey}`);
+
+  const sent: string[] = [];
+  const okSend = async (job: EmailJob) => { sent.push(job.to); };
+  const okRow = await outboxRow('dedupe');
+  await dueNow([okRow.id]);
+  const r24 = await processEmailOutboxBatch({ send: okSend, onlyIds: [Number(okRow.id)] });
+  const after24 = await outboxRow('dedupe');
+  check('successful send → SENT after 1 attempt', r24.sent === 1 && after24.status === 'SENT' && after24.attempts === 1 && after24.sent_at != null, JSON.stringify({ r24, status: after24.status, attempts: after24.attempts }));
+
+  await enqueueParked('retry');
+  const retryId = Number((await outboxRow('retry')).id);
+  const failSend = async () => { throw new Error('SMTP 421 busy password=hunter2'); };
+  await dueNow([retryId]);
+  await processEmailOutboxBatch({ send: failSend, onlyIds: [retryId] });
+  const retry1 = await outboxRow('retry');
+  const delaySec = Math.round((new Date(retry1.next_attempt_at).getTime() - new Date(retry1.db_now).getTime()) / 1000);
+  check('failed send → retried in ~1 minute, error kept without secrets', retry1.status === 'PENDING' && retry1.attempts === 1 && delaySec >= 55 && delaySec <= 65 && retry1.last_error.includes('password=***') && !retry1.last_error.includes('hunter2'),
+    JSON.stringify({ status: retry1.status, attempts: retry1.attempts, delaySec, err: retry1.last_error }));
+  for (let i = 0; i < 5; i++) { await dueNow([retryId]); await processEmailOutboxBatch({ send: failSend, onlyIds: [retryId] }); }
+  const retry6 = await outboxRow('retry');
+  const alerts = await sql`SELECT count(*)::int AS n FROM in_app_notifications WHERE type = 'EMAIL_FAILED' AND data->>'outbox_id' = ${String(retryId)}`;
+  check('gives up after 6 attempts and alerts admins', retry6.status === 'FAILED' && retry6.attempts === 6 && alerts[0].n > 0, JSON.stringify({ status: retry6.status, attempts: retry6.attempts, alerts: alerts[0].n }));
+
+  await enqueueParked('crash');
+  const crashId = Number((await outboxRow('crash')).id);
+  await sql`UPDATE email_outbox SET status = 'SENDING', attempts = 1, locked_until = now() - interval '1 minute' WHERE id = ${crashId}`;
+  await processEmailOutboxBatch({ send: okSend, onlyIds: [crashId] });
+  const crash = await outboxRow('crash');
+  check('email abandoned by a crashed worker is sent later', crash.status === 'SENT' && crash.attempts === 2, JSON.stringify({ status: crash.status, attempts: crash.attempts }));
+
+  for (let i = 0; i < 10; i++) await enqueueParked(`conc-${i}`);
+  const concIds = (await sql`SELECT id FROM email_outbox WHERE recipient LIKE 'zz-outbox-conc-%'`).map((r: any) => Number(r.id));
+  const sends = new Map<string, number>();
+  const countingSend = async (job: EmailJob) => { await new Promise((r) => setTimeout(r, 20)); sends.set(job.to, (sends.get(job.to) ?? 0) + 1); };
+  await dueNow(concIds);
+  const [wa, wb] = await Promise.all([
+    processEmailOutboxBatch({ send: countingSend, onlyIds: concIds, limit: 10 }),
+    processEmailOutboxBatch({ send: countingSend, onlyIds: concIds, limit: 10 }),
+  ]);
+  const dupes = [...sends.values()].filter((n) => n > 1).length;
+  check('two workers at once: every email sent exactly once', sends.size === 10 && dupes === 0 && wa.sent + wb.sent === 10, `sent=${sends.size} dupes=${dupes} split=${wa.sent}/${wb.sent}`);
+
+  // 29–40. Order lifecycle: the paths Pesapal and the expiry job now take.
+  // Confirming a payment queues "order confirmed" emails to real staff. Reserve those dedupe keys
+  // first (as already-skipped test rows), so the lifecycle's emails are dropped as duplicates.
   await sql`UPDATE product_variants SET stock = 20 WHERE id = ${V}`;
 
-  const R = await paidOrder('254722000001');
-  await refundOf(R, 400, `zz-r1-${R}`);
-  const s12 = await summaryOf(R);
-  check('partial refund → partially_refunded, status unchanged', s12.state === 'partially_refunded' && s12.net === 600 && s12.status === 'CONFIRMED', JSON.stringify(s12));
+  const L1 = Number((await place('254755000001')).id);
+  await guardEmails(L1);
+  const l1 = await applyOrderEvent(L1, captured(1000, `zz-l1:${L1}`), PROVIDER);
+  check('lifecycle: full payment → CONFIRMED/PAID with one capture', l1.outcome === 'changed' && (await stateOf(L1)) === 'CONFIRMED/PAID' && (await ledger(L1, 'PAYMENT_CAPTURED')).n === 1,
+    `${l1.outcome} ${await stateOf(L1)} captures=${(await ledger(L1, 'PAYMENT_CAPTURED')).n}`);
+  const l1again = await applyOrderEvent(L1, captured(1000, `zz-l1:${L1}`), PROVIDER);
+  check('lifecycle: same provider report twice changes nothing', l1again.outcome === 'unchanged' && (await ledger(L1, 'PAYMENT_CAPTURED')).n === 1, l1again.outcome);
+  const l1fail = await applyOrderEvent(L1, { type: 'payment_failed', attemptReference: `zz-l1-fail:${L1}` }, PROVIDER);
+  check('lifecycle: a failure report after payment leaves the order paid', l1fail.outcome === 'unchanged' && (await stateOf(L1)) === 'CONFIRMED/PAID', await stateOf(L1));
 
-  const r13 = await Promise.allSettled([refundOf(R, 700, `zz-r2-${R}`)]);
-  check('cannot refund more than remains', r13[0]!.status === 'rejected' && reason(r13[0]!).includes('600.00'), reason(r13[0]!));
+  const l1rev = await applyOrderEvent(L1, { type: 'payment_reversed', reference: `zz-l1-rev:${L1}` }, PROVIDER);
+  const revAlerts = (await sql`SELECT count(*)::int AS n FROM in_app_notifications WHERE type = 'PAYMENT_REVERSED' AND data->>'order_id' = ${String(L1)}`)[0].n;
+  check('lifecycle: reversal → REVERSED (not FAILED), money out recorded, staff alerted', l1rev.outcome === 'changed' && (await stateOf(L1)) === 'CONFIRMED/REVERSED'
+    && (await ledger(L1, 'PAYMENT_REVERSED')).total === 1000 && (staffIds.length === 0 || revAlerts > 0),
+    `${await stateOf(L1)} reversed=${(await ledger(L1, 'PAYMENT_REVERSED')).total} alerts=${revAlerts}`);
+  check('lifecycle: no real email queued by these tests', (await realEmailsFor(L1)) === 0, `rows=${await realEmailsFor(L1)}`);
 
-  const r14 = await Promise.allSettled([refundOf(R, 600, `zz-r3a-${R}`), refundOf(R, 600, `zz-r3b-${R}`)]);
-  const s14 = await summaryOf(R);
-  check('two admins refunding at once → only one succeeds', r14.filter((r) => r.status === 'fulfilled').length === 1 && s14.refunded === 1000,
-    `fulfilled=${r14.filter((r) => r.status === 'fulfilled').length} refunded=${s14.refunded}`);
-  check('fully refunded → order marked REFUNDED, net 0', s14.state === 'refunded' && s14.net === 0 && s14.status === 'REFUNDED', JSON.stringify(s14));
-
-  const R2 = await paidOrder('254722000002');
-  const d1 = await refundOf(R2, 300, `zz-dup-${R2}`);
-  const d2 = await refundOf(R2, 300, `zz-dup-${R2}`);
-  const s15 = await summaryOf(R2);
-  check('double-submit with the same key records one refund', d1.recorded && !d2.recorded && s15.refunded === 300, `first=${d1.recorded} second=${d2.recorded} refunded=${s15.refunded}`);
-
-  const unpaid = await place('254722000003');
-  const r16 = await Promise.allSettled([refundOf(Number(unpaid.id), 100, `zz-unpaid-${unpaid.id}`)]);
-  check('unpaid orders cannot be refunded', r16[0]!.status === 'rejected' && reason(r16[0]!).includes('Only paid orders'), reason(r16[0]!));
-
-  const late = await place('254722000004');
-  await ordersQueries.cancelUnpaid(Number(late.id));
-  await paymentsQueries.markCancelledOrderPaid(Number(late.id));
-  await paymentsQueries.createLedgerEntry({ order_id: Number(late.id), entry_type: 'PAYMENT_CAPTURED', direction: 'CREDIT', amount: 1000, currency: 'KES', reference: `zz-capture:${late.id}`, metadata: {} });
-  const owed = await summaryOf(Number(late.id));
-  await refundOf(Number(late.id), 1000, `zz-late-${late.id}`);
-  const settled = await summaryOf(Number(late.id));
-  check('late payment: refund_owed → refunded, stays CANCELLED', owed.state === 'refund_owed' && settled.state === 'refunded' && settled.status === 'CANCELLED',
-    `before=${owed.state} after=${settled.state}/${settled.status}`);
-  // 18–21. amount check when a provider reports payment (no emails on this path)
-  const under = await place('254744000001');
-  const confirmedUnder = await confirmOrderPayment(Number(under.id), { amount: 800, currency: 'KES', reference: `zz-under:${under.id}` });
-  const sUnder = await summaryOf(Number(under.id));
-  check('underpaid payment is recorded but not confirmed', !confirmedUnder && sUnder.status === 'PENDING' && sUnder.captured === 800 && sUnder.state === 'underpaid',
-    `confirmed=${confirmedUnder} ${sUnder.status} captured=${sUnder.captured} state=${sUnder.state}`);
-
-  await sql`UPDATE orders SET created_at = now() - interval '2 hours' WHERE id = ${under.id}`;
+  const L2 = Number((await place('254755000002')).id);
+  const l2 = await applyOrderEvent(L2, captured(800, `zz-l2:${L2}`), PROVIDER);
+  check('lifecycle: underpaid → PENDING/HELD, money recorded', l2.outcome === 'changed' && (await stateOf(L2)) === 'PENDING/HELD' && (await ledger(L2, 'PAYMENT_CAPTURED')).total === 800, await stateOf(L2));
+  await sql`UPDATE orders SET created_at = now() - interval '2 hours' WHERE id = ${L2}`;
   await expireUnpaidOrders();
-  const [underAfter] = await sql`SELECT status FROM orders WHERE id = ${under.id}`;
-  check('expiry leaves orders holding money for staff', underAfter.status === 'PENDING', underAfter.status);
+  check('lifecycle: expiry leaves a held order alone', (await stateOf(L2)) === 'PENDING/HELD', await stateOf(L2));
+  const LFX = Number((await place('254755000006')).id);
+  await applyOrderEvent(LFX, captured(1000, `zz-lfx:${LFX}`, 'USD'), PROVIDER);
+  check('lifecycle: wrong currency is held, not confirmed', (await stateOf(LFX)) === 'PENDING/HELD', await stateOf(LFX));
+  const heldAlerts = (await sql`SELECT count(*)::int AS n FROM in_app_notifications WHERE type = 'PAYMENT_MISMATCH' AND data->>'order_id' IN (${String(L2)}, ${String(LFX)})`)[0].n;
+  check('lifecycle: staff alerted about held payments', staffIds.length === 0 || heldAlerts >= 2, `alerts=${heldAlerts}`);
 
-  const wrongCurrency = await place('254744000002');
-  const confirmedFx = await confirmOrderPayment(Number(wrongCurrency.id), { amount: 1000, currency: 'USD', reference: `zz-fx:${wrongCurrency.id}` });
-  check('wrong currency is held, not confirmed', !confirmedFx && (await summaryOf(Number(wrongCurrency.id))).status === 'PENDING');
+  // Late payment with stock: expiry gives back stock and the discount; the payment takes both again.
+  const L3 = Number((await place('254755000003', { codeId: Number(open.id), phone: '254755000003', amount: 100 })).id);
+  await sql`UPDATE orders SET discount_code = 'ZZOPEN' WHERE id = ${L3}`;
+  const usedBefore = await used(Number(open.id));
+  const stockBefore = await stock(V);
+  const l3exp = await applyOrderEvent(L3, { type: 'expired' }, SYSTEM);
+  const afterExpiry = { state: await stateOf(L3), stock: await stock(V), used: await used(Number(open.id)) };
+  check('lifecycle: expiry → CANCELLED, stock and discount use released', l3exp.outcome === 'changed' && afterExpiry.state === 'CANCELLED/UNPAID'
+    && afterExpiry.stock === stockBefore + 1 && afterExpiry.used === usedBefore - 1, JSON.stringify(afterExpiry));
+  await guardEmails(L3);
+  const l3pay = await applyOrderEvent(L3, captured(1000, `zz-l3:${L3}`), PROVIDER);
+  const afterLate = { state: await stateOf(L3), stock: await stock(V), used: await used(Number(open.id)) };
+  check('lifecycle: late payment reinstates, re-takes stock and re-claims the discount', l3pay.outcome === 'changed' && afterLate.state === 'CONFIRMED/PAID'
+    && afterLate.stock === stockBefore && afterLate.used === usedBefore, JSON.stringify(afterLate));
 
-  const notes = await sql`SELECT count(*)::int AS n FROM in_app_notifications WHERE type = 'PAYMENT_MISMATCH' AND data->>'order_id' IN (${String(under.id)}, ${String(wrongCurrency.id)})`;
-  // Alerts go to active admins (and the duty manager when handover is on).
-  const staff = await sql`SELECT count(*)::int AS n FROM users WHERE is_active AND role = 'ADMIN'`;
-  check('staff alerted about held payments', staff[0].n === 0 || notes[0].n > 0, `alerts=${notes[0].n} staff=${staff[0].n}`);
+  // Late payment without stock: no oversell, money kept on record as a refund owed.
+  const L4 = Number((await place('254755000004')).id);
+  await applyOrderEvent(L4, { type: 'expired' }, SYSTEM);
+  await sql`UPDATE product_variants SET stock = 0 WHERE id = ${V}`;
+  const l4 = await applyOrderEvent(L4, captured(1000, `zz-l4:${L4}`), PROVIDER);
+  const refundAlerts = (await sql`SELECT count(*)::int AS n FROM in_app_notifications WHERE type = 'REFUND_REQUIRED' AND data->>'order_id' = ${String(L4)}`)[0].n;
+  check('lifecycle: late payment without stock → CANCELLED/PAID, no oversell, refund flagged', l4.outcome === 'changed' && (await stateOf(L4)) === 'CANCELLED/PAID'
+    && (await stock(V)) === 0 && (staffIds.length === 0 || refundAlerts > 0), `${await stateOf(L4)} stock=${await stock(V)} alerts=${refundAlerts}`);
+  await applyOrderEvent(L4, { type: 'refund_recorded', amount: 1000, method: 'MPESA', reason: 'zz late', idempotencyKey: `zz-l4:${L4}` }, ADMIN);
+  const [l4row] = await sql`SELECT total_amount, status, payment_status FROM orders WHERE id = ${L4}`;
+  const l4money = summariseOrderPayments(l4row, await paymentsQueries.findLedgerByOrderId(L4));
+  check('lifecycle: refund owed after a late payment settles, order stays cancelled', l4money.state === 'refunded' && (await stateOf(L4)) === 'CANCELLED/PAID',
+    `${l4money.state} ${await stateOf(L4)}`);
 
+  // Payment and expiry racing on the same order: whichever wins, stock is taken exactly once.
+  await sql`UPDATE product_variants SET stock = 5 WHERE id = ${V}`;
+  const L5 = Number((await place('254755000005')).id);
+  await guardEmails(L5);
+  await Promise.all([
+    applyOrderEvent(L5, { type: 'expired' }, SYSTEM),
+    applyOrderEvent(L5, captured(1000, `zz-l5:${L5}`), PROVIDER),
+  ]);
+  check('lifecycle: payment racing expiry → paid, stock taken exactly once', (await stateOf(L5)) === 'CONFIRMED/PAID' && (await stock(V)) === 4,
+    `${await stateOf(L5)} stock=${await stock(V)}`);
+  check('lifecycle: still no real email queued', (await realEmailsFor(L3)) + (await realEmailsFor(L5)) === 0);
+
+  // 41–48. Staff and customer actions (step 3) through the lifecycle.
+  await sql`UPDATE product_variants SET stock = 10 WHERE id = ${V}`;
+
+  const A1 = Number((await place('254766000001')).id);
+  const a1stranger = await applyOrderEvent(A1, { type: 'cancelled' }, { kind: 'customer', isOwner: false, via: 'account' });
+  const a1manager = await applyOrderEvent(A1, { type: 'cancelled' }, MANAGER);
+  check('actions: strangers and managers cannot cancel', a1stranger.outcome === 'not_allowed' && a1manager.outcome === 'not_allowed' && (await stateOf(A1)) === 'PENDING/UNPAID',
+    `${a1stranger.outcome}/${a1manager.outcome} ${await stateOf(A1)}`);
+  const a1 = await applyOrderEvent(A1, { type: 'cancelled' }, { kind: 'customer', isOwner: true, via: 'account' });
+  check('actions: owner cancels unpaid order, stock returned', a1.outcome === 'changed' && (await stateOf(A1)) === 'CANCELLED/UNPAID' && (await stock(V)) === 10, `${await stateOf(A1)} stock=${await stock(V)}`);
+
+  const A2 = Number((await place('254766000002')).id);
+  await applyOrderEvent(A2, captured(700, `zz-a2:${A2}`), PROVIDER);
+  const a2customer = await applyOrderEvent(A2, { type: 'cancelled' }, { kind: 'customer', isOwner: true, via: 'account' });
+  await guardEmails(A2);
+  const a2 = await applyOrderEvent(A2, { type: 'marked_paid' }, ADMIN);
+  check('actions: customer cannot cancel a held order; admin accepts it without a second capture', a2customer.outcome === 'not_allowed' && a2.outcome === 'changed'
+    && (await stateOf(A2)) === 'CONFIRMED/PAID' && (await ledger(A2, 'PAYMENT_CAPTURED')).n === 1, `${a2customer.outcome} ${await stateOf(A2)} captures=${(await ledger(A2, 'PAYMENT_CAPTURED')).n}`);
+  const a2cancel = await applyOrderEvent(A2, { type: 'cancelled' }, ADMIN);
+  check('actions: paid order cannot be cancelled (refund instead)', a2cancel.outcome === 'not_allowed' && a2cancel.reason === 'refund_instead');
+  const a2delivered = await applyOrderEvent(A2, { type: 'delivered' }, { kind: 'customer', isOwner: true, via: 'received_link' });
+  check('actions: customer confirms receipt via email link', a2delivered.outcome === 'changed' && (await stateOf(A2)) === 'DELIVERED/PAID', await stateOf(A2));
+
+  const A3 = Number((await place('254766000003')).id);
+  await applyOrderEvent(A3, captured(500, `zz-a3:${A3}`), PROVIDER);
+  const stockBeforeA3 = await stock(V);
+  const a3 = await applyOrderEvent(A3, { type: 'cancelled', reason: 'zz short payment' }, ADMIN);
+  check('actions: admin cancels a held order → refund owed, stock returned', a3.outcome === 'changed' && (await stateOf(A3)) === 'CANCELLED/HELD' && (await stock(V)) === stockBeforeA3 + 1,
+    `${await stateOf(A3)} stock ${stockBeforeA3}→${await stock(V)}`);
+
+  const A4 = Number((await place('254766000004')).id);
+  await guardEmails(A4);
+  await applyOrderEvent(A4, captured(1000, `zz-a4:${A4}`), PROVIDER);
+  await applyOrderEvent(A4, { type: 'payment_reversed', reference: `zz-a4-rev:${A4}` }, PROVIDER);
+  const a4wo = await applyOrderEvent(A4, { type: 'written_off', note: 'zz goods delivered, chargeback lost' }, ADMIN);
+  const woAudit = (await sql`SELECT count(*)::int AS n FROM audit_logs WHERE entity_type = 'order' AND entity_id = ${String(A4)} AND action = 'ORDER_REVERSAL_WRITTEN_OFF'`)[0].n;
+  check('actions: write-off keeps the order reversed and audits the note', a4wo.outcome === 'unchanged' && (await stateOf(A4)) === 'CONFIRMED/REVERSED' && woAudit === 1, `${await stateOf(A4)} audits=${woAudit}`);
+  const stockBeforeA4 = await stock(V);
+  await applyOrderEvent(A4, { type: 'cancelled' }, ADMIN);
+  check('actions: cancel after reversal restocks', (await stateOf(A4)) === 'CANCELLED/REVERSED' && (await stock(V)) === stockBeforeA4 + 1, `${await stateOf(A4)} stock ${stockBeforeA4}→${await stock(V)}`);
+  check('actions: no real email queued', (await realEmailsFor(A2)) + (await realEmailsFor(A4)) === 0);
+
+  // 49–56. Refunds through the lifecycle (step 4).
+  const refund = (amount: number, key: string) => ({ type: 'refund_recorded' as const, amount, method: 'MPESA', reason: 'zz test', idempotencyKey: key });
+  const moneyOf = async (id: number) => {
+    const [o] = await sql`SELECT total_amount, status, payment_status FROM orders WHERE id = ${id}`;
+    return summariseOrderPayments(o, await paymentsQueries.findLedgerByOrderId(id));
+  };
+  await sql`UPDATE product_variants SET stock = 10 WHERE id = ${V}`;
+
+  const F1 = Number((await place('254777000001')).id);
+  await guardEmails(F1);
+  await applyOrderEvent(F1, captured(1000, `zz-f1:${F1}`), PROVIDER);
+  const f1a = await applyOrderEvent(F1, refund(400, `zz-f1-a:${F1}`), ADMIN);
+  const f1again = await applyOrderEvent(F1, refund(400, `zz-f1-a:${F1}`), ADMIN);
+  check('refunds: partial refund recorded once, even if submitted twice', f1a.outcome === 'unchanged' && !f1a.noop && f1again.outcome === 'unchanged' && f1again.noop
+    && (await moneyOf(F1)).refunded === 400 && (await stateOf(F1)) === 'CONFIRMED/PAID', `refunded=${(await moneyOf(F1)).refunded} ${await stateOf(F1)}`);
+  const f1over = await applyOrderEvent(F1, refund(700, `zz-f1-b:${F1}`), ADMIN);
+  check('refunds: cannot refund more than remains', f1over.outcome === 'not_allowed' && f1over.reason === 'exceeds_refundable' && f1over.message.includes('600.00'),
+    f1over.outcome === 'not_allowed' ? f1over.message : f1over.outcome);
+  const f1race = await Promise.all([
+    applyOrderEvent(F1, refund(600, `zz-f1-c:${F1}`), ADMIN),
+    applyOrderEvent(F1, refund(600, `zz-f1-d:${F1}`), ADMIN),
+  ]);
+  check('refunds: two admins at once → only one succeeds, order REFUNDED', f1race.filter((r) => r.outcome === 'changed').length === 1
+    && f1race.filter((r) => r.outcome === 'not_allowed').length === 1 && (await moneyOf(F1)).net === 0 && (await stateOf(F1)) === 'REFUNDED/PAID',
+    `${f1race.map((r) => r.outcome)} net=${(await moneyOf(F1)).net} ${await stateOf(F1)}`);
+  check('refunds: managers cannot refund', (await applyOrderEvent(F1, refund(1, `zz-f1-m:${F1}`), MANAGER)).outcome === 'not_allowed');
+
+  const F2 = Number((await place('254777000002')).id);
+  await applyOrderEvent(F2, captured(600, `zz-f2:${F2}`), PROVIDER);
+  const f2pending = await applyOrderEvent(F2, refund(600, `zz-f2-a:${F2}`), ADMIN);
+  await applyOrderEvent(F2, { type: 'cancelled' }, ADMIN);
+  const f2 = await applyOrderEvent(F2, refund(600, `zz-f2-b:${F2}`), ADMIN);
+  check('refunds: held order is cancelled first, then the refund owed settles and it stays cancelled', f2pending.outcome === 'not_allowed' && f2.outcome === 'unchanged'
+    && (await stateOf(F2)) === 'CANCELLED/HELD' && (await moneyOf(F2)).state === 'refunded', `${f2pending.outcome} ${await stateOf(F2)} ${(await moneyOf(F2)).state}`);
+
+  const F3 = Number((await place('254777000003')).id);
+  await guardEmails(F3);
+  await applyOrderEvent(F3, captured(1000, `zz-f3:${F3}`), PROVIDER);
+  await applyOrderEvent(F3, refund(300, `zz-f3-a:${F3}`), ADMIN);
+  await applyOrderEvent(F3, { type: 'payment_reversed', reference: `zz-f3-rev:${F3}` }, PROVIDER);
+  const f3money = await moneyOf(F3);
+  const f3refund = await applyOrderEvent(F3, refund(100, `zz-f3-b:${F3}`), ADMIN);
+  check('refunds: reversal after a partial refund takes back the rest; nothing more can be refunded', f3money.reversed === 700 && f3money.net === 0
+    && f3money.state === 'reversed' && f3refund.outcome === 'not_allowed', JSON.stringify({ reversed: f3money.reversed, net: f3money.net, state: f3money.state, refund: f3refund.outcome }));
+  check('refunds: no real email queued', (await realEmailsFor(F1)) + (await realEmailsFor(F3)) === 0);
   // JSONB writes must store objects, not double-encoded strings, so SQL JSON operators work.
   const testOrderIds = (await sql`SELECT DISTINCT order_id FROM order_items WHERE variant_id = ${V}`).map((r: any) => Number(r.order_id));
   const [jsonTypes] = await sql`
@@ -212,7 +380,7 @@ try {
       (SELECT array_agg(DISTINCT jsonb_typeof(after_state)) FROM audit_logs WHERE entity_type = 'order' AND entity_id IN ${sql(testOrderIds.map(String))} AND after_state IS NOT NULL) AS audit`;
   const onlyObjects = (types: string[] | null) => !types || types.every((t) => t === 'object');
   check('jsonb columns store objects', ['shipping', 'ledger', 'notifications', 'audit'].every((k) => onlyObjects(jsonTypes[k])), JSON.stringify(jsonTypes));
-  check('shipping_address readable with ->>', (await sql`SELECT shipping_address->>'full_name' AS n FROM orders WHERE id = ${under.id}`)[0].n === 'ZZ Test');
+  check('shipping_address readable with ->>', (await sql`SELECT shipping_address->>'full_name' AS n FROM orders WHERE id = ${L2}`)[0].n === 'ZZ Test');
 } catch (err) {
   check('script error', false, String(err));
 } finally {
@@ -228,10 +396,13 @@ try {
   }
   await sql`DELETE FROM inventory_movements WHERE variant_id = ${V}`;
   await sql`DELETE FROM discount_codes WHERE code IN ('ZZLIMIT1', 'ZZOPEN')`;
+  const outboxIds = (await sql`SELECT id FROM email_outbox WHERE recipient LIKE 'zz-outbox-%@example.invalid'`).map((r: any) => String(r.id));
+  if (outboxIds.length) await sql`DELETE FROM in_app_notifications WHERE type = 'EMAIL_FAILED' AND data->>'outbox_id' IN ${sql(outboxIds)}`;
+  await sql`DELETE FROM email_outbox WHERE recipient LIKE 'zz-outbox-%@example.invalid' OR dedupe_key = 'zz-dedupe-key'`;
   await sql`DELETE FROM products WHERE id = ${PRODUCT}`;
   await sql`DELETE FROM categories WHERE id = ${cat.id}`;
   for (const [name, ok, detail] of results) console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${ok ? '' : `  — ${detail}`}`);
-  const leftovers = (await sql`SELECT (SELECT count(*) FROM products WHERE slug LIKE 'zz-test%')::int AS p, (SELECT count(*) FROM discount_codes WHERE code LIKE 'ZZ%')::int AS d`)[0];
+  const leftovers = (await sql`SELECT (SELECT count(*) FROM products WHERE slug LIKE 'zz-test%')::int AS p, (SELECT count(*) FROM discount_codes WHERE code LIKE 'ZZ%')::int AS d, (SELECT count(*) FROM email_outbox WHERE recipient LIKE 'zz-outbox-%')::int AS e`)[0];
   console.log('cleanup leftovers:', leftovers);
   await sql.end();
 }

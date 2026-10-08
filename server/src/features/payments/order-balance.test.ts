@@ -72,6 +72,20 @@ describe('summariseOrderPayments', () => {
         expect(s).toMatchObject({ net: 8500, fees: 297.5, net_after_fees: 8202.5, refundable: 8500, state: 'paid' });
     });
 
+    test('a reversal is money out: nothing left to refund', () => {
+        const s = summariseOrderPayments(order({ payment_status: 'REVERSED' }), [capture(8500), { entry_type: 'PAYMENT_REVERSED', direction: 'DEBIT', amount: 8500 }]);
+        expect(s).toMatchObject({ captured: 8500, reversed: 8500, net: 0, refundable: 0, state: 'reversed' });
+    });
+
+    test('a reversal after a partial refund takes back the rest', () => {
+        const s = summariseOrderPayments(order({ payment_status: 'REVERSED' }), [
+            capture(8500),
+            { entry_type: 'REFUND_ISSUED', direction: 'DEBIT', amount: 2000 },
+            { entry_type: 'PAYMENT_REVERSED', direction: 'DEBIT', amount: 6500 },
+        ]);
+        expect(s).toMatchObject({ refunded: 2000, reversed: 6500, net: 0, state: 'reversed' });
+    });
+
     test('unknown entry types are ignored', () => {
         expect(summariseOrderPayments(order(), [capture(8500), { entry_type: 'SOMETHING_ELSE', direction: 'DEBIT', amount: 99 }]).net).toBe(8500);
     });

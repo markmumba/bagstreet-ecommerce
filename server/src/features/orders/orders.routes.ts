@@ -20,6 +20,7 @@ ordersRoutes.post('/:id/cancel', requireAuth, ordersHandlers.cancel);
 // Status/payment changes are admin-only. Managers can view orders.
 ordersRoutes.patch('/:id/status', requireAuth, requireRole(USER_ROLE.ADMIN), ordersHandlers.updateStatus);
 ordersRoutes.patch('/:id/confirm-payment', requireAuth, requireRole(USER_ROLE.ADMIN), ordersHandlers.confirmPayment);
+ordersRoutes.post('/:id/write-off', requireAuth, requireRole(USER_ROLE.ADMIN), ordersHandlers.writeOff);
 ordersRoutes.post('/:id/refunds', requireAuth, requireRole(USER_ROLE.ADMIN), ordersHandlers.recordRefund);
 
 export default ordersRoutes;

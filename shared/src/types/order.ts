@@ -16,9 +16,26 @@ export const PAYMENT_STATUS = {
     UNPAID: 'UNPAID',
     PAID: 'PAID',
     FAILED: 'FAILED',
+    /** Money received that doesn't match what's owed (too little, wrong currency): waits for staff. */
+    HELD: 'HELD',
+    /** Captured money taken back by the provider (e.g. chargeback): waits for staff. */
+    REVERSED: 'REVERSED',
 } as const;
 
 export type PaymentStatus = typeof PAYMENT_STATUS[keyof typeof PAYMENT_STATUS];
+
+/** What an admin can do to an order right now, as decided by the server's Order lifecycle. */
+export const ORDER_ACTION = {
+    CANCEL: 'cancel',
+    MARK_PAID: 'mark_paid',
+    MARK_DELIVERED: 'mark_delivered',
+    /** Accept a payment reversal as lost (needs a note). */
+    WRITE_OFF: 'write_off',
+    /** Record money returned to the customer (the payments panel offers it; amounts are checked there). */
+    REFUND: 'refund',
+} as const;
+
+export type OrderAction = typeof ORDER_ACTION[keyof typeof ORDER_ACTION];
 
 export const ORDER_SOURCE = {
     ONLINE: 'ONLINE',
@@ -138,6 +155,8 @@ export interface OrderResponse {
     payment_reference?: string | null;
     /** Returned when an online order is placed: lets a guest check or retry payment for it. */
     access_token?: string;
+    /** Admin actions the order allows in its current state (empty for managers' purposes too — they can't act). */
+    available_actions?: OrderAction[];
     created_at: string;
     updated_at: string;
 }
@@ -223,6 +242,7 @@ export type RefundMethod = typeof REFUND_METHOD[keyof typeof REFUND_METHOD];
  * - `partially_refunded` / `refunded`: some / all of it given back
  * - `refund_owed`: order cancelled but money still held (e.g. paid after it expired)
  * - `underpaid` / `overpaid`: received less / more than the order total
+ * - `reversed`: the payment provider took the money back (chargeback / reversal)
  */
 export type OrderPaymentState =
     | 'unpaid'
@@ -231,13 +251,16 @@ export type OrderPaymentState =
     | 'refunded'
     | 'refund_owed'
     | 'underpaid'
-    | 'overpaid';
+    | 'overpaid'
+    | 'reversed';
 
 export interface OrderPaymentSummary {
     order_total: number;
     captured: number;
     refunded: number;
-    /** captured − refunded (what the customer has paid and not had back) */
+    /** Taken back by the payment provider (chargebacks / reversals). */
+    reversed: number;
+    /** captured − refunded − reversed (what the customer has paid and not had back) */
     net: number;
     /** Payment provider fees recorded from statements. Not deducted from what can be refunded. */
     fees: number;
@@ -283,7 +306,8 @@ export type ReconciliationIssueKind =
     | 'held_for_review'
     | 'amount_mismatch'
     | 'refund_owed'
-    | 'marked_paid_manually';
+    | 'marked_paid_manually'
+    | 'payment_reversed';
 
 export interface ReconciliationIssue {
     kind: ReconciliationIssueKind;
@@ -300,6 +324,8 @@ export interface ReconciliationReport {
     totals: {
         captured: number;
         refunded: number;
+        /** Taken back by the payment provider. Money out, like refunds. */
+        reversed: number;
         fees: number;
         net: number;
         net_after_fees: number;

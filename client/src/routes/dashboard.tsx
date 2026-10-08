@@ -18,6 +18,8 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { apiClient } from '@/services/api';
 import { ORDER_STATUS, PAYMENT_STATUS } from 'shared';
+import type { PaymentStatus } from 'shared';
+import { PAYMENT_STATUS_STYLES } from '@/components/orders/PaymentStatusChip';
 import { RevenueChart } from '@/components/dashboard/RevenueChart';
 import { OrderStatusChart } from '@/components/dashboard/OrderStatusChart';
 import { cn } from '@/lib/utils';
@@ -134,7 +136,7 @@ function statusVariant(status: string): React.ComponentProps<typeof Badge>['vari
 
 function paymentVariant(status: string): React.ComponentProps<typeof Badge>['variant'] {
   if (status === PAYMENT_STATUS.PAID) return 'success';
-  if (status === PAYMENT_STATUS.FAILED) return 'danger';
+  if (status === PAYMENT_STATUS.FAILED || status === PAYMENT_STATUS.REVERSED) return 'danger';
   return 'warning';
 }
 
@@ -236,7 +238,7 @@ function OrderQueueCard({
                     <p className="truncate text-sm font-medium">{order.order_number ?? `#${order.id.padStart(6, '0')}`}</p>
                     <Badge variant={statusVariant(order.status)}>{statusLabel(order.status)}</Badge>
                     <Badge variant={paymentVariant(order.payment_status)}>
-                      {order.payment_status.toLowerCase()}
+                      {(PAYMENT_STATUS_STYLES[order.payment_status as PaymentStatus]?.label ?? order.payment_status).toLowerCase()}
                     </Badge>
                   </div>
                   <p className="mt-1 truncate text-sm text-muted-foreground">

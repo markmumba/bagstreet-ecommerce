@@ -1,13 +1,17 @@
 import { sql } from '../../lib/db';
+import { recordDiscountUsage } from './discount-usage';
+import { assertRecoveryCheckoutUnpaid, attachRecoveryOrder } from '../cart-recovery/recovery.queries';
 import { toJsonbParam } from '../../lib/json-column';
 import { adjustStock } from '../../lib/inventory';
-import { ORDER_SOURCE, ORDER_STATUS, PAYMENT_STATUS } from 'shared/dist';
+import { ORDER_SOURCE, ORDER_STATUS, PAYMENT_STATUS, LEGAL_POLICIES } from 'shared/dist';
 import type { Order, OrderSource, OrderStatus, PaymentStatus, ShippingAddress } from 'shared/dist';
 import { randomBytes } from 'node:crypto';
-import { BadRequestError, TooManyRequestsError } from '../../lib/errors';
+import { TooManyRequestsError } from '../../lib/errors';
 import { orderLimitViolation, type CustomerOrderCounts } from './order-limits';
+import { enqueueEmail } from '../../services/email-outbox';
+import type { OrderAgreementSnapshot } from '../compliance/order-agreement';
 
-interface OrderRow extends Omit<Order, 'id' | 'created_at' | 'updated_at'> {
+export interface OrderRow extends Omit<Order, 'id' | 'created_at' | 'updated_at'> {
     id: number;
     public_id: string;
     order_number: string;
@@ -18,7 +22,7 @@ interface OrderRow extends Omit<Order, 'id' | 'created_at' | 'updated_at'> {
     updated_at: string;
 }
 
-interface OrderItemRow {
+export interface OrderItemRow {
     id: number;
     order_id: number;
     product_id: number;
@@ -73,45 +77,6 @@ async function enforceCustomerOrderLimits(tx: typeof sql, phone: string, email: 
     `;
     const violation = orderLimitViolation(counts ?? { openUnpaid: 0, lastHour: 0 });
     if (violation) throw new TooManyRequestsError(violation);
-}
-
-/**
- * Claims one use of a discount code for an order. Runs inside the order transaction and locks the
- * code row, so concurrent checkouts can't exceed `usage_limit` or reuse a code for the same phone.
- */
-async function recordDiscountUsage(
-    tx: typeof sql,
-    orderId: number,
-    usage: { codeId: number; phone: string; amount: number },
-) {
-    const [code] = await tx<{ id: number; is_active: boolean; usage_limit: number | null; used_count: number }[]>`
-        SELECT id, is_active, usage_limit, used_count FROM discount_codes WHERE id = ${usage.codeId} FOR UPDATE
-    `;
-    if (!code || !code.is_active) throw new BadRequestError('Discount code is not active');
-    if (code.usage_limit != null && code.used_count >= code.usage_limit) {
-        throw new BadRequestError('Discount code usage limit has been reached');
-    }
-
-    const [alreadyUsed] = await tx`
-        SELECT 1 FROM discount_code_usages WHERE code_id = ${usage.codeId} AND phone = ${usage.phone} LIMIT 1
-    `;
-    if (alreadyUsed) throw new BadRequestError('This phone number has already used this code');
-
-    await tx`
-        INSERT INTO discount_code_usages (code_id, order_id, phone, discount_amount)
-        VALUES (${usage.codeId}, ${orderId}, ${usage.phone}, ${usage.amount})
-    `;
-    await tx`UPDATE discount_codes SET used_count = used_count + 1 WHERE id = ${usage.codeId}`;
-}
-
-/** Gives back the discount use held by a cancelled order so the customer can use the code again. */
-async function releaseDiscountUsage(tx: typeof sql, orderId: number) {
-    const released = await tx<{ code_id: number }[]>`
-        DELETE FROM discount_code_usages WHERE order_id = ${orderId} RETURNING code_id
-    `;
-    for (const row of released) {
-        await tx`UPDATE discount_codes SET used_count = GREATEST(used_count - 1, 0) WHERE id = ${row.code_id}`;
-    }
 }
 
 export const ordersQueries = {
@@ -222,6 +187,9 @@ export const ordersQueries = {
         customerPhone: string,
         customerEmail: string | null,
         options?: {
+            recoverySessionHash?: string;
+            recoverySourceOrderId?: number;
+            policyAcceptance?: { accepted: true; version: string };
             status?: OrderStatus;
             paymentStatus?: PaymentStatus;
             orderSource?: OrderSource;
@@ -246,6 +214,14 @@ export const ordersQueries = {
         }
     ): Promise<OrderRow> => {
         return await sql.begin(async (tx: typeof sql) => {
+            // Serialise account erasure with checkout so an already-authenticated request cannot recreate account data.
+            if (userId != null) {
+                const [active] = await tx`SELECT id FROM users WHERE id = ${userId} AND is_active = true FOR UPDATE`;
+                if (!active) throw new Error('Active customer account not found');
+            }
+            if (options?.recoverySourceOrderId) {
+                await assertRecoveryCheckoutUnpaid(tx, options.recoverySourceOrderId);
+            }
             if (options?.customerLimits) {
                 await enforceCustomerOrderLimits(tx, options.customerLimits.phone, options.customerLimits.email);
             }
@@ -291,6 +267,19 @@ export const ordersQueries = {
             `;
 
             if (!order) throw new Error('Failed to create order');
+            if (options?.policyAcceptance) {
+                const names = items.length ? await tx<{ id: number; name: string }[]>`SELECT id, name FROM products WHERE id IN ${tx(items.map(item => item.product_id))}` : [];
+                const snapshot: OrderAgreementSnapshot = { policies: LEGAL_POLICIES, order: {
+                    number: order.order_number, submitted_at: new Date(order.created_at).toISOString(), customer: customerName, email: customerEmail,
+                    address: { ...shippingAddress }, notes: notes ?? null, total: totalAmount, shipping: shippingCost, discount: discountAmount,
+                    items: items.map(item => ({ name: names.find(product => Number(product.id) === item.product_id)?.name ?? item.variant_sku,
+                        sku: item.variant_sku, size: item.variant_size, color: item.variant_color, quantity: item.quantity, unit_price: item.unit_price })),
+                } };
+                await tx`INSERT INTO order_policy_acceptances(order_id, policy_version, policy_snapshot)
+                    VALUES (${order.id}, ${options.policyAcceptance.version}, ${toJsonbParam(snapshot)}::jsonb)`;
+                if (customerEmail) await enqueueEmail({ type: 'ORDER_AGREEMENT', to: customerEmail, orderId: Number(order.id) },
+                    { tx, dedupeKey: `order-agreement:${order.id}` });
+            }
 
             for (const item of items) {
                 const subtotal = item.unit_price * item.quantity;
@@ -315,6 +304,10 @@ export const ordersQueries = {
 
             if (options?.discountUsage) {
                 await recordDiscountUsage(tx, order.id, options.discountUsage);
+            }
+
+            if (options?.recoverySessionHash && customerEmail) {
+                await attachRecoveryOrder(tx, options.recoverySessionHash, customerEmail, Number(order.id));
             }
 
             if (options?.payment) {
@@ -385,25 +378,6 @@ export const ordersQueries = {
         }) as unknown as Promise<OrderRow>;
     },
 
-    updateStatus: async (id: number, status: OrderStatus): Promise<OrderRow | undefined> => {
-        const [order] = await sql<OrderRow[]>`
-            UPDATE orders SET status = ${status} WHERE id = ${id} RETURNING *
-        `;
-        return order;
-    },
-
-    restoreStock: async (orderId: number): Promise<void> => {
-        await sql.begin(async (tx: typeof sql) => {
-            const orderItems = await tx<{ variant_id: number; quantity: number }[]>`
-                SELECT variant_id, quantity FROM order_items
-                WHERE order_id = ${orderId} AND variant_id IS NOT NULL
-            `;
-            for (const item of orderItems) {
-                await adjustStock(tx, item.variant_id, item.quantity, 'ORDER_CANCELLED', orderId, null, null);
-            }
-        });
-    },
-
     /** Online orders still unpaid after the payment window. */
     findExpiredUnpaid: async (createdBefore: Date, limit = 50): Promise<{ id: number; created_at: string }[]> => {
         return await sql<{ id: number; created_at: string }[]>`
@@ -422,71 +396,13 @@ export const ordersQueries = {
         `;
     },
 
-    /**
-     * Cancels an unpaid order and releases its stock and discount use in one transaction.
-     * The conditional UPDATE means only one caller (job, admin, customer) can win; returns false
-     * if the order was paid or changed in the meantime.
-     */
-    cancelUnpaid: async (orderId: number): Promise<boolean> => {
-        return await sql.begin(async (tx: typeof sql) => {
-            const [cancelled] = await tx<{ id: number }[]>`
-                UPDATE orders SET status = ${ORDER_STATUS.CANCELLED}, updated_at = CURRENT_TIMESTAMP
-                WHERE id = ${orderId}
-                  AND status = ${ORDER_STATUS.PENDING}
-                  AND payment_status <> ${PAYMENT_STATUS.PAID}
-                RETURNING id
-            `;
-            if (!cancelled) return false;
-
-            const orderItems = await tx<{ variant_id: number; quantity: number }[]>`
-                SELECT variant_id, quantity FROM order_items
-                WHERE order_id = ${orderId} AND variant_id IS NOT NULL
-            `;
-            for (const item of orderItems) {
-                await adjustStock(tx, item.variant_id, item.quantity, 'ORDER_CANCELLED', orderId, 'Unpaid order expired', null);
-            }
-            await releaseDiscountUsage(tx, orderId);
-            return true;
-        }) as unknown as Promise<boolean>;
-    },
-
-    /**
-     * A payment arrived for an order that had already expired. Re-takes its stock if every item is
-     * still available and puts it back to PENDING (the caller then marks it paid). Returns false —
-     * changing nothing — when stock has run out, so staff can refund instead of overselling.
-     */
-    reinstateCancelled: async (orderId: number): Promise<boolean> => {
-        return await sql.begin(async (tx: typeof sql) => {
-            const [order] = await tx<{ id: number }[]>`
-                SELECT id FROM orders WHERE id = ${orderId} AND status = ${ORDER_STATUS.CANCELLED} FOR UPDATE
-            `;
-            if (!order) return false;
-
-            const orderItems = await tx<{ variant_id: number; quantity: number }[]>`
-                SELECT variant_id, quantity FROM order_items
-                WHERE order_id = ${orderId} AND variant_id IS NOT NULL
-            `;
-            for (const item of orderItems) {
-                const [variant] = await tx<{ stock: number }[]>`
-                    SELECT stock FROM product_variants WHERE id = ${item.variant_id} FOR UPDATE
-                `;
-                if (!variant || variant.stock < item.quantity) return false;
-            }
-            for (const item of orderItems) {
-                await adjustStock(tx, item.variant_id, -item.quantity, 'ORDER_PLACED', orderId, 'Reinstated after late payment', null);
-            }
-            await tx`UPDATE orders SET status = ${ORDER_STATUS.PENDING}, updated_at = CURRENT_TIMESTAMP WHERE id = ${orderId}`;
-            return true;
-        }) as unknown as Promise<boolean>;
-    },
-
     getStats: async (): Promise<{ dailyRevenue: { date: string; revenue: number }[]; statusCounts: { status: string; count: number }[] }> => {
         const daily = await sql<{ date: string; revenue: string }[]>`
             SELECT
                 TO_CHAR(created_at::date, 'YYYY-MM-DD') AS date,
                 COALESCE(SUM(CASE WHEN direction = 'CREDIT' THEN amount ELSE -amount END), 0) AS revenue
             FROM payment_ledger_entries
-            WHERE entry_type IN ('PAYMENT_CAPTURED', 'REFUND_ISSUED')
+            WHERE entry_type IN ('PAYMENT_CAPTURED', 'REFUND_ISSUED', 'PAYMENT_REVERSED')
               AND created_at >= NOW() - INTERVAL '30 days'
             GROUP BY created_at::date
             ORDER BY created_at::date ASC

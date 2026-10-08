@@ -6,7 +6,9 @@ import { success } from '@server/lib/response';
 import { BadRequestError, ForbiddenError, NotFoundError } from '@server/lib/errors';
 import { ORDER_STATUS, PAYMENT_STATUS, USER_ROLE } from "shared/dist";
 import { env } from '../../config/env';
-import { confirmOrderPayment, notifyPaymentFailed } from '../../services/order-payments';
+import { applyOrderEvent, orderStateOf } from '../orders/lifecycle/order-lifecycle';
+import { summariseOrderPayments } from './order-balance';
+import { customerView, type Actor, type OrderEvent } from '../orders/lifecycle/transitions';
 import type { AuthUser } from '@server/lib/hono';
 import { getOptionalUser } from '@server/lib/hono';
 import { getPesapalTransactionStatus, submitPesapalOrder } from '../../services/pesapal';
@@ -51,18 +53,43 @@ function orderPaymentSummary(order: any) {
     };
 }
 
-/**
- * After Pesapal says COMPLETED, what the customer should be told depends on what we did with it:
- * confirmed → PAID; amount held for review → REVIEW; order had expired → EXPIRED (refund owed).
- */
-async function statusAfterCompletedPayment(orderId: number): Promise<string> {
-    const order = await ordersQueries.findById(orderId);
-    if (!order) return ORDER_STATUS.PENDING;
-    if (order.status === ORDER_STATUS.CANCELLED) return 'EXPIRED';
-    if ((order as any).payment_status === PAYMENT_STATUS.PAID) return PAYMENT_STATUS.PAID;
-    return 'REVIEW';
+const PAYMENT_PROVIDER: Actor = { kind: 'payment_provider' };
+
+/** What the customer's payment screen should show for an order right now. */
+function paymentScreenStatus(order: { id: number | string; status: string; payment_status: string }): string {
+    return customerView(orderStateOf(order)).status;
 }
 
+type PesapalStatus = Awaited<ReturnType<typeof getPesapalTransactionStatus>>;
+type ProviderTransaction = NonNullable<Awaited<ReturnType<typeof paymentsQueries.findProviderTransactionByOrderId>>>;
+
+/** Pesapal's report as an Order event, or null while the payment is still in progress. */
+function pesapalOrderEvent(tx: ProviderTransaction, status: PesapalStatus, description: string | undefined, eventKey: string): OrderEvent | null {
+    switch (description) {
+        case 'COMPLETED':
+            return {
+                type: 'payment_captured',
+                amount: status.amount && status.amount > 0 ? status.amount : parseFloat(tx.amount as any),
+                currency: status.currency ?? tx.currency,
+                reference: status.confirmation_code
+                    ? `pesapal:${status.confirmation_code}`
+                    : `pesapal:${tx.provider_reference}:completed`,
+                transactionId: tx.id,
+            };
+        case 'REVERSED':
+            return { type: 'payment_reversed', reference: `pesapal:${tx.provider_reference}:reversed` };
+        case 'FAILED':
+        case 'INVALID':
+            return { type: 'payment_failed', attemptReference: eventKey, reason: status.description ?? null };
+        default:
+            return null;
+    }
+}
+
+/**
+ * Asks Pesapal for the payment's status and applies it to the order through the Order lifecycle.
+ * Safe to call repeatedly (IPN, redirect, status polling, expiry job): repeats change nothing.
+ */
 export async function processPesapalTransaction(tx: Awaited<ReturnType<typeof paymentsQueries.findProviderTransactionByOrderId>>) {
     if (!tx?.provider_reference) {
         return { status: ORDER_STATUS.PENDING, order_id: tx?.order_id };
@@ -75,6 +102,7 @@ export async function processPesapalTransaction(tx: Awaited<ReturnType<typeof pa
         description || 'UNKNOWN',
         status.confirmation_code || status.status_code || status.description || 'NO_DETAIL',
     ].join(':');
+    // Kept as a record of every distinct report from Pesapal; the lifecycle handles repeats itself.
     const isNewEvent = await paymentsQueries.createProcessedPaymentEvent({
         provider: tx.provider,
         event_key: eventKey,
@@ -82,35 +110,23 @@ export async function processPesapalTransaction(tx: Awaited<ReturnType<typeof pa
         raw_payload: status.raw,
     });
 
-    if (!isNewEvent) {
-        return {
-            status: description === 'COMPLETED'
-                ? await statusAfterCompletedPayment(tx.order_id)
-                : description === 'FAILED' || description === 'REVERSED' || description === 'INVALID'
-                    ? PAYMENT_STATUS.FAILED
-                    : ORDER_STATUS.PENDING,
-            order_id: tx.order_id,
-            receipt_number: status.confirmation_code,
-            payment_method: status.payment_method,
-        };
-    }
-
-    if (description === 'COMPLETED') {
+    if (isNewEvent) {
         await paymentsQueries.updateProviderTransaction(tx.id, {
-            status: 'COMPLETED',
+            status: description === 'COMPLETED' ? 'COMPLETED'
+                : description === 'REVERSED' ? 'REVERSED'
+                : description === 'FAILED' || description === 'INVALID' ? 'FAILED'
+                : 'PENDING',
             payment_method: status.payment_method ?? null,
             confirmation_code: status.confirmation_code ?? null,
             result_desc: status.description ?? null,
             raw_payload: status.raw,
         });
-        const confirmed = await confirmOrderPayment(tx.order_id, {
-            transactionId: tx.id,
-            amount: status.amount && status.amount > 0 ? status.amount : parseFloat(tx.amount),
-            currency: status.currency ?? tx.currency,
-            reference: status.confirmation_code
-                ? `pesapal:${status.confirmation_code}`
-                : `pesapal:${tx.provider_reference}:completed`,
-            metadata: {
+    }
+
+    const event = pesapalOrderEvent(tx, status, description, eventKey);
+    const order = event
+        ? (await applyOrderEvent(tx.order_id, event, PAYMENT_PROVIDER, {
+            paymentMetadata: {
                 provider: tx.provider,
                 provider_reference: tx.provider_reference,
                 merchant_reference: tx.merchant_reference,
@@ -118,37 +134,15 @@ export async function processPesapalTransaction(tx: Awaited<ReturnType<typeof pa
                 payment_account: status.payment_account,
                 event_key: eventKey,
             },
-        });
-        return {
-            // Not confirmed means the amount was wrong (held for review) or the order had expired.
-            status: confirmed ? PAYMENT_STATUS.PAID : await statusAfterCompletedPayment(tx.order_id),
-            order_id: tx.order_id,
-            receipt_number: status.confirmation_code,
-            payment_method: status.payment_method,
-        };
-    }
+        })).order
+        : await ordersQueries.findById(tx.order_id);
 
-    if (description === 'FAILED' || description === 'REVERSED' || description === 'INVALID') {
-        await paymentsQueries.updateProviderTransaction(tx.id, {
-            status: description === 'REVERSED' ? 'REVERSED' : 'FAILED',
-            payment_method: status.payment_method ?? null,
-            confirmation_code: status.confirmation_code ?? null,
-            result_desc: status.description ?? null,
-            raw_payload: status.raw,
-        });
-        await paymentsQueries.markOrderFailed(tx.order_id);
-        await notifyPaymentFailed(tx.order_id, status.description);
-        return { status: PAYMENT_STATUS.FAILED, order_id: tx.order_id };
-    }
-
-    await paymentsQueries.updateProviderTransaction(tx.id, {
-        status: 'PENDING',
-        payment_method: status.payment_method ?? null,
-        confirmation_code: status.confirmation_code ?? null,
-        result_desc: status.description ?? null,
-        raw_payload: status.raw,
-    });
-    return { status: ORDER_STATUS.PENDING, order_id: tx.order_id };
+    return {
+        status: order ? paymentScreenStatus(order as any) : ORDER_STATUS.PENDING,
+        order_id: tx.order_id,
+        receipt_number: status.confirmation_code,
+        payment_method: status.payment_method,
+    };
 }
 
 async function readPesapalNotification(c: AppContext) {
@@ -183,11 +177,16 @@ export const paymentsHandlers = {
         const order = await findOrder(order_id, order_ref);
         if (!order) throw new NotFoundError('Order', order_ref ?? order_id);
         if (!canAccessOrder(authUser, order, phone, email, token)) throw new ForbiddenError();
-        if ((order as any).payment_status === PAYMENT_STATUS.PAID) {
+        // Only an order still waiting for payment can be paid; anything else would charge twice.
+        const view = customerView(orderStateOf(order as any));
+        if (view.status === 'PAID') {
             return success(c, { status: PAYMENT_STATUS.PAID, order_id: order.id }, 'Payment already confirmed');
         }
-        if (order.status === ORDER_STATUS.CANCELLED) {
+        if (view.status === 'EXPIRED') {
             throw new BadRequestError('This order has expired and its items were returned to the shop. Please place a new order.');
+        }
+        if (view.status === 'REVIEW') {
+            throw new BadRequestError('We have received a payment for this order and our team is checking it. Please don\'t pay again.');
         }
 
         const existing = await paymentsQueries.findProviderTransactionByOrderId(order.id, 'pesapal');
@@ -267,15 +266,21 @@ export const paymentsHandlers = {
             success(c, { status, ...orderPaymentSummary(current) }, message);
 
         // Order state first: a cancelled order is never "paid" to the customer, even if money arrived late.
-        if (order.status === ORDER_STATUS.CANCELLED) {
-            return respond('EXPIRED', (order as any).payment_status === PAYMENT_STATUS.PAID
+        const state = orderStateOf(order as any);
+        // "We will refund you" only while money is actually still held.
+        const moneyHeld = state.status === 'CANCELLED'
+            ? summariseOrderPayments(order as any, await paymentsQueries.findLedgerByOrderId(Number(order.id))).net
+            : undefined;
+        const view = customerView(state, moneyHeld);
+        if (view.status === 'EXPIRED') {
+            return respond('EXPIRED', view.refundOwed
                 ? 'Your payment arrived after this order expired. We will refund you.'
-                : 'This order expired before payment was received');
+                : state.payment === 'UNPAID' || state.payment === 'FAILED'
+                    ? 'This order expired before payment was received'
+                    : 'This order was cancelled and your payment has been returned.');
         }
-        if ((order as any).payment_status === PAYMENT_STATUS.PAID) return respond(PAYMENT_STATUS.PAID, 'Payment confirmed');
-        const received = (await paymentsQueries.findLedgerByOrderId(Number(order.id)))
-            .some((entry) => entry.entry_type === 'PAYMENT_CAPTURED');
-        if (received) return respond('REVIEW', 'We have received a payment and our team is checking it.');
+        if (view.status === 'PAID') return respond(PAYMENT_STATUS.PAID, 'Payment confirmed');
+        if (view.status === 'REVIEW') return respond('REVIEW', 'We have received a payment and our team is checking it.');
 
         tx ??= await paymentsQueries.findProviderTransactionByOrderId(Number(order.id), 'pesapal');
         if (!tx) return respond(ORDER_STATUS.PENDING, 'Payment has not been started');
@@ -289,11 +294,12 @@ export const paymentsHandlers = {
         }
 
         const current = await ordersQueries.findById(Number(order.id));
-        const message = result.status === PAYMENT_STATUS.PAID
-            ? 'Payment confirmed'
-            : result.status === PAYMENT_STATUS.FAILED
-                ? 'Payment failed'
-                : 'Payment is still pending';
+        const message = {
+            PAID: 'Payment confirmed',
+            FAILED: 'Payment failed',
+            REVIEW: 'We have received a payment and our team is checking it.',
+            EXPIRED: 'Your payment arrived after this order expired. We will refund you.',
+        }[result.status as string] ?? 'Payment is still pending';
         return respond(result.status, message, current ?? order);
     },
 
@@ -360,10 +366,13 @@ export const paymentsHandlers = {
         if (!order) throw new NotFoundError('Order', order_ref ?? order_id);
         if (!canAccessOrder(authUser, order, phone, undefined, token)) throw new ForbiddenError();
 
-        if ((order as any).payment_status !== PAYMENT_STATUS.PAID) {
-            await confirmOrderPayment(order.id);
-        }
+        const result = await applyOrderEvent(Number(order.id), {
+            type: 'payment_captured',
+            amount: parseFloat(order.total_amount as any),
+            currency: env.PESAPAL_CURRENCY,
+            reference: `dev:${order.id}`,
+        }, { kind: 'system' });
 
-        return success(c, { status: PAYMENT_STATUS.PAID, order_id: order.id }, 'Development payment completed');
+        return success(c, { status: paymentScreenStatus(result.order as any), order_id: order.id }, 'Development payment completed');
     },
 };

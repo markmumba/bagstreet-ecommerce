@@ -36,7 +36,7 @@ export const reconciliationHandlers = {
             reconciliationQueries.totals(from, toExclusive),
             reconciliationQueries.ordersWithActivity(from, toExclusive),
         ]);
-        const net = roundMoney(totals.captured - totals.refunded);
+        const net = roundMoney(totals.captured - totals.refunded - totals.reversed);
 
         const report: ReconciliationReport = {
             from: day(from),

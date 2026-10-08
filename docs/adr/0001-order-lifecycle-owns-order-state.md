@@ -1,0 +1,5 @@
+# The Order lifecycle owns Order state
+
+An Order's state is its fulfilment `status` and its `payment_status` together, and the two may only change through the Order lifecycle module, which applies an Order event against one transition table and performs every side effect of the change (stock, discount use, ledger entries, queued emails, audit) in the same transaction. Nothing else writes either column. We kept the two columns rather than merging them into one, because a merge would ripple through every screen and report that reads them, while routing every write through one module gives the same safety: the bugs that prompted this (a payment reversal marking a paid order "failed", a reinstated order not re-claiming its discount, a non-atomic late payment) all came from code changing one column without considering the other.
+
+**Consequences:** adding a status means adding rows to the transition table, not an `UPDATE` somewhere. "Held" and "reversed" are real payment statuses, not states inferred from the ledger.
