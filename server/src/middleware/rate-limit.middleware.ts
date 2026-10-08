@@ -22,7 +22,7 @@ setInterval(() => {
     for (const [key, entry] of memoryStore.entries()) {
         if (entry.resetAt < now) memoryStore.delete(key);
     }
-}, 5 * 60 * 1000);
+}, 5 * 60 * 1000).unref();
 
 function bucketKey(c: AppContext, scope: string) {
     const user = c.get('user');

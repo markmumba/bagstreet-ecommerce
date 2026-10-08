@@ -5,26 +5,27 @@ import { BadRequestError } from "@server/lib/errors";
 import sharp from "sharp";
 
 const minioClient = new Client({
-    endPoint: env.MINIO_ENDPOINT,
-    port: env.MINIO_PORT,
-    useSSL: env.MINIO_USE_SSL,
-    accessKey: env.MINIO_ACCESS_KEY,
-    secretKey: env.MINIO_SECRET_KEY,
+    endPoint: env.STORAGE_ENDPOINT,
+    port: env.STORAGE_PORT,
+    useSSL: env.STORAGE_USE_SSL,
+    accessKey: env.STORAGE_ACCESS_KEY,
+    secretKey: env.STORAGE_SECRET_KEY,
+    ...(env.STORAGE_REGION ? { region: env.STORAGE_REGION } : {}),
 });
 
 let bucketReady: Promise<void> | null = null;
 
 async function ensureBucket() {
-    const exists = await minioClient.bucketExists(env.MINIO_BUCKET);
+    const exists = await minioClient.bucketExists(env.STORAGE_BUCKET);
     if (!exists) {
-        await minioClient.makeBucket(env.MINIO_BUCKET);
-        await minioClient.setBucketPolicy(env.MINIO_BUCKET, JSON.stringify({
+        await minioClient.makeBucket(env.STORAGE_BUCKET);
+        await minioClient.setBucketPolicy(env.STORAGE_BUCKET, JSON.stringify({
             Version: '2012-10-17',
             Statement: [{
                 Effect: 'Allow',
                 Principal: { AWS: ['*'] },
                 Action: ['s3:GetObject'],
-                Resource: [`arn:aws:s3:::${env.MINIO_BUCKET}/*`],
+                Resource: [`arn:aws:s3:::${env.STORAGE_BUCKET}/*`],
             }],
         }));
     }
@@ -61,15 +62,22 @@ const bannerSizes = [
     { key: 'banner', width: 2400, quality: 82 },
 ] as const;
 
-function objectUrl(fileName: string) {
-    const protocol = env.MINIO_USE_SSL ? 'https' : 'http';
-    return `${protocol}://${env.MINIO_ENDPOINT}:${env.MINIO_PORT}/${env.MINIO_BUCKET}/${fileName}`;
+/** Public URL for an object. In production the server uploads through the storage API but browsers
+ * load images from STORAGE_PUBLIC_URL (e.g. the Spaces CDN), which has objects directly under it. */
+export function objectUrl(fileName: string) {
+    if (env.STORAGE_PUBLIC_URL) {
+        return `${env.STORAGE_PUBLIC_URL.replace(/\/+$/, '')}/${fileName}`;
+    }
+    const protocol = env.STORAGE_USE_SSL ? 'https' : 'http';
+    return `${protocol}://${env.STORAGE_ENDPOINT}:${env.STORAGE_PORT}/${env.STORAGE_BUCKET}/${fileName}`;
 }
 
 async function uploadObject(fileName: string, buffer: Buffer, contentType: string) {
-    await minioClient.putObject(env.MINIO_BUCKET, fileName, buffer, buffer.length, {
+    await minioClient.putObject(env.STORAGE_BUCKET, fileName, buffer, buffer.length, {
         'Content-Type': contentType,
         'Cache-Control': 'public, max-age=31536000, immutable',
+        // Spaces: each image is individually public; the Space itself stays private (no listing).
+        ...(env.STORAGE_OBJECT_ACL ? { 'x-amz-acl': env.STORAGE_OBJECT_ACL } : {}),
     });
 }
 
@@ -111,7 +119,7 @@ async function uploadSizes<const S extends readonly { key: string; width: number
         }
     } catch {
         await Promise.allSettled(
-            Object.values<{ filename: string }>(uploaded).map((image) => minioClient.removeObject(env.MINIO_BUCKET, image.filename)),
+            Object.values<{ filename: string }>(uploaded).map((image) => minioClient.removeObject(env.STORAGE_BUCKET, image.filename)),
         );
         throw new BadRequestError('Image could not be processed. Please upload a JPEG, PNG, WebP, HEIC, or HEIF image.');
     }
@@ -141,7 +149,7 @@ export const imageUploadService = {
 
     delete: async (filename: string) => {
         await Promise.allSettled(
-            optimizedSiblingNames(filename).map((name) => minioClient.removeObject(env.MINIO_BUCKET, name)),
+            optimizedSiblingNames(filename).map((name) => minioClient.removeObject(env.STORAGE_BUCKET, name)),
         );
     },
 };

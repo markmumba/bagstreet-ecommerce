@@ -42,4 +42,13 @@ bun.lockb
 .turbo
 
 .docker-compose.yml
-docs
+# Stakeholder documents stay out of git; markdown guides and ADRs are tracked
+docs/*.docx
+docs/*.pdf
+docs/.DS_Store
+# Production secrets — never commit
+.env.production
+
+# Generated previews and reports (email previews, PDFs)
+output/
+.DS_Store
