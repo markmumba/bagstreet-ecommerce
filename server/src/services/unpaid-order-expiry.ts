@@ -6,10 +6,10 @@
  */
 import { PAYMENT_STATUS } from 'shared/dist';
 import { env } from '../config/env';
-import { createAuditLog } from '../lib/audit';
 import { ordersQueries } from '../features/orders/orders.queries';
 import { paymentsQueries } from '../features/payments/payments.queries';
 import { processPesapalTransaction } from '../features/payments/payments.handlers';
+import { applyOrderEvent } from '../features/orders/lifecycle/order-lifecycle';
 import { shouldCancelExpiredOrder, type PesapalCheck } from './unpaid-order-policy';
 
 const RUN_EVERY_MS = 5 * 60 * 1000;
@@ -38,16 +38,15 @@ export async function expireUnpaidOrders(now: number = Date.now()): Promise<{ ch
         const ageMs = now - new Date(order.created_at).getTime();
         if (!shouldCancelExpiredOrder(check, ageMs, ttlMs)) continue;
 
-        // Conditional cancel: a payment confirmed a moment ago makes this a no-op.
-        if (await ordersQueries.cancelUnpaid(orderId)) {
-            cancelled += 1;
-            await createAuditLog({
-                action: 'ORDER_EXPIRED',
-                entityType: 'order',
-                entityId: orderId,
-                after: { status: 'CANCELLED' },
-                metadata: { reason: 'unpaid', ttl_minutes: env.UNPAID_ORDER_TTL_MINUTES, pesapal_check: check },
-            }).catch((err) => console.error('[order-expiry] audit log failed:', err));
+        // The lifecycle re-checks the state under a row lock: a payment confirmed a moment ago
+        // (or held for review) makes this a no-op.
+        try {
+            const result = await applyOrderEvent(orderId, { type: 'expired' }, { kind: 'system' }, {
+                auditMetadata: { reason: 'unpaid', ttl_minutes: env.UNPAID_ORDER_TTL_MINUTES, pesapal_check: check },
+            });
+            if (result.outcome === 'changed') cancelled += 1;
+        } catch (err) {
+            console.error(`[order-expiry] could not expire order ${orderId}:`, err);
         }
     }
 

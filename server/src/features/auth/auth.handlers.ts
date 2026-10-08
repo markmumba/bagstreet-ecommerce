@@ -7,7 +7,7 @@ import { authQueries } from './auth.queries';
 import { loginSchema, registerSchema, acceptInviteSchema, forgotPasswordSchema, resetPasswordSchema, updateProfileSchema, verifyInviteSchema } from './auth.schema';
 import { env } from '../../config/env';
 import { BadRequestError, InternalServerError, NotFoundError, UnauthorizedError, ValidationError } from '@server/lib/errors';
-import { publishEmail } from '@server/services/messagequeue';
+import { enqueueEmail } from '@server/services/email-outbox';
 import { success } from '@server/lib/response';
 import { password} from 'bun';
 import { USER_ROLE } from "shared/dist";
@@ -224,7 +224,7 @@ export const authHandlers = {
         await UsersQueries.createInvitation(Number(user.id), tokenHash, expiresAt);
 
         const setupUrl = `${env.STOREFRONT_URL}/setup-account?token=${rawToken}`;
-        await publishEmail({
+        await enqueueEmail({
             type: 'CUSTOMER_ACCOUNT_SETUP',
             to: user.email,
             name: user.full_name,
@@ -370,7 +370,7 @@ export const authHandlers = {
         const isCustomer = (user.role as string) === USER_ROLE.CUSTOMER;
         const baseUrl = isCustomer ? env.STOREFRONT_URL : env.CLIENT_URL;
         const resetUrl = `${baseUrl}/reset-password?token=${rawToken}`;
-        await publishEmail({ type: 'PASSWORD_RESET', to: validated.data.email, name: user.full_name, resetUrl });
+        await enqueueEmail({ type: 'PASSWORD_RESET', to: validated.data.email, name: user.full_name, resetUrl });
 
         return success(c, null, 'If that email is registered you will receive a reset link shortly');
     },

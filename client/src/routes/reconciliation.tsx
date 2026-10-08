@@ -23,6 +23,7 @@ const ISSUE_LABELS: Record<ReconciliationIssueKind, { label: string; variant: Re
   paid_without_capture: { label: 'No payment record', variant: 'warning' },
   amount_mismatch: { label: 'Amount differs', variant: 'warning' },
   marked_paid_manually: { label: 'Marked paid by hand', variant: 'info' },
+  payment_reversed: { label: 'Payment reversed', variant: 'danger' },
 };
 
 const STATEMENT_ISSUE_LABELS: Record<StatementIssueResponse['kind'], string> = {
@@ -81,10 +82,11 @@ function ReconciliationPage() {
           </p>
         )}
 
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
           {[
             ['Received', report?.totals.captured],
             ['Refunded', report?.totals.refunded],
+            ['Reversed', report?.totals.reversed],
             ['Pesapal fees', report?.totals.fees],
             ['Net', report?.totals.net],
             ['Net after fees', report?.totals.net_after_fees],

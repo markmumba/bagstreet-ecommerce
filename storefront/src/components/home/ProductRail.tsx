@@ -18,7 +18,10 @@ export function ProductRail({ eyebrow, title, products, isLoading }: ProductRail
 
   const scroll = (dir: 1 | -1) => {
     const rail = railRef.current;
-    if (rail) rail.scrollBy({ left: dir * rail.clientWidth * 0.8, behavior: 'smooth' });
+    if (rail) rail.scrollBy({
+      left: dir * rail.clientWidth * 0.8,
+      behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+    });
   };
 
   if (!isLoading && products.length === 0) return null;

@@ -23,6 +23,7 @@ const STATE_LABELS: Record<OrderPaymentState, { label: string; variant: React.Co
   refund_owed: { label: 'Refund owed', variant: 'danger' },
   underpaid: { label: 'Underpaid', variant: 'warning' },
   overpaid: { label: 'Overpaid', variant: 'warning' },
+  reversed: { label: 'Reversed', variant: 'danger' },
 };
 
 const METHOD_LABELS: Record<RefundMethod, string> = {
@@ -41,6 +42,7 @@ function entryLabel(entry: LedgerEntryResponse) {
     return method ? `Payment received · ${String(method)}` : 'Payment received';
   }
   if (entry.entry_type === 'PROVIDER_FEE') return 'Pesapal fee';
+  if (entry.entry_type === 'PAYMENT_REVERSED') return 'Taken back by the payment provider';
   if (entry.entry_type === 'REFUND_ISSUED') {
     const method = entry.metadata?.method as RefundMethod | undefined;
     return `Refund${method ? ` · ${METHOD_LABELS[method] ?? method}` : ''}`;
@@ -75,8 +77,8 @@ export function OrderPaymentsPanel({ orderId, canRefund }: { orderId: string; ca
           <dd className="font-medium tabular-nums">{kes(summary.captured)}</dd>
         </div>
         <div>
-          <dt className="text-xs text-muted-foreground">Refunded</dt>
-          <dd className="font-medium tabular-nums">{kes(summary.refunded)}</dd>
+          <dt className="text-xs text-muted-foreground">{summary.reversed > 0 ? 'Refunded / reversed' : 'Refunded'}</dt>
+          <dd className="font-medium tabular-nums">{kes(summary.refunded + summary.reversed)}</dd>
         </div>
         <div>
           <dt className="text-xs text-muted-foreground">Net kept</dt>
@@ -108,7 +110,7 @@ export function OrderPaymentsPanel({ orderId, canRefund }: { orderId: string; ca
       {entries.length > 0 && (
         <ol className="divide-y rounded-xl border text-sm">
           {entries.map((entry) => {
-            const isRefund = entry.entry_type === 'REFUND_ISSUED';
+            const isRefund = entry.entry_type === 'REFUND_ISSUED' || entry.entry_type === 'PAYMENT_REVERSED';
             const isFee = entry.entry_type === 'PROVIDER_FEE';
             const reason = entry.metadata?.reason as string | undefined;
             const externalRef = (entry.metadata?.external_reference ?? entry.metadata?.provider_reference) as string | undefined;

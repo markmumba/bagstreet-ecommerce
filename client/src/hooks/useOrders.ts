@@ -49,8 +49,20 @@ export function useWalkInCatalog(search: string, enabled = true) {
 export function useUpdateOrderStatus() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, status }: { id: string; status: OrderStatus }) =>
-      ordersService.updateStatus(id, status),
+    mutationFn: ({ id, status, reason }: { id: string; status: OrderStatus; reason?: string }) =>
+      ordersService.updateStatus(id, status, reason),
+    onSuccess: (_res, { id }) => {
+      queryClient.invalidateQueries({ queryKey: orderKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: orderKeys.payments(id) });
+      queryClient.invalidateQueries({ queryKey: productKeys.lists() });
+    },
+  });
+}
+
+export function useWriteOffReversal() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, note }: { id: string; note: string }) => ordersService.writeOff(id, note),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: orderKeys.lists() });
     },
@@ -61,8 +73,9 @@ export function useConfirmOrderPayment() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ id }: { id: string }) => ordersService.confirmPayment(id),
-    onSuccess: () => {
+    onSuccess: (_res, { id }) => {
       queryClient.invalidateQueries({ queryKey: orderKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: orderKeys.payments(id) });
     },
   });
 }

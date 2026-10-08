@@ -314,7 +314,7 @@ function ProductsPage() {
                   aria-label={isCopied ? `Copied ${product.sku}` : `Copy SKU ${product.sku}`}
                   onClick={() => handleCopySku(product.sku)}
                   className={cn(
-                    'inline-flex items-center gap-1 rounded px-1 py-0.5 transition-all hover:bg-muted focus:opacity-100',
+                    'ui-press inline-flex items-center gap-1 rounded px-1 py-0.5 hover:bg-muted focus:opacity-100',
                     isCopied
                       ? 'bg-[var(--color-success-bg)] text-[var(--color-success-text)] opacity-100'
                       : 'opacity-0 group-hover:opacity-100'

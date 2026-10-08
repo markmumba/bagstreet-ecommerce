@@ -55,11 +55,12 @@ export const notificationsQueries = {
     },
 
     create: async (
-        rows: { recipient_id: number; type: string; title: string; body: string; data: object }[]
+        rows: { recipient_id: number; type: string; title: string; body: string; data: object }[],
+        db: typeof sql = sql,
     ): Promise<NotificationRow[]> => {
         const result: NotificationRow[] = [];
         for (const row of rows) {
-            const [notif] = await sql<NotificationRow[]>`
+            const [notif] = await db<NotificationRow[]>`
                 INSERT INTO in_app_notifications(recipient_id, type, title, body, data)
                 VALUES (${row.recipient_id}, ${row.type}, ${row.title}, ${row.body}, ${toJsonbParam(row.data)}::jsonb)
                 RETURNING *

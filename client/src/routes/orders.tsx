@@ -11,6 +11,7 @@ import {
 } from '@tanstack/react-table';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { OrderSheet } from '@/components/orders/OrderSheet';
+import { PaymentStatusChip } from '@/components/orders/PaymentStatusChip';
 import { WalkInSaleDialog } from '@/components/orders/WalkInSaleDialog';
 import { useOrders } from '@/hooks/useOrders';
 import { ordersService } from '@/services/orders.service';
@@ -31,7 +32,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { ArrowUpDown, Check, ClipboardList, Copy, Download, Eye, MapPin, PackageCheck, PackageX, Plus, ShoppingBag, Timer, Truck, Wallet, X } from 'lucide-react';
+import { ArrowUpDown, Check, ClipboardList, Copy, Download, Eye, MapPin, PackageCheck, PackageX, Plus, ShoppingBag, Timer, Truck, X } from 'lucide-react';
 import { ORDER_SOURCE, ORDER_STATUS, PAYMENT_STATUS, USER_ROLE } from 'shared';
 import type { OrderResponse, OrderStatus, PaymentStatus } from 'shared';
 import { cn } from '@/lib/utils';
@@ -96,26 +97,6 @@ function StatusChip({ status }: { status: OrderStatus }) {
     <span className={cn('inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-xs font-medium', style.className)}>
       <Icon className="h-3 w-3" strokeWidth={2} />
       {style.label}
-    </span>
-  );
-}
-
-function PaymentChip({ status }: { status: PaymentStatus }) {
-  const isPaid = status === PAYMENT_STATUS.PAID;
-  const isFailed = status === PAYMENT_STATUS.FAILED;
-  return (
-    <span
-      className={cn(
-        'inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-xs font-medium',
-        isPaid
-          ? 'bg-[var(--color-success-bg)] text-[var(--color-success-text)]'
-          : isFailed
-          ? 'bg-[var(--color-danger-bg)] text-[var(--color-danger-text)]'
-          : 'bg-[var(--color-warning-bg)] text-[var(--color-warning-text)]'
-      )}
-    >
-      {isPaid ? <Check className="h-3 w-3" strokeWidth={2} /> : isFailed ? <X className="h-3 w-3" strokeWidth={2} /> : <Wallet className="h-3 w-3" strokeWidth={2} />}
-      {isPaid ? 'Paid' : isFailed ? 'Failed' : 'Unpaid'}
     </span>
   );
 }
@@ -186,7 +167,7 @@ function OrderCard({ order, onOpen }: { order: OrderResponse; onOpen: (order: Or
       <div className="mt-4 flex flex-wrap gap-2">
         <SourceChip source={order.order_source} />
         <StatusChip status={order.status} />
-        <PaymentChip status={order.payment_status ?? PAYMENT_STATUS.UNPAID} />
+        <PaymentStatusChip status={order.payment_status ?? PAYMENT_STATUS.UNPAID} />
       </div>
 
       <div className="mt-4 flex gap-2 rounded-lg border border-border bg-background/60 px-3 py-2 text-xs text-muted-foreground">
@@ -399,7 +380,7 @@ function OrdersPage() {
       header: 'Payment',
       cell: ({ row }) => {
         const paymentStatus = row.original.payment_status ?? PAYMENT_STATUS.UNPAID;
-        return <PaymentChip status={paymentStatus} />;
+        return <PaymentStatusChip status={paymentStatus} />;
       },
     },
     {
@@ -518,6 +499,8 @@ function OrdersPage() {
                   <SelectItem value={PAYMENT_STATUS.UNPAID}>Unpaid</SelectItem>
                   <SelectItem value={PAYMENT_STATUS.PAID}>Paid</SelectItem>
                   <SelectItem value={PAYMENT_STATUS.FAILED}>Failed</SelectItem>
+                  <SelectItem value={PAYMENT_STATUS.HELD}>Needs review</SelectItem>
+                  <SelectItem value={PAYMENT_STATUS.REVERSED}>Reversed</SelectItem>
                 </SelectContent>
               </Select>
               <Button

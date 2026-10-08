@@ -25,8 +25,12 @@ export const ordersService = {
 
   getReceipt: (id: string) => apiClient.get<OrderReceiptResponse>(`/api/orders/${id}/receipt`),
 
-  updateStatus: (id: string, status: OrderStatus) =>
-    apiClient.patch<OrderResponse>(`/api/orders/${id}/status`, { status }),
+  updateStatus: (id: string, status: OrderStatus, reason?: string) =>
+    apiClient.patch<OrderResponse>(`/api/orders/${id}/status`, { status, reason }),
+
+  /** Accept a payment reversal as lost; the note says why. */
+  writeOff: (id: string, note: string) =>
+    apiClient.post<OrderResponse>(`/api/orders/${id}/write-off`, { note }),
 
   confirmPayment: (id: string) =>
     apiClient.patch<OrderResponse>(`/api/orders/${id}/confirm-payment`),

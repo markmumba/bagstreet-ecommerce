@@ -101,19 +101,19 @@ export const dashboardQueries = {
                 (
                     SELECT COALESCE(SUM(CASE WHEN direction = 'CREDIT' THEN amount ELSE -amount END), 0)
                     FROM payment_ledger_entries
-                    WHERE entry_type IN ('PAYMENT_CAPTURED', 'REFUND_ISSUED')
+                    WHERE entry_type IN ('PAYMENT_CAPTURED', 'REFUND_ISSUED', 'PAYMENT_REVERSED')
                       AND created_at >= CURRENT_DATE
                 ) AS paid_revenue_today,
                 (
                     SELECT COALESCE(SUM(CASE WHEN direction = 'CREDIT' THEN amount ELSE -amount END), 0)
                     FROM payment_ledger_entries
-                    WHERE entry_type IN ('PAYMENT_CAPTURED', 'REFUND_ISSUED')
+                    WHERE entry_type IN ('PAYMENT_CAPTURED', 'REFUND_ISSUED', 'PAYMENT_REVERSED')
                       AND created_at >= NOW() - INTERVAL '7 days'
                 ) AS paid_revenue_7d,
                 (
                     SELECT COALESCE(SUM(CASE WHEN direction = 'CREDIT' THEN amount ELSE -amount END), 0)
                     FROM payment_ledger_entries
-                    WHERE entry_type IN ('PAYMENT_CAPTURED', 'REFUND_ISSUED')
+                    WHERE entry_type IN ('PAYMENT_CAPTURED', 'REFUND_ISSUED', 'PAYMENT_REVERSED')
                       AND created_at >= NOW() - INTERVAL '30 days'
                 ) AS paid_revenue_30d,
                 COUNT(*) FILTER (
@@ -167,7 +167,7 @@ export const dashboardQueries = {
             FROM days
             LEFT JOIN payment_ledger_entries ple
               ON ple.created_at::date = days.day
-             AND ple.entry_type IN ('PAYMENT_CAPTURED', 'REFUND_ISSUED')
+             AND ple.entry_type IN ('PAYMENT_CAPTURED', 'REFUND_ISSUED', 'PAYMENT_REVERSED')
             GROUP BY days.day
             ORDER BY days.day ASC
         `;

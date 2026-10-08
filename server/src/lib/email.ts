@@ -1,6 +1,9 @@
 import nodemailer from 'nodemailer';
 import { env } from '../config/env';
-import { renderTemplate } from './template';
+import { renderEmailTemplate, type EmailTemplateName } from './template';
+import { formatEmailMoney, renderOrderItems, type EmailOrderItem } from './email-format';
+import type { RecoveryEmail } from '../features/cart-recovery/recovery.delivery';
+import { renderRecoveryItems } from './recovery-email-format';
 
 async function createTransporter() {
     return nodemailer.createTransport({
@@ -16,12 +19,12 @@ function emailDeliveryConfigured() {
     return Boolean(env.SMTP_USER && env.SMTP_PASS);
 }
 
-async function sendWithSmtp(to: string, subject: string, html: string) {
+async function sendWithSmtp(to: string, subject: string, html: string, text: string) {
     const transporter = await createTransporter();
-    await transporter.sendMail({ from: env.EMAIL_FROM, to, subject, html });
+    await transporter.sendMail({ from: env.EMAIL_FROM, to, subject, html, text });
 }
 
-async function sendWithResend(to: string, subject: string, html: string) {
+async function sendWithResend(to: string, subject: string, html: string, text: string) {
     if (!env.RESEND_API_KEY) return;
 
     const response = await fetch(env.RESEND_API_URL, {
@@ -35,6 +38,7 @@ async function sendWithResend(to: string, subject: string, html: string) {
             to: [to],
             subject,
             html,
+            text,
         }),
     });
 
@@ -49,26 +53,22 @@ async function sendWithResend(to: string, subject: string, html: string) {
     }
 }
 
-async function send(to: string, subject: string, html: string) {
+async function send(to: string, subject: string, html: string, text: string) {
     if (!emailDeliveryConfigured()) return;
+    const plainText = `${text}\n\nBagStreet\nWhatsApp: https://wa.me/254748096887\nEmail: bagstreetke@gmail.com\nImenti House, Bemack Exhibition, 1st Floor, Shop M2, Nairobi`;
     if (env.EMAIL_PROVIDER === 'resend') {
-        await sendWithResend(to, subject, html);
+        await sendWithResend(to, subject, html, plainText);
         return;
     }
-    await sendWithSmtp(to, subject, html);
+    await sendWithSmtp(to, subject, html, plainText);
 }
 
-function escapeHtml(value: string | number | null | undefined) {
-    return String(value ?? '')
-        .replaceAll('&', '&amp;')
-        .replaceAll('<', '&lt;')
-        .replaceAll('>', '&gt;')
-        .replaceAll('"', '&quot;')
-        .replaceAll("'", '&#039;');
-}
-
-function formatMoney(amount: number) {
-    return `KES ${amount.toFixed(2)}`;
+function renderEmail(name: EmailTemplateName, vars: Record<string, string>, trustedHtml: Record<string, string> = {}) {
+    return renderEmailTemplate(name, {
+        year: String(new Date().getFullYear()),
+        storefrontUrl: env.STOREFRONT_URL,
+        ...vars,
+    }, trustedHtml);
 }
 
 function buildAdminUrl(pathname: string, searchParams?: Record<string, string | number | undefined>) {
@@ -86,12 +86,14 @@ export async function sendInviteEmail(to: string, name: string, inviteUrl: strin
         console.log(`[DEV] ${inviteUrl}`);
         return;
     }
-    const html = await renderTemplate('invite', {
+    const html = await renderEmail('invite', {
+        title: "You've been invited to BagStreet",
+        preheader: 'Join the team. Set your password to activate your staff account.',
         name,
         inviteUrl,
-        year: String(new Date().getFullYear()),
     });
-    await send(to, `You've been invited to Bagstreet`, html);
+    const text = `Hi ${name},\n\nYou've been invited to join the BagStreet team. Set your password to activate your staff account:\n${inviteUrl}\n\nThis invitation expires in 7 days and can be used once. If you weren't expecting it, you can safely ignore this email.`;
+    await send(to, `You've been invited to Bagstreet`, html, text);
 }
 
 export async function sendCustomerAccountSetupEmail(to: string, name: string, setupUrl: string) {
@@ -102,12 +104,26 @@ export async function sendCustomerAccountSetupEmail(to: string, name: string, se
 
     if (!emailDeliveryConfigured()) return;
 
-    const html = await renderTemplate('customer-account-setup', {
+    const html = await renderEmail('customer-account-setup', {
+        title: 'Set up your BagStreet account',
+        preheader: 'Your account is one step away. Choose a password to get started.',
         name,
         setupUrl,
-        year: String(new Date().getFullYear()),
     });
-    await send(to, `Set up your Bagstreet account`, html);
+    const text = `Hi ${name},\n\nChoose a password to activate your BagStreet account:\n${setupUrl}\n\nThis secure link expires in 24 hours and can be used once. You can still shop without an account. If you didn't request this account, ignore this email; it won't be activated.`;
+    await send(to, `Set up your Bagstreet account`, html, text);
+}
+
+export async function sendOrderAgreementEmail(to: string, orderRef: string, agreement: string) {
+    if (!emailDeliveryConfigured()) {
+        console.log(`[DEV] Order agreement queued for ${orderRef}; configure email delivery before launch.`);
+        return;
+    }
+    const html = await renderEmail('order-agreement', {
+        title: `Your submitted order ${orderRef}`, preheader: 'Keep a copy of your order details and accepted policies. Payment confirmation follows separately.',
+        orderRef, agreement,
+    });
+    await send(to, `Your BagStreet order ${orderRef} - agreement copy`, html, agreement);
 }
 
 
@@ -115,35 +131,13 @@ export async function sendOrderConfirmationEmail(
     to: string,
     name: string,
     orderId: number,
-    items: {
-        product_name: string;
-        variant_size?: string | null;
-        variant_color?: string | null;
-        quantity: number;
-        unit_price: number;
-        subtotal: number;
-    }[],
+    items: EmailOrderItem[],
     totalAmount: number,
     shippingAddress: { full_name: string; address_line1: string; city: string; county?: string; state?: string },
     confirmReceivedUrl: string,
     providedOrderRef?: string
 ) {
     const orderRef = providedOrderRef ?? `#${String(orderId).padStart(6, '0').toUpperCase()}`;
-
-    const itemsHtml = items.map((item) => {
-        const variant = [item.variant_size, item.variant_color].filter(Boolean).join(' / ');
-        return `
-            <tr>
-              <td style="padding:10px 0;border-bottom:1px solid #e8e0d5;font-size:13px;color:#3D1A14;">
-                ${item.product_name}
-                ${variant ? `<span style="color:#9a8a7a;font-size:11px;"> (${variant})</span>` : ''}
-                <br/><span style="color:#9a8a7a;font-size:11px;">Qty: ${item.quantity}</span>
-              </td>
-              <td style="padding:10px 0;border-bottom:1px solid #e8e0d5;text-align:right;font-family:monospace;font-size:13px;color:#3D1A14;">
-                KES ${item.subtotal.toFixed(2)}
-              </td>
-            </tr>`;
-    }).join('');
 
     const shippingRegion = shippingAddress.county ?? shippingAddress.state;
     const shippingCity = shippingAddress.city + (shippingRegion ? `, ${shippingRegion}` : '');
@@ -154,19 +148,24 @@ export async function sendOrderConfirmationEmail(
         return;
     }
 
-    const html = await renderTemplate('order-confirmation', {
+    const html = await renderEmail('order-confirmation', {
+        title: `Your BagStreet order ${orderRef} is confirmed`,
+        preheader: `Payment received for ${orderRef}. Your order summary and delivery details are inside.`,
         name,
         orderRef,
-        itemsHtml,
-        totalAmount: totalAmount.toFixed(2),
+        totalAmount: formatEmailMoney(totalAmount),
         shippingName: shippingAddress.full_name,
         shippingAddress: shippingAddress.address_line1,
         shippingCity,
         confirmReceivedUrl,
-        year: String(new Date().getFullYear()),
-    });
+    }, { itemsHtml: renderOrderItems(items) });
 
-    await send(to, `Your Bagstreet order ${orderRef} is confirmed`, html);
+    const itemLines = items.map((item) => {
+        const variant = [item.variant_size, item.variant_color].filter(Boolean).join(' / ');
+        return `${item.product_name}${variant ? ` (${variant})` : ''}\n${item.quantity} x ${formatEmailMoney(item.unit_price)} = ${formatEmailMoney(item.subtotal)}`;
+    }).join('\n\n');
+    const text = `Hi ${name},\n\nPayment for order ${orderRef} is confirmed. Our team will be in touch to arrange delivery.\n\n${itemLines}\n\nTotal paid: ${formatEmailMoney(totalAmount)} (includes delivery and any applied discounts).\n\nDelivering to:\n${shippingAddress.full_name}\n${shippingAddress.address_line1}\n${shippingCity}\n\nOnly after your package arrives, confirm you've received it:\n${confirmReceivedUrl}`;
+    await send(to, `Your Bagstreet order ${orderRef} is confirmed`, html, text);
 }
 
 export async function sendAdminOrderConfirmedEmail(
@@ -189,18 +188,20 @@ export async function sendAdminOrderConfirmedEmail(
         return;
     }
 
-    const html = await renderTemplate('admin-order-confirmed', {
-        name: escapeHtml(name),
-        orderRef: escapeHtml(orderRef),
-        customerName: escapeHtml(customerName || 'Customer'),
-        customerPhone: escapeHtml(customerPhone || 'No phone provided'),
+    const html = await renderEmail('admin-order-confirmed', {
+        title: `Order ${orderRef} is ready for fulfilment`,
+        preheader: `${orderRef}: ${formatEmailMoney(totalAmount)} received. Open the order to arrange fulfilment.`,
+        name,
+        orderRef,
+        customerName: customerName || 'Customer',
+        customerPhone: customerPhone || 'No phone provided',
         itemCount: String(itemCount),
-        totalAmount: escapeHtml(formatMoney(totalAmount)),
+        totalAmount: formatEmailMoney(totalAmount),
         adminOrderUrl,
-        year: String(new Date().getFullYear()),
     });
 
-    await send(to, subject, html);
+    const text = `Hi ${name},\n\nOrder ${orderRef} is paid and ready for fulfilment.\nPayment received: ${formatEmailMoney(totalAmount)}\nCustomer: ${customerName || 'Customer'}\nPhone: ${customerPhone || 'No phone provided'}\nItems: ${itemCount}\n\nOpen the order for delivery details, items, notes and the payment receipt:\n${adminOrderUrl}\n\nMark it received only after delivery.`;
+    await send(to, subject, html, text);
 }
 
 export async function sendPaymentFailedEmail(
@@ -218,17 +219,19 @@ export async function sendPaymentFailedEmail(
         return;
     }
 
-    const html = `
-        <div style="font-family:Arial,sans-serif;line-height:1.5;color:#241212;">
-          <h2 style="margin:0 0 12px;">Payment not completed</h2>
-          <p>Hello ${name},</p>
-          <p>We could not confirm payment for <strong>${orderRef}</strong>.</p>
-          ${reason ? `<p style="color:#6f5d55;">${reason}</p>` : ''}
-          <p>You can return to checkout and try again. If you already paid, please contact support with your payment reference.</p>
-        </div>
-    `;
+    const supportUrl = new URL('https://wa.me/254748096887');
+    supportUrl.searchParams.set('text', `Hi BagStreet, I need help with payment for order ${orderRef}.`);
+    const html = await renderEmail('payment-failed', {
+        title: `Payment not confirmed for ${orderRef}`,
+        preheader: `Let's check payment for ${orderRef}. If you already paid, contact us before trying again.`,
+        name,
+        orderRef,
+        reason: reason || 'The payment provider has not confirmed a successful payment.',
+        supportUrl: supportUrl.toString(),
+    });
 
-    await send(to, subject, html);
+    const text = `Hi ${name},\n\nWe couldn't confirm payment for order ${orderRef}. Your order isn't confirmed yet.\n${reason || 'The payment provider has not confirmed a successful payment.'}\n\nIf you've already paid, don't pay again. Contact us with your order number and payment reference. Otherwise, return to checkout on the same device to review payment status.\n\nGet help with payment:\n${supportUrl.toString()}`;
+    await send(to, subject, html, text);
 }
 
 export async function sendLowStockEmail(
@@ -254,18 +257,20 @@ export async function sendLowStockEmail(
         return;
     }
 
-    const html = await renderTemplate('low-stock-alert', {
-        name: escapeHtml(name),
-        productName: escapeHtml(productName),
-        variantLabel: escapeHtml(variantLabel || 'Default variant'),
+    const html = await renderEmail('low-stock-alert', {
+        title: `${stockLabel}: ${productName}`,
+        preheader: `${productName}, ${variantLabel || 'Default variant'}: ${stock} units remaining. Threshold: ${threshold}.`,
+        name,
+        productName,
+        variantLabel: variantLabel || 'Default variant',
         stock: String(stock),
         threshold: String(threshold),
         stockLabel,
-        actionHint: escapeHtml(actionHint),
+        actionHint,
         productUrl,
-        year: String(new Date().getFullYear()),
     });
-    await send(to, subject, html);
+    const text = `Hi ${name},\n\n${stockLabel}: ${productName}\nVariant: ${variantLabel || 'Default variant'}\nUnits remaining: ${stock}\nAlert threshold: ${threshold}\n\n${actionHint}\n\nReview inventory:\n${productUrl}\n\nStock may have changed since this alert; check the dashboard before adjusting it.`;
+    await send(to, subject, html, text);
 }
 
 
@@ -275,10 +280,31 @@ export async function sendPasswordResetEmail(to: string, name: string, resetUrl:
         console.log(`[DEV] ${resetUrl}`);
         return;
     }
-    const html = await renderTemplate('password-reset', {
+    const html = await renderEmail('password-reset', {
+        title: 'Reset your BagStreet password',
+        preheader: 'Choose a new password. This secure link expires in one hour.',
         name,
         resetUrl,
-        year: String(new Date().getFullYear()),
     });
-    await send(to, `Reset your Bagstreet password`, html);
+    const text = `Hi ${name},\n\nReset your BagStreet password using this secure link:\n${resetUrl}\n\nIt expires in 1 hour and can be used once. If you didn't request this, your password hasn't changed and you can safely ignore this email.`;
+    await send(to, `Reset your Bagstreet password`, html, text);
+}
+
+export async function sendCartRecoveryEmail(email: RecoveryEmail) {
+    const subject = email.final ? 'One last look at your BagStreet bag' : 'Your BagStreet bag is worth another look';
+    const intro = email.checkout
+        ? "Your earlier checkout wasn't completed. Your stock reservation has ended, but you can review the items and start a new checkout at today's prices."
+        : "You left a few things in your bag. Take another look whenever you're ready.";
+    const html = await renderEmail('cart-recovery', {
+        title: subject, preheader: 'Review your items at current prices and availability. No pressure, no reservation.',
+        eyebrow: email.final ? 'A final reminder' : 'Saved for another look', intro,
+        recoveryUrl: email.recoveryUrl, unsubscribeUrl: email.unsubscribeUrl,
+    }, { itemsHtml: renderRecoveryItems(email.quote) });
+    const items = email.quote.lines.map(line => `${line.product_name ?? 'Unavailable item'}: ${line.purchasable_quantity} available for your bag${line.unit_price === null ? '' : `, ${formatEmailMoney(line.unit_price)} each`}`).join('\n');
+    const text = `${intro}\n\n${items}\n\nItems aren't reserved. Prices and availability can change. Delivery and any valid promo code are calculated at checkout.\n\nReview your bag:\n${email.recoveryUrl}\n\nAlready paid? Don't pay again; contact our team.\n\nUnsubscribe from bag reminders (order confirmations and receipts are unaffected):\n${email.unsubscribeUrl}`;
+    if (!emailDeliveryConfigured()) {
+        console.log('[DEV] Cart recovery email prepared (delivery not configured)');
+        return;
+    }
+    await send(email.to, subject, html, text);
 }

@@ -146,6 +146,29 @@ export function useClearCart() {
   });
 }
 
+export function useRestoreCart() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (token: string) => {
+      const response = await apiClient.post<import('shared').CartRecoveryResponse>('/api/cart-recovery/restore', { token });
+      const quote = response.data?.quote;
+      if (!quote || !quote.item_count) throw new Error('None of these items is currently available.');
+      const items: StorefrontCartItem[] = quote.lines.filter(line => line.purchasable_quantity > 0 && line.unit_price !== null).map(line => ({
+        id: String(line.variant_id), variant_id: line.variant_id, product_id: line.product_id!,
+        product_name: line.product_name!, product_image_url: line.image_url ?? '',
+        variant_size: line.size ?? undefined, variant_color: line.color ?? undefined,
+        unit_price: line.unit_price!, quantity: line.purchasable_quantity, subtotal: line.line_total,
+      }));
+      writeCartItems(items);
+      return { data: toCart(items) };
+    },
+    onSuccess: response => {
+      qc.setQueryData(cartKeys.all, response);
+      qc.invalidateQueries({ queryKey: cartKeys.all });
+    },
+  });
+}
+
 /**
  * Prices and stock-checks the local cart against the server — the same pricing
  * order creation uses. Re-runs when quantities change and when the tab regains focus.

@@ -3,6 +3,8 @@ import { Package } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { apiClient } from '@/services/api';
+import { BagReminderPreference } from '@/components/checkout/BagReminderPreference';
+import { PrivacyControls } from '@/components/customer-care/PrivacyControls';
 
 export const Route = createFileRoute('/account')({
   component: AccountPage,
@@ -201,6 +203,13 @@ function AccountPage() {
 
       </div>
 
+      <section className="mt-12 max-w-3xl border-t border-border pt-8">
+        <h2 className="mb-4 text-base font-medium">Email preferences</h2>
+        <BagReminderPreference />
+        <p className="mt-3 text-sm text-muted-foreground">Order confirmations, receipts and delivery emails aren't affected by this preference.</p>
+      </section>
+
+      <PrivacyControls />
       {/* Sign out */}
       <div className="mt-16 pt-8 border-t border-[var(--border-subtle)]">
         <button

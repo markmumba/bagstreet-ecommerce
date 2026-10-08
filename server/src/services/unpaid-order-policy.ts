@@ -8,7 +8,7 @@ export type PesapalCheck = 'none' | 'paid' | 'not_paid' | 'error';
  * - paid at Pesapal → keep (it has just been confirmed)
  * - no payment started, or Pesapal says not paid → cancel
  * - Pesapal unreachable → wait, unless the order is far past its window (a late payment is
- *   still handled: confirmOrderPayment reinstates the order or flags it for a refund)
+ *   still handled: the Order lifecycle reinstates the order or records a refund owed)
  */
 export function shouldCancelExpiredOrder(check: PesapalCheck, ageMs: number, ttlMs: number): boolean {
     if (check === 'paid') return false;

@@ -1,5 +1,3 @@
-import amqp from 'amqplib';
-import { env } from '../config/env';
 import {
     sendAdminOrderConfirmedEmail,
     sendCustomerAccountSetupEmail,
@@ -8,12 +6,15 @@ import {
     sendOrderConfirmationEmail,
     sendPaymentFailedEmail,
     sendPasswordResetEmail,
+    sendOrderAgreementEmail,
 } from '../lib/email';
+import { deliverRecoveryReminder } from '../features/cart-recovery/recovery.delivery';
+import { archivedAgreement } from '../features/compliance/order-agreement';
 
-const QUEUE = 'email.queue';
-const DLQ = 'email.dlq';
-
+/** Every email the app sends. Stored as-is in email_outbox.payload. */
 export type EmailJob =
+    | { type: 'ORDER_AGREEMENT'; to: string; orderId: number }
+    | { type: 'CART_RECOVERY'; to: string; snapshotId: string; version: number; stage: 1 | 2 }
     | { type: 'INVITE'; to: string; name: string; inviteUrl: string }
     | { type: 'CUSTOMER_ACCOUNT_SETUP'; to: string; name: string; setupUrl: string }
     | {
@@ -57,30 +58,16 @@ export type EmailJob =
     | { type: 'PAYMENT_FAILED'; to: string; name: string; orderId: number; orderRef?: string; reason?: string | null }
     | { type: 'PASSWORD_RESET'; to: string; name: string; resetUrl: string };
 
-let channel: amqp.Channel | null = null;
-
-async function getChannel(): Promise<amqp.Channel> {
-    if (channel) return channel;
-    const conn = await amqp.connect(env.RABBITMQ_URL!);
-    conn.on('error', (err) => {
-        console.error('[mq] connection error:', err.message);
-        channel = null;
-    });
-    conn.on('close', () => { channel = null; });
-    channel = await conn.createChannel();
-    await channel.assertQueue(DLQ, { durable: true });
-    await channel.assertQueue(QUEUE, {
-        durable: true,
-        arguments: {
-            'x-dead-letter-exchange': '',
-            'x-dead-letter-routing-key': DLQ,
-        },
-    });
-    return channel;
-}
-
-async function handleJob(job: EmailJob): Promise<void> {
+/** Sends one email now. Throws on failure so the outbox can retry. */
+export async function sendEmailJob(job: EmailJob): Promise<void | boolean> {
     switch (job.type) {
+        case 'ORDER_AGREEMENT': {
+            const agreement = await archivedAgreement(job.orderId);
+            await sendOrderAgreementEmail(job.to, agreement.orderRef, agreement.text);
+            break;
+        }
+        case 'CART_RECOVERY':
+            return deliverRecoveryReminder(job);
         case 'INVITE':
             await sendInviteEmail(job.to, job.name, job.inviteUrl);
             break;
@@ -120,53 +107,8 @@ async function handleJob(job: EmailJob): Promise<void> {
         case 'PASSWORD_RESET':
             await sendPasswordResetEmail(job.to, job.name, job.resetUrl);
             break;
-    }
-}
-
-export async function publishEmail(job: EmailJob): Promise<void> {
-    if (!env.RABBITMQ_URL) {
-        // Dev fallback — execute inline (no queue)
-        await handleJob(job).catch((err) =>
-            console.error('[email] direct send failed:', err)
-        );
-        return;
-    }
-    try {
-        const ch = await getChannel();
-        ch.sendToQueue(QUEUE, Buffer.from(JSON.stringify(job)), { persistent: true });
-        if (env.NODE_ENV !== 'production') {
-            console.log(`[mq] queued ${job.type} email to ${job.to}`);
-        }
-    } catch (err) {
-        console.error('[mq] publish failed, falling back to direct send:', err);
-        await handleJob(job).catch((e) => console.error('[email] fallback send failed:', e));
-    }
-}
-
-export async function startEmailWorker(): Promise<void> {
-    if (!env.RABBITMQ_URL) {
-        console.log('[email-worker] RABBITMQ_URL not set — emails sent directly');
-        return;
-    }
-    try {
-        const ch = await getChannel();
-        ch.prefetch(1);
-        await ch.consume(QUEUE, async (msg) => {
-            if (!msg) return;
-            try {
-                const job = JSON.parse(msg.content.toString()) as EmailJob;
-                await handleJob(job);
-                if (env.NODE_ENV !== 'production') {
-                    console.log(`[email-worker] sent ${job.type} email to ${job.to}`);
-                }
-                ch.ack(msg);
-            } catch (err) {
-                console.error('[email-worker] job failed, sending to DLQ:', err);
-                ch.nack(msg, false, false);
-            }
-        });
-        console.log('[email-worker] listening on queue:', QUEUE);
-    } catch (err) {
-        console.error('[email-worker] failed to start — emails will be sent directly:', err);
+        default:
+            // Never mark an email "sent" when nothing was sent.
+            throw new Error(`Unknown email type: ${(job as { type?: string }).type}`);
     }
 }

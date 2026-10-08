@@ -13,6 +13,10 @@ export interface ReconciliationOrderRow {
     order_source: string;
     captured: number;
     refunded: number;
+    /** Taken back by the payment provider. */
+    reversed: number;
+    /** Staff accepted the reversal as lost. */
+    reversal_written_off: boolean;
     /** A Pesapal transaction for this order is COMPLETED. */
     has_completed_provider_payment: boolean;
 }
@@ -25,9 +29,21 @@ export function classifyOrderForReconciliation(row: ReconciliationOrderRow): Rec
     const base = { order_id: String(row.order_id), order_number: row.order_number };
     const total = roundMoney(row.total_amount);
     const captured = roundMoney(row.captured);
-    const net = roundMoney(captured - row.refunded);
+    // What was received and not taken back by the provider (refunds are a separate decision).
+    const kept = roundMoney(captured - row.reversed);
+    const net = roundMoney(kept - row.refunded);
     const paid = row.payment_status === 'PAID';
     const cancelled = row.status === 'CANCELLED';
+
+    // A reversal waits for staff: cancel and restock, mark paid again, or write off. Nothing else
+    // about the order is meaningful until then.
+    if (row.payment_status === 'REVERSED') {
+        if (!cancelled && !row.reversal_written_off) {
+            issues.push({ ...base, kind: 'payment_reversed', amount: roundMoney(row.reversed), expected: null,
+                message: `The payment provider took back ${kes(row.reversed)}. Cancel and restock, mark it paid if they paid another way, or write it off.` });
+        }
+        return issues;
+    }
 
     if (paid && captured === 0) {
         issues.push({ ...base, kind: 'paid_without_capture', amount: null, expected: total,
@@ -40,11 +56,11 @@ export function classifyOrderForReconciliation(row: ReconciliationOrderRow): Rec
     if (!paid && !cancelled && captured > 0) {
         issues.push({ ...base, kind: 'held_for_review', amount: captured, expected: total,
             message: `Received ${kes(captured)} against ${kes(total)} — held for review, order not confirmed.` });
-    } else if (paid && !cancelled && captured > 0 && Math.abs(captured - total) > TOLERANCE) {
-        issues.push({ ...base, kind: 'amount_mismatch', amount: captured, expected: total,
-            message: captured > total
-                ? `Overpaid by ${kes(captured - total)} — refund the difference.`
-                : `Accepted ${kes(total - captured)} short of the order total.` });
+    } else if (paid && !cancelled && kept > 0 && Math.abs(kept - total) > TOLERANCE) {
+        issues.push({ ...base, kind: 'amount_mismatch', amount: kept, expected: total,
+            message: kept > total
+                ? `Overpaid by ${kes(kept - total)} — refund the difference.`
+                : `Accepted ${kes(total - kept)} short of the order total.` });
     }
     if (cancelled && net > TOLERANCE) {
         issues.push({ ...base, kind: 'refund_owed', amount: net, expected: 0,

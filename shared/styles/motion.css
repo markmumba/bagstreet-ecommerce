@@ -1,0 +1,183 @@
+:root {
+  --motion-press: 120ms;
+  --motion-tooltip: 125ms;
+  --motion-menu: 180ms;
+  --motion-dialog: 200ms;
+  --motion-drawer: 240ms;
+  --motion-ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --motion-ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.ui-press {
+  transition-property: transform, background-color, color, border-color, box-shadow, opacity;
+  transition-duration: var(--motion-press);
+  transition-timing-function: var(--motion-ease-out);
+}
+
+.ui-press:active:not(:disabled):not([aria-disabled="true"]) {
+  transform: scale(0.97);
+}
+
+/* Persistent panels retarget their transitions when toggled rapidly. */
+.ui-menu,
+.ui-mobile-menu,
+.ui-fade-panel {
+  visibility: hidden;
+  opacity: 0;
+  transition: opacity var(--motion-menu) var(--motion-ease-out),
+    transform var(--motion-menu) var(--motion-ease-out),
+    visibility 0s var(--motion-menu);
+}
+
+.ui-menu {
+  transform: scale(0.97);
+  transform-origin: top right;
+}
+
+.ui-mobile-menu { transform: translateY(-8px); }
+
+:is(.ui-menu, .ui-mobile-menu, .ui-fade-panel)[data-state="open"] {
+  visibility: visible;
+  opacity: 1;
+  transform: none;
+  transition-delay: 0s;
+}
+
+.ui-backdrop {
+  transition: opacity var(--motion-dialog) var(--motion-ease-out);
+}
+
+.ui-toggle-thumb,
+.ui-progress {
+  transition: transform var(--motion-menu) var(--motion-ease-out);
+}
+
+/* Radix dialogs and sheets retain closed content for their exit animation. */
+.ui-overlay,
+.ui-dialog,
+.ui-popover,
+.ui-tooltip,
+.ui-sheet {
+  animation-duration: var(--motion-dialog);
+  animation-timing-function: var(--motion-ease-out);
+  animation-fill-mode: both;
+}
+
+.ui-overlay[data-state="open"] { animation-name: ui-fade-in; }
+.ui-overlay[data-state="closed"] { animation-name: ui-fade-out; }
+.ui-dialog[data-state="open"] { animation-name: ui-scale-in; }
+.ui-dialog[data-state="closed"] { animation-name: ui-scale-out; }
+
+.ui-popover {
+  animation-duration: var(--motion-menu);
+  transform-origin: var(--radix-select-content-transform-origin, top center);
+}
+
+.ui-popover[data-state="open"] { animation-name: ui-scale-in; }
+.ui-popover[data-state="closed"] { animation-name: ui-scale-out; }
+
+.ui-tooltip {
+  animation-duration: var(--motion-tooltip);
+  transform-origin: var(--radix-tooltip-content-transform-origin);
+}
+
+.ui-tooltip[data-state="delayed-open"] { animation-name: ui-scale-in; }
+.ui-tooltip[data-state="closed"] { animation: none; }
+.ui-tooltip[data-state="instant-open"] { animation: none; }
+
+.ui-sheet {
+  animation-duration: var(--motion-drawer);
+  animation-timing-function: var(--motion-ease-drawer);
+}
+
+.ui-sheet[data-side="right"] { --motion-sheet-x: 100%; --motion-sheet-y: 0%; }
+.ui-sheet[data-side="left"] { --motion-sheet-x: -100%; --motion-sheet-y: 0%; }
+.ui-sheet[data-side="top"] { --motion-sheet-x: 0%; --motion-sheet-y: -100%; }
+.ui-sheet[data-side="bottom"] { --motion-sheet-x: 0%; --motion-sheet-y: 100%; }
+.ui-sheet[data-state="open"] { animation-name: ui-sheet-in; }
+.ui-sheet[data-state="closed"] { animation-name: ui-sheet-out; }
+
+.ui-feedback {
+  animation: ui-fade-in var(--motion-menu) var(--motion-ease-out);
+}
+
+.ui-image {
+  transition: transform var(--motion-drawer) var(--motion-ease-out);
+}
+
+.ui-image-alt {
+  opacity: 0;
+  transition: opacity var(--motion-dialog) var(--motion-ease-out);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .group:hover .ui-image { transform: scale(1.02); }
+  .group:hover .ui-image-alt { opacity: 1; }
+}
+
+@keyframes ui-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes ui-fade-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+@keyframes ui-scale-in {
+  from { opacity: 0; transform: scale(0.97); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes ui-scale-out {
+  from { opacity: 1; transform: scale(1); }
+  to { opacity: 0; transform: scale(0.97); }
+}
+
+@keyframes ui-sheet-in {
+  from { transform: translate(var(--motion-sheet-x), var(--motion-sheet-y)); }
+  to { transform: translate(0, 0); }
+}
+
+@keyframes ui-sheet-out {
+  from { transform: translate(0, 0); }
+  to { transform: translate(var(--motion-sheet-x), var(--motion-sheet-y)); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-press: 0ms;
+    --motion-tooltip: 1ms;
+    --motion-menu: 0ms;
+    --motion-dialog: 1ms;
+    --motion-drawer: 1ms;
+  }
+
+  .ui-press:active:not(:disabled):not([aria-disabled="true"]),
+  .ui-menu,
+  .ui-mobile-menu,
+  .group:hover .ui-image {
+    transform: none;
+  }
+
+  :is(.ui-dialog, .ui-popover, .ui-tooltip, .ui-sheet)[data-state="open"],
+  .ui-tooltip[data-state="delayed-open"] {
+    animation-name: ui-fade-in;
+    animation-duration: 1ms;
+  }
+
+  :is(.ui-dialog, .ui-popover, .ui-sheet)[data-state="closed"] {
+    animation-name: ui-fade-out;
+    animation-duration: 1ms;
+  }
+
+  .ui-feedback,
+  .animate-in,
+  .animate-out,
+  .animate-pulse,
+  .animate-spin,
+  .skeleton {
+    animation: none;
+  }
+}

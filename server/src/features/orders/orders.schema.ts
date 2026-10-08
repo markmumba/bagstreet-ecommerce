@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { ORDER_STATUS, WALK_IN_PAYMENT_METHOD } from 'shared/dist';
+import { ORDER_STATUS, WALK_IN_PAYMENT_METHOD, POLICY_VERSION } from 'shared/dist';
 
 const shippingAddressSchema = z.object({
     full_name: z.string().trim().min(2).max(200),
@@ -18,6 +18,7 @@ const shippingAddressSchema = z.object({
 });
 
 export const createOrderSchema = z.object({
+    policy_acceptance: z.object({ accepted: z.literal(true), version: z.literal(POLICY_VERSION) }),
     items: z
         .array(
             z.object({
@@ -41,6 +42,11 @@ export const updateOrderStatusSchema = z.object({
         ORDER_STATUS.CANCELLED,
         ORDER_STATUS.REFUNDED,
     ]),
+    reason: z.string().trim().max(500).optional(),
+});
+
+export const writeOffSchema = z.object({
+    note: z.string().trim().min(3, 'Say why it is being written off').max(1000),
 });
 
 export const createWalkInSaleSchema = z.object({

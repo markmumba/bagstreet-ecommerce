@@ -1,0 +1,119 @@
+# Production stack for a single DigitalOcean droplet. See docs/deployment.md.
+# Images are built by GitHub Actions (.github/workflows/images.yml) and pulled here:
+#   docker compose -f deploy/docker-compose.prod.yml --env-file .env.production pull
+#   docker compose -f deploy/docker-compose.prod.yml --env-file .env.production up -d
+# (On a droplet with 4 GB+ RAM you can instead build on the server with `build`.)
+#
+# Only Caddy publishes ports. Everything else is reachable only on the internal Docker network —
+# important because Docker-published ports bypass the ufw firewall, and because the API trusts
+# Caddy's X-Forwarded-For (TRUST_PROXY_HOPS=1): if the API were reachable directly, clients could
+# fake their IP and dodge rate limits.
+name: bagstreet
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+services:
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.web
+      args:
+        VITE_SERVER_URL: https://${API_DOMAIN}
+    image: ${IMAGE_REGISTRY:-ghcr.io/markmumba}/bagstreet-web:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      SHOP_DOMAIN: ${SHOP_DOMAIN}
+      ADMIN_DOMAIN: ${ADMIN_DOMAIN}
+      API_DOMAIN: ${API_DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL}
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      api:
+        condition: service_healthy
+    logging: *logging
+
+  api:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.api
+    image: ${IMAGE_REGISTRY:-ghcr.io/markmumba}/bagstreet-api:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    env_file: ../.env.production
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      SERVER_URL: https://${API_DOMAIN}
+      STOREFRONT_URL: https://${SHOP_DOMAIN}
+      CLIENT_URL: https://${ADMIN_DOMAIN}
+      CORS_ORIGIN: https://${SHOP_DOMAIN},https://${ADMIN_DOMAIN}
+      # Caddy is the one proxy in front of the API. Change only if you add another (see docs).
+      TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-1}
+      PESAPAL_CALLBACK_URL: https://${API_DOMAIN}/api/payments/pesapal/callback
+      REDIS_REST_URL: http://redis-rest:80
+      RATE_LIMIT_STORE: redis
+      # Migrations run as an explicit deploy step, not on every start.
+      RUN_MIGRATIONS_ON_STARTUP: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis-rest:
+        condition: service_started
+    logging: *logging
+
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - ${DATA_DIR:-/mnt/bagstreet}/postgres:/var/lib/postgresql/data
+      - ${DATA_DIR:-/mnt/bagstreet}/backups:/backups
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging: *logging
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    logging: *logging
+
+  redis-rest:
+    image: hiett/serverless-redis-http:latest
+    restart: unless-stopped
+    environment:
+      SRH_MODE: env
+      SRH_TOKEN: ${REDIS_REST_TOKEN}
+      SRH_CONNECTION_STRING: redis://redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
+    logging: *logging
+
+volumes:
+  caddy_data:
+  caddy_config:
+  redis_data:

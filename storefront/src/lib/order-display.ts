@@ -55,12 +55,17 @@ export const PAYMENT_STATUS_LABELS: Record<PaymentStatus, string> = {
   [PAYMENT_STATUS.UNPAID]: 'Unpaid',
   [PAYMENT_STATUS.PAID]: 'Paid',
   [PAYMENT_STATUS.FAILED]: 'Failed',
+  // Customers see both as "being checked": staff are resolving them (see CONTEXT.md).
+  [PAYMENT_STATUS.HELD]: 'Being checked',
+  [PAYMENT_STATUS.REVERSED]: 'Being checked',
 };
 
 export const PAYMENT_STATUS_CLASSES: Record<PaymentStatus, string> = {
   [PAYMENT_STATUS.UNPAID]: 'bg-yellow-100 text-yellow-800',
   [PAYMENT_STATUS.PAID]: 'bg-green-100 text-green-800',
   [PAYMENT_STATUS.FAILED]: 'bg-red-100 text-red-800',
+  [PAYMENT_STATUS.HELD]: 'bg-amber-100 text-amber-800',
+  [PAYMENT_STATUS.REVERSED]: 'bg-amber-100 text-amber-800',
 };
 
 export function getOrderSubtotal(order: OrderResponse) {

@@ -21,7 +21,7 @@ export function Hero() {
             src={hero.image_url}
             alt=""
             fetchPriority="high"
-            className="absolute inset-0 h-full w-full object-cover animate-in fade-in duration-1000"
+            className="absolute inset-0 h-full w-full object-cover"
           />
         </picture>
       ) : (
@@ -33,7 +33,7 @@ export function Hero() {
 
       {hero && (
         <div className="relative max-w-[1440px] mx-auto flex h-full items-end px-4 pb-16 sm:px-8 lg:px-20 lg:pb-24">
-          <div className="max-w-2xl animate-in fade-in slide-in-from-bottom-3 duration-1000">
+          <div className="max-w-2xl">
             {hero.eyebrow && <p className="text-label-caps text-background/85">{hero.eyebrow}</p>}
             <h1 className="mt-5 text-display">
               {lead.map((line) => (
@@ -47,7 +47,7 @@ export function Hero() {
             <div className="mt-9 flex flex-wrap gap-3">
               <Link
                 to="/shop"
-                className="inline-flex h-[52px] items-center bg-background px-8 text-label-caps text-foreground transition-colors duration-300 hover:bg-surface"
+                className="ui-press inline-flex h-[52px] items-center bg-background px-8 text-label-caps text-foreground hover:bg-surface"
               >
                 Discover the collection
               </Link>

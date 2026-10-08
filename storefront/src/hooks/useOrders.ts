@@ -44,6 +44,7 @@ export function usePlaceOrder() {
       email?: string;
       discount_code?: string;
       notes?: string;
+      policy_acceptance: { accepted: true; version: string };
     }) => apiClient.post<OrderResponse>('/api/orders', data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['orders'] });

@@ -8,9 +8,20 @@ if (!DATABASE_URL) {
 
 const sql = new SQL(DATABASE_URL);
 
-const EMAIL = 'markmumba01@gmail.com';
-const FULL_NAME = 'Bagstreet Admin';
-const PASSWORD = 'qwerty1234';
+// Credentials come from the environment — never from the code. Usage:
+//   ADMIN_EMAIL=you@example.com ADMIN_PASSWORD='a long passphrase' bun run src/scripts/seed-admin.ts
+const EMAIL = process.env.ADMIN_EMAIL?.trim().toLowerCase();
+const FULL_NAME = process.env.ADMIN_NAME?.trim() || 'Bagstreet Admin';
+const PASSWORD = process.env.ADMIN_PASSWORD ?? '';
+
+if (!EMAIL || !EMAIL.includes('@')) {
+    console.error('Set ADMIN_EMAIL to the admin\'s email address');
+    process.exit(1);
+}
+if (PASSWORD.length < 12) {
+    console.error('Set ADMIN_PASSWORD to at least 12 characters (a passphrase is best)');
+    process.exit(1);
+}
 
 async function seedAdmin() {
     const [existing] = await sql<{ id: number }[]>`SELECT id FROM users WHERE email = ${EMAIL}`;

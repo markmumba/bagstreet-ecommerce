@@ -77,3 +77,14 @@ export interface CartQuoteResponse {
     /** True only when every line is `ok`. */
     can_checkout: boolean;
 }
+
+export interface RecoveryPreferencesResponse {
+    enabled: boolean;
+    recovery_opt_in: boolean;
+}
+
+export interface CartRecoveryResponse {
+    state: 'ready' | 'payment_pending' | 'completed';
+    expires_at: string;
+    quote: CartQuoteResponse | null;
+}

@@ -22,7 +22,7 @@ export function ProductCard({ product, priority = false }: { product: ProductRes
                 decoding="async"
                 fetchPriority={priority ? 'high' : 'auto'}
                 sizes="(min-width: 1280px) 25vw, (min-width: 1024px) 33vw, 50vw"
-                className="h-full w-full object-cover transition-[transform,opacity] duration-700 ease-out group-hover:scale-[1.03]"
+                className="ui-image h-full w-full object-cover"
               />
               {/* Second photo fades in on hover when the product has one */}
               {hoverImage && (
@@ -32,7 +32,7 @@ export function ProductCard({ product, priority = false }: { product: ProductRes
                   aria-hidden="true"
                   loading="lazy"
                   decoding="async"
-                  className="absolute inset-0 h-full w-full object-cover opacity-0 transition-opacity duration-700 ease-out group-hover:opacity-100"
+                  className="ui-image-alt absolute inset-0 h-full w-full object-cover"
                 />
               )}
             </>
@@ -59,7 +59,7 @@ export function ProductCard({ product, priority = false }: { product: ProductRes
             className="line-clamp-2 text-[19px] leading-snug text-foreground sm:text-[21px]"
             style={{ fontFamily: 'var(--font-display)' }}
           >
-            <span className="bg-[linear-gradient(currentColor,currentColor)] bg-[length:0%_1px] bg-left-bottom bg-no-repeat transition-[background-size] duration-500 group-hover:bg-[length:100%_1px]">
+            <span className="decoration-[0.5px] underline-offset-4 group-hover:underline">
               {product.name}
             </span>
           </h3>

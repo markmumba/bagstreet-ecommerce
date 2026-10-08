@@ -3,7 +3,8 @@ import { classifyOrderForReconciliation, type ReconciliationOrderRow } from './r
 
 const row = (o: Partial<ReconciliationOrderRow> = {}): ReconciliationOrderRow => ({
     order_id: 1, order_number: 'BS-1', total_amount: 8500, status: 'CONFIRMED', payment_status: 'PAID',
-    order_source: 'ONLINE', captured: 8500, refunded: 0, has_completed_provider_payment: true, ...o,
+    order_source: 'ONLINE', captured: 8500, refunded: 0, reversed: 0, reversal_written_off: false,
+    has_completed_provider_payment: true, ...o,
 });
 const kinds = (o: Partial<ReconciliationOrderRow>) => classifyOrderForReconciliation(row(o)).map((i) => i.kind);
 
@@ -29,4 +30,12 @@ describe('classifyOrderForReconciliation', () => {
     test('online order marked paid by hand', () =>
         expect(kinds({ has_completed_provider_payment: false })).toEqual(['marked_paid_manually']));
     test('partially refunded paid order is fine', () => expect(kinds({ refunded: 2000 })).toEqual([]));
+    test('reversed payment waiting for staff', () =>
+        expect(kinds({ payment_status: 'REVERSED', reversed: 8500 })).toEqual(['payment_reversed']));
+    test('written-off or cancelled reversals are settled', () => {
+        expect(kinds({ payment_status: 'REVERSED', reversed: 8500, reversal_written_off: true })).toEqual([]);
+        expect(kinds({ payment_status: 'REVERSED', status: 'CANCELLED', reversed: 8500 })).toEqual([]);
+    });
+    test('reversed, then paid again another way: not overpaid', () =>
+        expect(kinds({ captured: 17000, reversed: 8500, has_completed_provider_payment: true })).toEqual([]));
 });

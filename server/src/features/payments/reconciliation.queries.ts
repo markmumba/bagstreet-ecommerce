@@ -8,16 +8,23 @@ const num = (v: unknown) => Number(v ?? 0);
 export const reconciliationQueries = {
     /** Ledger totals for entries dated in [from, to). */
     totals: async (from: Date, to: Date) => {
-        const [row] = await sql<{ captured: string; refunded: string; fees: string; paid_orders: string }[]>`
+        const [row] = await sql<{ captured: string; refunded: string; reversed: string; fees: string; paid_orders: string }[]>`
             SELECT
                 COALESCE(SUM(amount) FILTER (WHERE entry_type = ${LEDGER_ENTRY.PAYMENT_CAPTURED} AND direction = 'CREDIT'), 0) AS captured,
                 COALESCE(SUM(amount) FILTER (WHERE entry_type = ${LEDGER_ENTRY.REFUND_ISSUED} AND direction = 'DEBIT'), 0) AS refunded,
+                COALESCE(SUM(amount) FILTER (WHERE entry_type = ${LEDGER_ENTRY.PAYMENT_REVERSED} AND direction = 'DEBIT'), 0) AS reversed,
                 COALESCE(SUM(amount) FILTER (WHERE entry_type = ${LEDGER_ENTRY.PROVIDER_FEE} AND direction = 'DEBIT'), 0) AS fees,
                 COUNT(DISTINCT order_id) FILTER (WHERE entry_type = ${LEDGER_ENTRY.PAYMENT_CAPTURED}) AS paid_orders
             FROM payment_ledger_entries
             WHERE created_at >= ${from.toISOString()} AND created_at < ${to.toISOString()}
         `;
-        return { captured: num(row?.captured), refunded: num(row?.refunded), fees: num(row?.fees), paid_orders: num(row?.paid_orders) };
+        return {
+            captured: num(row?.captured),
+            refunded: num(row?.refunded),
+            reversed: num(row?.reversed),
+            fees: num(row?.fees),
+            paid_orders: num(row?.paid_orders),
+        };
     },
 
     /** Money facts for every order with payment activity in [from, to). */
@@ -39,6 +46,10 @@ export const reconciliationQueries = {
                           WHERE l.order_id = o.id AND l.entry_type = ${LEDGER_ENTRY.PAYMENT_CAPTURED} AND l.direction = 'CREDIT'), 0) AS captured,
                 COALESCE((SELECT SUM(amount) FROM payment_ledger_entries l
                           WHERE l.order_id = o.id AND l.entry_type = ${LEDGER_ENTRY.REFUND_ISSUED} AND l.direction = 'DEBIT'), 0) AS refunded,
+                COALESCE((SELECT SUM(amount) FROM payment_ledger_entries l
+                          WHERE l.order_id = o.id AND l.entry_type = ${LEDGER_ENTRY.PAYMENT_REVERSED} AND l.direction = 'DEBIT'), 0) AS reversed,
+                EXISTS (SELECT 1 FROM audit_logs a
+                        WHERE a.entity_type = 'order' AND a.entity_id = o.id::text AND a.action = 'ORDER_REVERSAL_WRITTEN_OFF') AS reversal_written_off,
                 EXISTS (SELECT 1 FROM payment_transactions t WHERE t.order_id = o.id AND t.status = 'COMPLETED') AS has_completed_provider_payment
             FROM orders o
             JOIN active a ON a.order_id = o.id
@@ -53,6 +64,8 @@ export const reconciliationQueries = {
             order_source: r.order_source,
             captured: num(r.captured),
             refunded: num(r.refunded),
+            reversed: num(r.reversed),
+            reversal_written_off: Boolean(r.reversal_written_off),
             has_completed_provider_payment: Boolean(r.has_completed_provider_payment),
         }));
     },

@@ -15,7 +15,7 @@ import notificationsRoutes from './features/notifications/notifications.routes';
 import { requireAuth, requireRole } from './middleware/auth.middleware';
 import { USER_ROLE } from 'shared/dist';
 import { authRateLimit, generalRateLimit, orderPlacementRateLimit, orderRateLimit, paymentRateLimit } from './middleware/rate-limit.middleware';
-import { startEmailWorker } from './services/messagequeue';
+import { startEmailOutboxWorker } from './services/email-outbox';
 import { startUnpaidOrderExpiry } from './services/unpaid-order-expiry';
 import shippingRoutes from './features/shipping/shipping.routes';
 import paymentsRoutes from './features/payments/payments.routes';
@@ -27,11 +27,14 @@ import { assertDatabaseMigrated, migrateDatabase } from './lib/migrations';
 import type { AppEnv } from './lib/hono';
 import auditRoutes from './features/audit/audit.routes';
 import storefrontRoutes from './features/storefront/storefront.routes';
+import recoveryRoutes from './features/cart-recovery/recovery.routes';
+import { startCartRecovery } from './services/cart-recovery';
+import complianceRoutes from './features/compliance/compliance.routes';
 
 
 const app = new Hono<AppEnv>()
 
-app.use('*', logger());
+app.use('*', logger(message => console.log(message.replace(/([?&]token=)[^&\s]+/g, '$1[redacted]'))));
 app.use('*', secureHeaders());
 app.use('*', cors({
     origin: env.CORS_ORIGIN,
@@ -56,6 +59,7 @@ app.use('/api/*', generalRateLimit);
 app.route('/api/auth', authRoutes);
 app.route('/api/dashboard', dashboardRoutes);
 app.route('/api/storefront', storefrontRoutes);
+app.route('/api/cart-recovery', recoveryRoutes);
 app.route('/api/categories', categoriesRoutes);
 app.route('/api/products', productsRoutes);
 app.use('/api/users/*', requireAuth, requireRole(USER_ROLE.ADMIN));
@@ -68,6 +72,7 @@ app.route('/api/payments', paymentsRoutes);
 app.route('/api/discounts', discountsRoutes);
 app.route('/api/settings', settingsRoutes);
 app.route('/api/audit-logs', auditRoutes);
+app.route('/api/compliance', complianceRoutes);
 
 app.onError(errorHandler);
 
@@ -85,7 +90,8 @@ prepareDatabase()
   .then(() => {
     console.log('Database ready');
     startUnpaidOrderExpiry();
-    return startEmailWorker();
+        startEmailOutboxWorker();
+        startCartRecovery();
   })
   .catch((error) => {
     console.error('Database preparation failed:', error);

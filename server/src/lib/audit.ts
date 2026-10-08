@@ -3,6 +3,7 @@ import { getClientIp } from './client-ip';
 import { toJsonbParam } from './json-column';
 import { getOptionalUser } from '@server/lib/hono';
 import { sql } from './db';
+import { redactAuditSecrets } from './audit-redaction';
 
 export type AuditAction =
     | 'CATEGORY_CREATED'
@@ -40,8 +41,8 @@ export async function createAuditLog(data: {
     metadata?: unknown;
     ipAddress?: string | null;
     userAgent?: string | null;
-}) {
-    await sql`
+}, db: typeof sql = sql) {
+    await db`
         INSERT INTO audit_logs(
             actor_user_id,
             actor_email,
@@ -62,9 +63,9 @@ export async function createAuditLog(data: {
             ${data.action},
             ${data.entityType},
             ${data.entityId == null ? null : String(data.entityId)},
-            ${toJsonbParam(data.before)}::jsonb,
-            ${toJsonbParam(data.after)}::jsonb,
-            ${toJsonbParam(data.metadata)}::jsonb,
+            ${toJsonbParam(redactAuditSecrets(data.before))}::jsonb,
+            ${toJsonbParam(redactAuditSecrets(data.after))}::jsonb,
+            ${toJsonbParam(redactAuditSecrets(data.metadata))}::jsonb,
             ${data.ipAddress ?? null},
             ${data.userAgent ?? null}
         )

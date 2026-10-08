@@ -1,5 +1,5 @@
 import { ordersQueries } from './orders.queries';
-import { createOrderSchema, createWalkInSaleSchema, updateOrderStatusSchema } from './orders.schema';
+import { createOrderSchema, createWalkInSaleSchema, updateOrderStatusSchema, writeOffSchema } from './orders.schema';
 import { sql } from '../../lib/db';
 import { success, paginated } from '@server/lib/response';
 import {
@@ -10,19 +10,20 @@ import {
     NotFoundError,
     ValidationError,
 } from '@server/lib/errors';
-import type { OrderItemResponse, OrderReceiptResponse, OrderResponse, OrderStatus, WalkInCatalogItemResponse } from 'shared/dist';
+import type { OrderItemResponse, OrderReceiptResponse, OrderResponse, WalkInCatalogItemResponse } from 'shared/dist';
 import { ORDER_SOURCE, ORDER_STATUS, PAYMENT_STATUS, USER_ROLE } from 'shared/dist';
 import { notificationsQueries } from '../notifications/notifications.queries';
 import { pushToMany } from '../../lib/sse';
 import { UsersQueries } from '../users/user.queries';
-import { publishEmail } from '../../services/messagequeue';
+import { enqueueEmail } from '../../services/email-outbox';
 import { shippingQueries } from '../shipping/shipping.queries';
 import { normalisePhone } from '../../lib/phone';
 import { paymentsQueries } from '../payments/payments.queries';
 import { validateDiscount } from '../discounts/discounts.handlers';
 import { discountsQueries } from '../discounts/discounts.queries';
 import { settingsQueries } from '../settings/settings.queries';
-import { confirmOrderPayment, notifyStaffOrderConfirmed } from '../../services/order-payments';
+import { adminActionsFor, applyOrderEvent, requireAllowed } from './lifecycle/order-lifecycle';
+import { decideCreation, type Actor } from './lifecycle/transitions';
 import type { AppContext, AuthUser } from '@server/lib/hono';
 import { getOptionalUser, getRequiredUser } from '@server/lib/hono';
 import { submitPesapalOrder } from '../../services/pesapal';
@@ -38,6 +39,7 @@ import { readJsonColumn } from '../../lib/json-column';
 import { REFUND_METHOD } from 'shared/dist';
 import type { OrderPaymentsResponse } from 'shared/dist';
 import { z } from 'zod';
+import { clearRecoverySource, recoverySessionHash, recoverySourceOrderId } from '../cart-recovery/recovery-session';
 
 interface VariantRow {
     id: number;
@@ -106,9 +108,27 @@ function toOrderResponse(order: any, items: any[]): OrderResponse {
             unit_price: parseFloat(item.unit_price),
             subtotal: parseFloat(item.subtotal),
         })),
+        available_actions: adminActionsFor(order),
         created_at: order.created_at,
         updated_at: order.updated_at,
     };
+}
+
+function staffActor(c: AppContext): Actor {
+    const user = getAuthUser(c);
+    return {
+        kind: 'staff',
+        userId: user.sub,
+        role: user.role === USER_ROLE.ADMIN ? 'ADMIN' : 'MANAGER',
+        email: user.email,
+    };
+}
+
+/** The order as the response, after a lifecycle event (re-read so the caller sees the final row). */
+async function orderResponse(orderId: number): Promise<OrderResponse> {
+    const order = await ordersQueries.findById(orderId);
+    if (!order) throw new NotFoundError('Order', orderId);
+    return toOrderResponse(order, await ordersQueries.findItemsByOrderId(orderId));
 }
 
 async function buildPricedOrderItems(items: OrderLineInput[]): Promise<PricedOrderItem[]> {
@@ -197,8 +217,11 @@ async function notifyLowStockAlerts(items: Pick<PricedOrderItem, 'variant_id'>[]
     const staff = await UsersQueries.findActiveAdmins();
     for (const variant of lowStockVariants) {
         const variantLabel = [variant.size, variant.color].filter(Boolean).join(' / ');
+        // At most one "low" and one "out of stock" email per item, per admin, per day.
+        const level = variant.stock === 0 ? 'out' : 'low';
+        const day = new Date().toISOString().slice(0, 10);
         for (const user of staff) {
-            publishEmail({
+            await enqueueEmail({
                 type: 'LOW_STOCK_ALERT',
                 to: user.email,
                 name: user.full_name,
@@ -206,7 +229,8 @@ async function notifyLowStockAlerts(items: Pick<PricedOrderItem, 'variant_id'>[]
                 variantLabel,
                 stock: variant.stock,
                 threshold: variant.low_stock_threshold,
-            }).catch((err) => console.error('[email] low stock alert failed:', err));
+            }, { dedupeKey: `low-stock:${variant.id}:${user.id}:${day}:${level}` })
+                .catch((err) => console.error('[email] low stock alert could not be queued:', err));
         }
     }
 }
@@ -292,6 +316,7 @@ export const ordersHandlers = {
             })
         );
 
+        if (isAdmin) await auditFromContext(c, { action: 'ORDER_LIST_VIEWED', entityType: 'order', metadata: { page, returned: responses.length } });
         return paginated(c, responses, page, limit, total);
     },
 
@@ -305,6 +330,7 @@ export const ordersHandlers = {
         if (!isAdmin && String(order.user_id) !== sub) throw new ForbiddenError();
 
         const items = await ordersQueries.findItemsByOrderId(order.id);
+        if (isAdmin) await auditFromContext(c, { action: 'ORDER_VIEWED', entityType: 'order', entityId: order.id });
         return success(c, toOrderResponse(order, items));
     },
 
@@ -314,46 +340,28 @@ export const ordersHandlers = {
         return success(c, await orderPaymentsResponse(order));
     },
 
-    /** Admin only: record money returned to the customer (full or partial). */
+    /** Admin only: record money returned to the customer (full or partial), through the Order lifecycle. */
     recordRefund: async (c: AppContext) => {
-        const authUser = getAuthUser(c);
         const order = await findOrderByParam(c.req.param('id')!);
         const validated = recordRefundSchema.safeParse(await c.req.json().catch(() => null));
         if (!validated.success) throw new ValidationError('Invalid refund', validated.error.errors);
 
-        const before = await orderPaymentsResponse(order);
-        const result = await paymentsQueries.recordRefund({
-            orderId: Number(order.id),
+        const result = requireAllowed(await applyOrderEvent(Number(order.id), {
+            type: 'refund_recorded',
             amount: validated.data.amount,
             method: validated.data.method,
-            externalReference: validated.data.external_reference,
             reason: validated.data.reason,
+            externalReference: validated.data.external_reference,
             idempotencyKey: validated.data.idempotency_key,
-            recordedBy: { id: authUser.sub, email: authUser.email },
-        });
-
-        const after = await orderPaymentsResponse(await findOrderByParam(String(order.id)));
-        if (result.recorded) {
-            await auditFromContext(c, {
-                action: 'ORDER_REFUND_RECORDED',
-                entityType: 'order',
-                entityId: order.id,
-                before: { status: order.status, ...before.summary },
-                after: { status: result.statusChangedTo ?? order.status, ...after.summary },
-                metadata: {
-                    amount: validated.data.amount,
-                    method: validated.data.method,
-                    external_reference: validated.data.external_reference ?? null,
-                    reason: validated.data.reason,
-                },
-            });
-        }
+        }, staffActor(c)));
+        // A repeat of the same form submission changes nothing.
+        const recorded = !(result.outcome === 'unchanged' && result.noop);
 
         return success(
             c,
-            after,
-            result.recorded ? 'Refund recorded' : 'This refund was already recorded',
-            result.recorded ? 201 : 200,
+            await orderPaymentsResponse(result.order),
+            recorded ? 'Refund recorded' : 'This refund was already recorded',
+            recorded ? 201 : 200,
         );
     },
 
@@ -371,6 +379,7 @@ export const ordersHandlers = {
 
         const items = await ordersQueries.findItemsByOrderId(order.id);
         const payment = await paymentsQueries.findProviderTransactionByOrderId(order.id);
+        if (isStaff) await auditFromContext(c, { action: 'ORDER_RECEIPT_ACCESSED', entityType: 'order', entityId: order.id });
         const shippingAddress = normalizeShippingAddress(order.shipping_address, {
             fullName: (order as any).customer_name,
             phone: (order as any).customer_phone,
@@ -515,6 +524,13 @@ export const ordersHandlers = {
             country: 'Kenya',
         };
         const paymentReference = `walk-in-${randomUUID()}`;
+        // The Order lifecycle decides who may record a walk-in sale and the state it starts in.
+        const start = decideCreation(
+            { type: 'walk_in_sale', amount: totalAmount, currency: env.PESAPAL_CURRENCY, reference: paymentReference },
+            staffActor(c),
+            paymentReference,
+        );
+        if (start.kind !== 'transition') throw new ForbiddenError(start.kind === 'not_allowed' ? start.message : undefined);
 
         let order;
         try {
@@ -532,8 +548,8 @@ export const ordersHandlers = {
                 customerPhone,
                 customerEmail,
                 {
-                    status: ORDER_STATUS.DELIVERED,
-                    paymentStatus: PAYMENT_STATUS.PAID,
+                    status: start.next.status,
+                    paymentStatus: start.next.payment,
                     orderSource: ORDER_SOURCE.WALK_IN,
                     paidAt: new Date(),
                     inventoryCreatedBy: Number(actor.sub),
@@ -646,6 +662,9 @@ export const ordersHandlers = {
                 customerEmail,
                 {
                     customerLimits: { phone: normalizedPhone, email: customerEmail },
+                    policyAcceptance: validated.data.policy_acceptance,
+                    recoverySessionHash: recoverySessionHash(c) ?? undefined,
+                    recoverySourceOrderId: recoverySourceOrderId(c) ?? undefined,
                     ...(discount.codeId && discountAmount > 0
                         ? { discountUsage: { codeId: discount.codeId, phone: normalizedPhone, amount: discountAmount } }
                         : {}),
@@ -665,7 +684,8 @@ export const ordersHandlers = {
 
         const items = await ordersQueries.findItemsByOrderId(order.id);
 
-        // Staff are alerted about new orders once payment is confirmed (see confirmOrderPayment),
+        clearRecoverySource(c);
+        // Staff are alerted about new orders once payment is confirmed (see the Order lifecycle),
         // not here — most unpaid orders are abandoned checkouts. Stock was taken, so low-stock alerts stay.
         await notifyLowStockAlerts(itemsWithPrice);
 
@@ -719,64 +739,29 @@ export const ordersHandlers = {
         );
     },
 
+    /** Admin status changes, as Order events: cancel or mark received. Everything else follows payments and refunds. */
     updateStatus: async (c: AppContext) => {
         const id = parseInt(c.req.param('id')!);
         const body = await c.req.json();
         const validated = updateOrderStatusSchema.safeParse(body);
-
         if (!validated.success) {
             throw new ValidationError('Invalid status', validated.error.errors);
         }
 
-        const order = await ordersQueries.findById(id);
-        if (!order) throw new NotFoundError('Order', id);
-
-        if (order.status === ORDER_STATUS.CANCELLED || order.status === ORDER_STATUS.REFUNDED) {
-            throw new BadRequestError(`Cannot update a ${order.status} order`);
-        }
-        if (order.status === ORDER_STATUS.DELIVERED && validated.data.status !== ORDER_STATUS.REFUNDED) {
-            throw new BadRequestError('Received orders can only be refunded');
-        }
-
-        if (validated.data.status === ORDER_STATUS.CONFIRMED && (order as any).payment_status !== PAYMENT_STATUS.PAID) {
-            throw new BadRequestError('Use Mark as Paid to confirm payment before confirming the order');
-        }
-        if (validated.data.status === ORDER_STATUS.DELIVERED && (order as any).payment_status !== PAYMENT_STATUS.PAID) {
-            throw new BadRequestError('Only paid orders can be marked as received');
-        }
-        if (validated.data.status === ORDER_STATUS.REFUNDED) {
-            // Status follows the money: recording refunds marks the order REFUNDED once fully refunded.
+        const target = validated.data.status;
+        if (target === ORDER_STATUS.REFUNDED) {
             throw new BadRequestError('Record the refund instead — the order is marked refunded automatically once fully refunded');
         }
-        if (validated.data.status === ORDER_STATUS.CANCELLED && (order as any).payment_status === PAYMENT_STATUS.PAID) {
-            throw new BadRequestError('Paid orders should be refunded instead of cancelled');
+        if (target === ORDER_STATUS.CONFIRMED) {
+            throw new BadRequestError('Orders are confirmed by their payment — use Mark as paid');
         }
 
-        if (validated.data.status === ORDER_STATUS.CANCELLED && order.status === ORDER_STATUS.PENDING) {
-            // Atomic: status, stock and discount use change together, and a concurrent payment wins.
-            const cancelled = await ordersQueries.cancelUnpaid(id);
-            if (!cancelled) throw new BadRequestError('Order changed while cancelling — refresh and try again');
-        } else if (validated.data.status === ORDER_STATUS.CANCELLED) {
-            await ordersQueries.restoreStock(id);
-        }
-
-        const updated = await ordersQueries.updateStatus(id, validated.data.status);
-        if (!updated) throw new InternalServerError('Failed to update order status');
-
-        const items = await ordersQueries.findItemsByOrderId(id);
-        if (validated.data.status === ORDER_STATUS.CONFIRMED && order.status !== ORDER_STATUS.CONFIRMED) {
-            const itemCount = items.reduce((sum, item) => sum + Number(item.quantity), 0);
-            await notifyStaffOrderConfirmed(updated, itemCount);
-        }
-        await auditFromContext(c, {
-            action: 'ORDER_STATUS_UPDATED',
-            entityType: 'order',
-            entityId: id,
-            before: { status: order.status, payment_status: (order as any).payment_status },
-            after: { status: updated.status, payment_status: (updated as any).payment_status },
-        });
-
-        return success(c, toOrderResponse(updated, items), 'Order status updated');
+        requireAllowed(await applyOrderEvent(
+            id,
+            target === ORDER_STATUS.CANCELLED ? { type: 'cancelled', reason: validated.data.reason } : { type: 'delivered' },
+            staffActor(c),
+        ));
+        return success(c, await orderResponse(id), 'Order status updated');
     },
 
     stats: async (c: AppContext) => {
@@ -784,57 +769,39 @@ export const ordersHandlers = {
         return success(c, data);
     },
 
+    /** A customer cancelling their own unpaid order from their account. */
     cancel: async (c: AppContext) => {
-        const ref = c.req.param('id')!;
         const { sub } = getAuthUser(c);
+        const order = await findOrderByParam(c.req.param('id')!);
+        const id = Number(order.id);
 
-        const order = await findOrderByParam(ref);
-        const id = order.id;
-        if (String(order.user_id) !== sub) throw new ForbiddenError();
-        if (order.status !== ORDER_STATUS.PENDING) {
-            throw new BadRequestError('Only PENDING orders can be cancelled');
-        }
-
-        const cancelled = await ordersQueries.cancelUnpaid(id);
-        if (!cancelled) throw new BadRequestError('This order can no longer be cancelled');
-        const updated = await ordersQueries.findById(id);
-        if (!updated) throw new InternalServerError('Failed to cancel order');
-
-        const items = await ordersQueries.findItemsByOrderId(id);
-        return success(c, toOrderResponse(updated, items), 'Order cancelled');
+        requireAllowed(await applyOrderEvent(id, { type: 'cancelled', reason: 'Cancelled by customer' }, {
+            kind: 'customer',
+            isOwner: order.user_id != null && String(order.user_id) === sub,
+            via: 'account',
+        }));
+        return success(c, await orderResponse(id), 'Order cancelled');
     },
 
+    /** Admin "Mark as paid": the customer paid some other way, or staff accept a held payment. */
     confirmPayment: async (c: AppContext) => {
         const id = parseInt(c.req.param('id')!);
-
-        const order = await ordersQueries.findById(id);
-        if (!order) throw new NotFoundError('Order', id);
-
-        if ((order as any).payment_status === PAYMENT_STATUS.PAID) {
-            const items = await ordersQueries.findItemsByOrderId(id);
-            return success(c, toOrderResponse(order, items), 'Order payment is already confirmed');
-        }
-
-        if (order.status === ORDER_STATUS.CANCELLED || order.status === ORDER_STATUS.REFUNDED) {
-            throw new BadRequestError(`Cannot confirm payment for a ${order.status.toLowerCase()} order`);
-        }
-
-        await confirmOrderPayment(id);
-        const updated = await ordersQueries.findById(id);
-        if (!updated) throw new InternalServerError('Failed to confirm payment');
-
-        const items = await ordersQueries.findItemsByOrderId(id);
-        await auditFromContext(c, {
-            action: 'ORDER_PAYMENT_CONFIRMED',
-            entityType: 'order',
-            entityId: id,
-            before: { status: order.status, payment_status: (order as any).payment_status },
-            after: { status: updated.status, payment_status: (updated as any).payment_status },
-            metadata: { source: 'manual_admin_action' },
-        });
-        return success(c, toOrderResponse(updated, items), 'Payment marked as paid');
+        const result = requireAllowed(await applyOrderEvent(id, { type: 'marked_paid' }, staffActor(c)));
+        return success(c, await orderResponse(id), result.outcome === 'changed' ? 'Payment marked as paid' : 'Order payment is already confirmed');
     },
 
+    /** Admin accepts a payment reversal as lost: the order stays reversed, with the reason on record. */
+    writeOff: async (c: AppContext) => {
+        const id = parseInt(c.req.param('id')!);
+        const body = await c.req.json().catch(() => ({}));
+        const validated = writeOffSchema.safeParse(body);
+        if (!validated.success) throw new ValidationError('Say why it is being written off', validated.error.errors);
+
+        requireAllowed(await applyOrderEvent(id, { type: 'written_off', note: validated.data.note }, staffActor(c)));
+        return success(c, await orderResponse(id), 'Reversal written off');
+    },
+
+    /** The "I've received it" link in the confirmation email. The signed token proves it's the customer. */
     confirmReceived: async (c: AppContext) => {
         const ref = c.req.param('id')!;
         const body = await c.req.json().catch(() => ({}));
@@ -845,30 +812,8 @@ export const ordersHandlers = {
         }
 
         const order = await findOrderByParam(ref);
-        const id = order.id;
-        if ((order as any).payment_status !== PAYMENT_STATUS.PAID) {
-            throw new BadRequestError('Only paid orders can be marked as received');
-        }
-        if (order.status === ORDER_STATUS.CANCELLED || order.status === ORDER_STATUS.REFUNDED) {
-            throw new BadRequestError(`Cannot mark a ${order.status.toLowerCase()} order as received`);
-        }
-
-        const updated = order.status === ORDER_STATUS.DELIVERED
-            ? order
-            : await ordersQueries.updateStatus(id, ORDER_STATUS.DELIVERED);
-        if (!updated) throw new InternalServerError('Failed to confirm order receipt');
-
-        const items = await ordersQueries.findItemsByOrderId(id);
-        if (order.status !== ORDER_STATUS.DELIVERED) {
-            await auditFromContext(c, {
-                action: 'ORDER_RECEIVED_CONFIRMED',
-                entityType: 'order',
-                entityId: id,
-                before: { status: order.status },
-                after: { status: updated.status },
-                metadata: { source: 'customer_email_link' },
-            });
-        }
-        return success(c, toOrderResponse(updated, items), 'Thanks — your order has been marked as received');
+        const id = Number(order.id);
+        requireAllowed(await applyOrderEvent(id, { type: 'delivered' }, { kind: 'customer', isOwner: true, via: 'received_link' }));
+        return success(c, await orderResponse(id), 'Thanks — your order has been marked as received');
     },
 };

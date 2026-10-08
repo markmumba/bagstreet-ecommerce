@@ -1,30 +1,14 @@
-<!doctype html>
-<html>
-  <body style="margin:0;background:#f8f5f1;font-family:Arial,sans-serif;color:#241212;">
-    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f8f5f1;padding:32px 16px;">
-      <tr>
-        <td align="center">
-          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:560px;background:#ffffff;border:1px solid #eadfd8;border-radius:16px;overflow:hidden;">
-            <tr>
-              <td style="padding:28px 28px 12px;">
-                <h1 style="margin:0;font-size:24px;line-height:1.25;color:#241212;">Set up your Bagstreet account</h1>
-              </td>
-            </tr>
-            <tr>
-              <td style="padding:0 28px 24px;font-size:15px;line-height:1.6;color:#4e403b;">
-                <p>Hello {{name}},</p>
-                <p>Use the button below to choose a password and activate your customer account. This link expires soon for your security.</p>
-                <p style="margin:28px 0;">
-                  <a href="{{setupUrl}}" style="display:inline-block;background:#922f45;color:#ffffff;text-decoration:none;font-weight:700;border-radius:10px;padding:12px 18px;">Set Password</a>
-                </p>
-                <p style="font-size:13px;color:#766760;">If the button does not work, copy and paste this link into your browser:</p>
-                <p style="font-size:12px;line-height:1.5;word-break:break-all;color:#922f45;">{{setupUrl}}</p>
-              </td>
-            </tr>
-          </table>
-          <p style="margin:18px 0 0;font-size:12px;color:#8b7c76;">&copy; {{year}} Bagstreet</p>
-        </td>
-      </tr>
-    </table>
-  </body>
-</html>
+<tr>
+  <td class="email-pad" style="padding:32px 40px;">
+    <p style="margin:0 0 14px;font-size:12px;font-weight:700;line-height:1.5;text-transform:uppercase;color:#842b3f;">Your BagStreet account</p>
+    <h1 class="email-heading" style="margin:0 0 20px;font-family:Georgia,'Times New Roman',serif;font-size:38px;font-weight:400;line-height:1.2;color:#232529;">Make yourself<br />at home.</h1>
+    <p style="margin:0 0 12px;font-size:15px;line-height:1.7;color:#232529;">Hi {{name}},</p>
+    <p style="margin:0 0 24px;font-size:15px;line-height:1.7;color:#59616a;">Your account is one step away. Choose a password to activate it and keep your future orders together in one place.</p>
+    <table role="presentation" cellpadding="0" cellspacing="0"><tr><td bgcolor="#842b3f" style="border-radius:6px;mso-padding-alt:14px 22px;">
+      <a href="{{setupUrl}}" style="display:inline-block;padding:14px 22px;font-size:14px;font-weight:700;line-height:1.4;text-decoration:none;color:#ffffff;">Set up my account &rarr;</a>
+    </td></tr></table>
+    <p style="margin:20px 0 0;font-size:13px;line-height:1.7;color:#59616a;">This secure link expires in <strong>24 hours</strong> and can be used once. You can still shop without an account.</p>
+    <p style="margin:20px 0 0;font-size:12px;line-height:1.7;color:#697079;">Button not working? <a href="{{setupUrl}}" style="color:#842b3f;text-decoration:underline;">Open your account setup link</a>.</p>
+    <p style="margin:20px 0 0;font-size:12px;line-height:1.7;color:#697079;">Didn't request an account? Ignore this email; your account won't be activated.</p>
+  </td>
+</tr>
