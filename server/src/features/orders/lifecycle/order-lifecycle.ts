@@ -11,13 +11,13 @@
 import { PAYMENT_STATUS } from 'shared/dist';
 import { sql } from '../../../lib/db';
 import { env } from '../../../config/env';
-import { adjustStock } from '../../../lib/inventory';
+import { inventory, type StockLine } from '../../inventory/inventory';
+import { AfterCommit } from '../../../lib/after-commit';
 import { createAuditLog } from '../../../lib/audit';
 import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from '../../../lib/errors';
 import { roundMoney } from '../../../lib/pricing';
-import { pushToMany } from '../../../lib/sse';
 import type { AuthUser } from '../../../lib/hono';
-import { enqueueEmail, wakeEmailOutbox } from '../../../services/email-outbox';
+import { enqueueEmail } from '../../../services/email-outbox';
 import { notificationsQueries } from '../../notifications/notifications.queries';
 import { paymentsQueries } from '../../payments/payments.queries';
 import { LEDGER_ENTRY } from '../../payments/order-balance';
@@ -69,12 +69,6 @@ export function requireAllowed(result: ApplyResult): Exclude<ApplyResult, { outc
     throw new BadRequestError(result.message);
 }
 
-/** What to do once the transaction has committed. */
-interface AfterCommit {
-    wakeOutbox: boolean;
-    pushes: { userIds: number[]; event: string; data: object }[];
-}
-
 interface Run {
     tx: Executor;
     order: OrderRow;
@@ -90,7 +84,7 @@ interface Run {
 }
 
 export async function applyOrderEvent(orderId: number, event: OrderEvent, actor: Actor, options: ApplyOptions = {}): Promise<ApplyResult> {
-    const after: AfterCommit = { wakeOutbox: false, pushes: [] };
+    const after = new AfterCommit();
 
     const result = await sql.begin(async (tx: Executor) => {
         const [order] = await tx<OrderRow[]>`SELECT * FROM orders WHERE id = ${orderId} FOR UPDATE`;
@@ -123,8 +117,7 @@ export async function applyOrderEvent(orderId: number, event: OrderEvent, actor:
         return { outcome: 'changed', before: state, state: next, order: updated ?? order } satisfies ApplyResult;
     }) as unknown as ApplyResult;
 
-    if (after.wakeOutbox) wakeEmailOutbox();
-    for (const push of after.pushes) pushToMany(push.userIds, push.event, push.data);
+    after.run();
     return result;
 }
 
@@ -170,32 +163,18 @@ async function loadContext(tx: Executor, order: OrderRow, state: OrderState, eve
         ctx.captureAlreadyRecorded = Boolean(seen);
         if (state.status === 'CANCELLED') {
             // Late payment: can the order be reinstated? Variants stay locked until commit.
-            const items = await lockOrderStock(tx, order.id);
-            ctx.stockAvailable = items.every((item) => item.stock >= item.quantity);
+            ctx.stockAvailable = await inventory.canReserve(tx, await orderStockLines(tx, order.id));
         }
     }
     return ctx;
 }
 
-/** The order's quantity per variant, with each variant row locked (in id order, to avoid deadlocks). */
-async function lockOrderStock(tx: Executor, orderId: number) {
-    const variants = await tx<{ id: number; stock: number }[]>`
-        SELECT id, stock FROM product_variants
-        WHERE id IN (SELECT variant_id FROM order_items WHERE order_id = ${orderId})
-        ORDER BY id
-        FOR UPDATE
+/** What the order holds (or would take) from stock. */
+async function orderStockLines(tx: Executor, orderId: number): Promise<StockLine[]> {
+    const rows = await tx<{ variant_id: number; quantity: number }[]>`
+        SELECT variant_id, quantity FROM order_items WHERE order_id = ${orderId} AND variant_id IS NOT NULL
     `;
-    const quantities = await tx<{ variant_id: number; quantity: number }[]>`
-        SELECT variant_id, SUM(quantity)::int AS quantity FROM order_items
-        WHERE order_id = ${orderId} AND variant_id IS NOT NULL
-        GROUP BY variant_id
-    `;
-    const stockById = new Map(variants.map((v) => [Number(v.id), Number(v.stock)]));
-    return quantities.map((q) => ({
-        variant_id: Number(q.variant_id),
-        quantity: Number(q.quantity),
-        stock: stockById.get(Number(q.variant_id)) ?? 0,
-    }));
+    return rows.map((r) => ({ variantId: Number(r.variant_id), quantity: Number(r.quantity) }));
 }
 
 // ── Effects ─────────────────────────────────────────────────────────────────
@@ -205,22 +184,20 @@ async function applyEffect(run: Run, effect: Effect): Promise<void> {
     const orderId = Number(order.id);
 
     switch (effect.type) {
-        case 'reserve_stock': {
-            const items = await lockOrderStock(tx, orderId);
-            const short = items.find((item) => item.stock < item.quantity);
-            if (short) throw new ConflictError(`Not enough stock to take for order ${order.order_number}`);
-            const note = run.before.status === 'CANCELLED' ? 'Reinstated after late payment' : null;
-            for (const item of items) await adjustStock(tx, item.variant_id, -item.quantity, 'ORDER_PLACED', orderId, note, staffId(run.actor));
+        case 'reserve_stock':
+            await inventory.reserve(tx, await orderStockLines(tx, orderId), {
+                referenceId: orderId,
+                note: run.before.status === 'CANCELLED' ? 'Reinstated after late payment' : null,
+                by: staffId(run.actor),
+            }, run.after);
             return;
-        }
-        case 'release_stock': {
-            const items = await tx<{ variant_id: number; quantity: number }[]>`
-                SELECT variant_id, quantity FROM order_items WHERE order_id = ${orderId} AND variant_id IS NOT NULL
-            `;
-            const note = run.event.type === 'expired' ? 'Unpaid order expired' : 'Order cancelled';
-            for (const item of items) await adjustStock(tx, item.variant_id, item.quantity, 'ORDER_CANCELLED', orderId, note, staffId(run.actor));
+        case 'release_stock':
+            await inventory.release(tx, await orderStockLines(tx, orderId), {
+                referenceId: orderId,
+                note: run.event.type === 'expired' ? 'Unpaid order expired' : 'Order cancelled',
+                by: staffId(run.actor),
+            }, run.after);
             return;
-        }
         case 'claim_discount':
             await claimOrderDiscount(tx, order as any, effect.allowOverLimit);
             return;
@@ -278,14 +255,14 @@ async function applyEffect(run: Run, effect: Effect): Promise<void> {
                 ? await orderConfirmationJob(order, await ordersQueries.findItemsByOrderId(orderId))
                 : await paymentFailedJob(order, run.event.type === 'payment_failed' ? run.event.reason : null);
             if (!job) return;
-            if (await enqueueEmail(job, { tx, dedupeKey: effect.dedupeKey })) run.after.wakeOutbox = true;
+            if (await enqueueEmail(job, { tx, dedupeKey: effect.dedupeKey })) run.after.wakeOutbox();
             return;
         }
         case 'email_staff_order_confirmed': {
             const items = await ordersQueries.findItemsByOrderId(orderId);
             const itemCount = items.reduce((sum, item) => sum + Number(item.quantity), 0);
             for (const { job, dedupeKey } of await staffOrderConfirmedJobs(order, itemCount)) {
-                if (await enqueueEmail(job, { tx, dedupeKey })) run.after.wakeOutbox = true;
+                if (await enqueueEmail(job, { tx, dedupeKey })) run.after.wakeOutbox();
             }
             const staff = await recipients(run);
             await notifyStaff(run, staff, {
@@ -293,7 +270,7 @@ async function applyEffect(run: Run, effect: Effect): Promise<void> {
                 title: `New order ${order.order_number ?? `#${orderId}`}`,
                 body: `Paid — KES ${run.captured.toFixed(2)}`,
             });
-            run.after.pushes.push({ userIds: staff.map((u) => Number(u.id)), event: 'order_paid', data: { order_id: orderId } });
+            run.after.push(staff.map((u) => Number(u.id)), 'order_paid', { order_id: orderId });
             return;
         }
         case 'alert_staff':
@@ -332,7 +309,7 @@ async function notifyStaff(run: Run, staff: { id: number | string }[], message: 
         ...message,
         data: { link: '/orders', order_id: String(run.order.id) },
     })), run.tx);
-    run.after.pushes.push({ userIds, event: 'notification', data: { notifications: created } });
+    run.after.push(userIds, 'notification', { notifications: created });
 }
 
 /** One ledger reference per refund form submission, so a double submit records one refund. */

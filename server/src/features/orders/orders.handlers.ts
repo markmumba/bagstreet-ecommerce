@@ -15,7 +15,6 @@ import { ORDER_SOURCE, ORDER_STATUS, PAYMENT_STATUS, USER_ROLE } from 'shared/di
 import { notificationsQueries } from '../notifications/notifications.queries';
 import { pushToMany } from '../../lib/sse';
 import { UsersQueries } from '../users/user.queries';
-import { enqueueEmail } from '../../services/email-outbox';
 import { shippingQueries } from '../shipping/shipping.queries';
 import { normalisePhone } from '../../lib/phone';
 import { paymentsQueries } from '../payments/payments.queries';
@@ -170,68 +169,6 @@ async function buildPricedOrderItems(items: OrderLineInput[]): Promise<PricedOrd
             variant_color: variant.color,
         };
     });
-}
-
-async function notifyLowStockAlerts(items: Pick<PricedOrderItem, 'variant_id'>[]) {
-    const adminIds = await notificationsQueries.findAdminIds();
-    if (adminIds.length === 0) return;
-
-    const lowStockVariants: { id: number; sku: string; size: string | null; color: string | null; stock: number; low_stock_threshold: number; product_name: string }[] = [];
-    const seenVariantIds = new Set<number>();
-    for (const item of items) {
-        if (seenVariantIds.has(item.variant_id)) continue;
-        seenVariantIds.add(item.variant_id);
-        const rows = await sql<{ id: number; sku: string; size: string | null; color: string | null; stock: number; low_stock_threshold: number; product_name: string }[]>`
-            SELECT pv.id, pv.sku, pv.size, pv.color, pv.stock, pv.low_stock_threshold, p.name AS product_name
-            FROM product_variants pv
-            JOIN products p ON p.id = pv.product_id
-            WHERE pv.id = ${item.variant_id}
-              AND pv.stock <= pv.low_stock_threshold
-              AND pv.stock >= 0
-        `;
-        lowStockVariants.push(...rows);
-    }
-
-    if (lowStockVariants.length === 0) return;
-
-    const lowStockNotifs: { recipient_id: number; type: string; title: string; body: string; data: object }[] = [];
-    for (const variant of lowStockVariants) {
-        const variantLabel = [variant.size, variant.color].filter(Boolean).join(' / ');
-        const title = variant.stock === 0 ? `Out of stock: ${variant.product_name}` : `Low stock: ${variant.product_name}`;
-        const body = `${variantLabel ? `(${variantLabel}) — ` : ''}${variant.stock} unit${variant.stock === 1 ? '' : 's'} remaining`;
-        for (const adminId of adminIds) {
-            lowStockNotifs.push({
-                recipient_id: adminId,
-                type: variant.stock === 0 ? 'OUT_OF_STOCK' : 'LOW_STOCK',
-                title,
-                body,
-                data: { link: '/products', variant_id: String(variant.id) },
-            });
-        }
-    }
-
-    const lowStockCreated = await notificationsQueries.create(lowStockNotifs);
-    pushToMany(adminIds, 'notification', { notifications: lowStockCreated });
-
-    const staff = await UsersQueries.findActiveAdmins();
-    for (const variant of lowStockVariants) {
-        const variantLabel = [variant.size, variant.color].filter(Boolean).join(' / ');
-        // At most one "low" and one "out of stock" email per item, per admin, per day.
-        const level = variant.stock === 0 ? 'out' : 'low';
-        const day = new Date().toISOString().slice(0, 10);
-        for (const user of staff) {
-            await enqueueEmail({
-                type: 'LOW_STOCK_ALERT',
-                to: user.email,
-                name: user.full_name,
-                productName: variant.product_name,
-                variantLabel,
-                stock: variant.stock,
-                threshold: variant.low_stock_threshold,
-            }, { dedupeKey: `low-stock:${variant.id}:${user.id}:${day}:${level}` })
-                .catch((err) => console.error('[email] low stock alert could not be queued:', err));
-        }
-    }
 }
 
 async function findOrderByParam(param: string) {
@@ -574,15 +511,13 @@ export const ordersHandlers = {
                 }
             );
         } catch (err: any) {
-            if (err.message?.includes('Insufficient stock') || err.message?.includes('not found')) {
-                throw new BadRequestError(err.message);
-            }
+            // Stock shortfalls and missing variants arrive as typed errors from Inventory.
+            if (err instanceof AppError) throw err;
             throw new InternalServerError('Failed to record walk-in sale');
         }
 
         const items = await ordersQueries.findItemsByOrderId(order.id);
         const response = toOrderResponse(order, items);
-        await notifyLowStockAlerts(itemsWithPrice);
         await auditFromContext(c, {
             action: 'WALK_IN_SALE_CREATED',
             entityType: 'order',
@@ -672,7 +607,7 @@ export const ordersHandlers = {
         } catch (err: any) {
             // Discount and order-limit errors are thrown inside the transaction — nothing was saved.
             if (err instanceof AppError) throw err;
-            if (err.message?.includes('Insufficient stock') || err.message?.includes('not found')) {
+            if (err.message?.includes('not found')) {
                 throw new BadRequestError(err.message);
             }
             if (err.message?.includes('discount_code_usages_code_id_phone_key')) {
@@ -686,7 +621,6 @@ export const ordersHandlers = {
         clearRecoverySource(c);
         // Staff are alerted about new orders once payment is confirmed (see the Order lifecycle),
         // not here — most unpaid orders are abandoned checkouts. Stock was taken, so low-stock alerts stay.
-        await notifyLowStockAlerts(itemsWithPrice);
 
         let paymentRedirectUrl: string | null = null;
         let paymentReference: string | null = null;

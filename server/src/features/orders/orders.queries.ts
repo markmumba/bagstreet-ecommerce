@@ -2,7 +2,8 @@ import { sql } from '../../lib/db';
 import { recordDiscountUsage } from './discount-usage';
 import { assertRecoveryCheckoutUnpaid, attachRecoveryOrder } from '../cart-recovery/recovery.queries';
 import { toJsonbParam } from '../../lib/json-column';
-import { adjustStock } from '../../lib/inventory';
+import { inventory } from '../inventory/inventory';
+import { AfterCommit } from '../../lib/after-commit';
 import { ORDER_SOURCE, ORDER_STATUS, PAYMENT_STATUS, LEGAL_POLICIES } from 'shared/dist';
 import type { Order, OrderSource, OrderStatus, PaymentStatus, ShippingAddress } from 'shared/dist';
 import { randomBytes } from 'node:crypto';
@@ -213,7 +214,8 @@ export const ordersQueries = {
             };
         }
     ): Promise<OrderRow> => {
-        return await sql.begin(async (tx: typeof sql) => {
+        const after = new AfterCommit();
+        const created = await sql.begin(async (tx: typeof sql) => {
             // Serialise account erasure with checkout so an already-authenticated request cannot recreate account data.
             if (userId != null) {
                 const [active] = await tx`SELECT id FROM users WHERE id = ${userId} AND is_active = true FOR UPDATE`;
@@ -226,26 +228,6 @@ export const ordersQueries = {
                 await enforceCustomerOrderLimits(tx, options.customerLimits.phone, options.customerLimits.email);
             }
             const orderNumber = await uniqueOrderNumber(tx);
-            const quantityByVariant = new Map<number, number>();
-            for (const item of items) {
-                quantityByVariant.set(
-                    item.variant_id,
-                    (quantityByVariant.get(item.variant_id) ?? 0) + item.quantity
-                );
-            }
-
-            for (const [variantId, quantity] of quantityByVariant) {
-                const [variant] = await tx<{ id: number; stock: number; size: string | null; color: string | null }[]>`
-                    SELECT id, stock, size, color FROM product_variants WHERE id = ${variantId} FOR UPDATE
-                `;
-                if (!variant) throw new Error(`Variant ${variantId} not found`);
-                if (variant.stock < quantity) {
-                    throw new Error(
-                        `Insufficient stock for variant (size: ${variant.size ?? 'N/A'}, color: ${variant.color ?? 'N/A'}) (available: ${variant.stock})`
-                    );
-                }
-            }
-
             const paymentStatus = options?.paymentStatus ?? PAYMENT_STATUS.UNPAID;
             const orderStatus = options?.status ?? ORDER_STATUS.PENDING;
             const orderSource = options?.orderSource ?? ORDER_SOURCE.ONLINE;
@@ -267,6 +249,12 @@ export const ordersQueries = {
             `;
 
             if (!order) throw new Error('Failed to create order');
+            // Stock is taken once the order row exists, so the movements reference it; a shortfall rolls everything back.
+            await inventory.reserve(tx, items.map((item) => ({ variantId: item.variant_id, quantity: item.quantity })), {
+                referenceId: Number(order.id),
+                note: options?.inventoryNote ?? null,
+                by: options?.inventoryCreatedBy ?? userId,
+            }, after);
             if (options?.policyAcceptance) {
                 const names = items.length ? await tx<{ id: number; name: string }[]>`SELECT id, name FROM products WHERE id IN ${tx(items.map(item => item.product_id))}` : [];
                 const snapshot: OrderAgreementSnapshot = { policies: LEGAL_POLICIES, order: {
@@ -291,15 +279,6 @@ export const ordersQueries = {
                         ${item.quantity}, ${item.unit_price}, ${subtotal}
                     )
                 `;
-                await adjustStock(
-                    tx,
-                    item.variant_id,
-                    -item.quantity,
-                    'ORDER_PLACED',
-                    order.id,
-                    options?.inventoryNote ?? null,
-                    options?.inventoryCreatedBy ?? userId
-                );
             }
 
             if (options?.discountUsage) {
@@ -375,7 +354,9 @@ export const ordersQueries = {
             }
 
             return order!;
-        }) as unknown as Promise<OrderRow>;
+        }) as unknown as OrderRow;
+        after.run();
+        return created;
     },
 
     /** Online orders still unpaid after the payment window. */

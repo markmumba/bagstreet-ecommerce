@@ -30,17 +30,19 @@ export const variantsQueries = {
 
     create: async (
         productId: number,
-        data: { size?: string; color?: string; stock: number; low_stock_threshold?: number; price_override?: number; is_active: boolean },
-        sku: string
+        data: { size?: string; color?: string; low_stock_threshold?: number; price_override?: number; is_active: boolean },
+        sku: string,
+        db: typeof sql = sql,
     ): Promise<ProductVariantRow> => {
-        const [variant] = await sql<ProductVariantRow[]>`
+        // Starts empty; the opening stock is added through Inventory so it appears in the movement log.
+        const [variant] = await db<ProductVariantRow[]>`
             INSERT INTO product_variants (product_id, sku, size, color, stock, low_stock_threshold, price_override, is_active)
             VALUES (
                 ${productId},
                 ${sku},
                 ${data.size ?? null},
                 ${data.color ?? null},
-                ${data.stock},
+                0,
                 ${data.low_stock_threshold ?? 5},
                 ${data.price_override ?? null},
                 ${data.is_active}
@@ -53,12 +55,11 @@ export const variantsQueries = {
 
     update: async (
         id: number,
-        data: { size?: string; color?: string; stock?: number; price_override?: number | null; is_active?: boolean; low_stock_threshold?: number }
+        data: { size?: string; color?: string; price_override?: number | null; is_active?: boolean; low_stock_threshold?: number }
     ): Promise<ProductVariantRow | undefined> => {
         const fields: Record<string, unknown> = {};
         if (data.size !== undefined) fields.size = data.size;
         if (data.color !== undefined) fields.color = data.color;
-        if (data.stock !== undefined) fields.stock = data.stock;
         if ('price_override' in data) fields.price_override = data.price_override ?? null;
         if (data.is_active !== undefined) fields.is_active = data.is_active;
         if (data.low_stock_threshold !== undefined) fields.low_stock_threshold = data.low_stock_threshold;

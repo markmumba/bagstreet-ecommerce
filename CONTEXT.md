@@ -45,3 +45,15 @@ Reviving a cancelled **Order** because of a **Late payment**, when its items are
 
 **Refund owed**:
 Money held for an **Order** that will not be fulfilled, for example a **Late payment** when the stock is gone.
+
+## Stock
+
+**Stock movement**:
+A logged change to a variant's stock, with its reason (order placed, order cancelled, admin adjustment, restock) and who or what caused it. Every unit a variant holds is accounted for by its movements.
+_Avoid_: Stock edit, inventory update
+
+**Opening stock**:
+The units a variant starts with, recorded as its first restock movement rather than set directly.
+
+**Low-stock alert**:
+A message to staff when a change takes a variant's stock across its low-stock threshold, or to zero. It is raised once per crossing, not again while the variant stays low.

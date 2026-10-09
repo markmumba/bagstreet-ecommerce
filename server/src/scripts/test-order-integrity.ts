@@ -16,6 +16,8 @@ import { summariseOrderPayments } from '../features/payments/order-balance';
 import { enqueueEmail, processEmailOutboxBatch } from '../services/email-outbox';
 import type { EmailJob } from '../services/email-jobs';
 import { applyOrderEvent } from '../features/orders/lifecycle/order-lifecycle';
+import { inventory, InsufficientStockError } from '../features/inventory/inventory';
+import { AfterCommit } from '../lib/after-commit';
 import type { Actor } from '../features/orders/lifecycle/transitions';
 
 const results: [string, boolean, string?][] = [];
@@ -29,10 +31,23 @@ const [variant] = await sql`INSERT INTO product_variants(product_id, sku, stock,
 const [limited] = await sql`INSERT INTO discount_codes(code, value, min_order_amount, usage_limit, is_active) VALUES ('ZZLIMIT1', 10, 0, 1, true) RETURNING id`;
 const [open] = await sql`INSERT INTO discount_codes(code, value, min_order_amount, is_active) VALUES ('ZZOPEN', 10, 0, true) RETURNING id`;
 const V = Number(variant.id), PRODUCT = Number(prod.id);
+// Taking stock can raise low-stock alerts. Reserve their email dedupe keys (today and tomorrow, in
+// case the run spans midnight UTC) so no real low-stock email reaches staff; notifications are removed at the end.
+for (const user of await sql`SELECT id FROM users`) {
+  for (const offset of [0, 1]) {
+    const day = new Date(Date.now() + offset * 86_400_000).toISOString().slice(0, 10);
+    for (const level of ['low', 'out']) {
+      await sql`
+        INSERT INTO email_outbox (job_type, recipient, payload, dedupe_key, status, sent_at)
+        VALUES ('ZZ_TEST', 'zz-outbox-guard@example.invalid', '{}'::jsonb, ${`low-stock:${V}:${user.id}:${day}:${level}`}, 'SKIPPED', now())
+        ON CONFLICT DO NOTHING`;
+    }
+  }
+}
 
-const place = (phone: string, discountUsage?: { codeId: number; phone: string; amount: number }) =>
+const place = (phone: string, discountUsage?: { codeId: number; phone: string; amount: number }, quantity = 1) =>
   ordersQueries.create(null,
-    [{ variant_id: V, product_id: PRODUCT, quantity: 1, unit_price: 1000, variant_sku: 'ZZ-TEST-VAR', variant_size: null, variant_color: null }],
+    [{ variant_id: V, product_id: PRODUCT, quantity, unit_price: 1000, variant_sku: 'ZZ-TEST-VAR', variant_size: null, variant_color: null }],
     1000, { full_name: 'ZZ Test', phone, address_line1: 'x', city: 'x', state: 'x', postal_code: '', country: 'Kenya' } as any,
     null, 0, undefined, discountUsage ? 'ZZ' : null, discountUsage ? 100 : 0, 'ZZ Test', phone, null,
     discountUsage ? { discountUsage } : undefined);
@@ -381,6 +396,37 @@ try {
   const onlyObjects = (types: string[] | null) => !types || types.every((t) => t === 'object');
   check('jsonb columns store objects', ['shipping', 'ledger', 'notifications', 'audit'].every((k) => onlyObjects(jsonTypes[k])), JSON.stringify(jsonTypes));
   check('shipping_address readable with ->>', (await sql`SELECT shipping_address->>'full_name' AS n FROM orders WHERE id = ${L2}`)[0].n === 'ZZ Test');
+
+  // Inventory: locks, the zero floor, the movement log and threshold-crossing alerts.
+  const adjust = (delta: number) => sql.begin(async (tx: typeof sql) => {
+    const after = new AfterCommit();
+    await inventory.adjust(tx, V, delta, 'ADMIN_ADJUSTMENT', { note: 'zz test' }, after);
+  });
+  await sql`UPDATE product_variants SET stock = 2, low_stock_threshold = 5 WHERE id = ${V}`;
+  const race = await Promise.allSettled([adjust(-2), adjust(-2)]);
+  const raceErrors = race.filter((r) => r.status === 'rejected').map((r) => (r as PromiseRejectedResult).reason);
+  check('inventory: two adjustments racing → one wins, the other gets a clear 400, stock 0',
+    raceErrors.length === 1 && raceErrors[0] instanceof InsufficientStockError && raceErrors[0].message.includes('out of stock') && (await stock(V)) === 0,
+    `errors=${raceErrors.map((e) => `${e?.constructor?.name}: ${e?.message}`)} stock=${await stock(V)}`);
+
+  const lowAlerts = async () => (await sql`SELECT count(*)::int AS n FROM in_app_notifications WHERE type = 'LOW_STOCK' AND data->>'variant_id' = ${String(V)}`)[0].n as number;
+  await adjust(6);
+  const lowBefore = await lowAlerts();
+  const I1 = Number((await place('254788000001')).id);
+  const lowAfterCrossing = await lowAlerts();
+  await place('254788000002');
+  const lowAfterSecond = await lowAlerts();
+  check('inventory: low-stock alert only when the threshold is crossed (6 → 5), not again at 4',
+    staffIds.length === 0 || (lowAfterCrossing > lowBefore && lowAfterSecond === lowAfterCrossing),
+    `before=${lowBefore} crossing=${lowAfterCrossing} again=${lowAfterSecond}`);
+
+  const short = await Promise.allSettled([place('254788000003', undefined, 9)]);
+  check('inventory: an order larger than the stock is refused with a readable message, nothing taken',
+    short[0]!.status === 'rejected' && reason(short[0]!).includes('Only 4 left') && (await stock(V)) === 4, `${reason(short[0]!)} stock=${await stock(V)}`);
+
+  const [movementSum] = await sql`SELECT COALESCE(SUM(delta), 0)::int AS n FROM inventory_movements WHERE reference_id = ${I1} AND variant_id = ${V}`;
+  check('inventory: the order\'s stock movement is logged against it', movementSum.n === -1, `sum=${movementSum.n}`);
+  check('inventory: no real low-stock email queued', (await sql`SELECT count(*)::int AS n FROM email_outbox WHERE dedupe_key LIKE ${`low-stock:${V}:%`} AND recipient NOT LIKE 'zz-outbox-%'`)[0].n === 0);
 } catch (err) {
   check('script error', false, String(err));
 } finally {
@@ -395,6 +441,7 @@ try {
     await sql`DELETE FROM orders WHERE id IN ${sql(orderIds)}`;
   }
   await sql`DELETE FROM inventory_movements WHERE variant_id = ${V}`;
+  await sql`DELETE FROM in_app_notifications WHERE data->>'variant_id' = ${String(V)}`;
   await sql`DELETE FROM discount_codes WHERE code IN ('ZZLIMIT1', 'ZZOPEN')`;
   const outboxIds = (await sql`SELECT id FROM email_outbox WHERE recipient LIKE 'zz-outbox-%@example.invalid'`).map((r: any) => String(r.id));
   if (outboxIds.length) await sql`DELETE FROM in_app_notifications WHERE type = 'EMAIL_FAILED' AND data->>'outbox_id' IN ${sql(outboxIds)}`;
