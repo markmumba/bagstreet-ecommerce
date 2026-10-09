@@ -222,7 +222,4 @@ export const productsQueries = {
         await sql`DELETE FROM products WHERE id = ${id}`;
     },
 
-    bulkDelete: async (productIds: []): Promise<void> => {
-        await sql`DELETE FROM products WHERE id IN (productIds = ${productIds})`;
-    },
 };

@@ -55,15 +55,6 @@ export const UsersQueries = {
         return user;
     },
 
-    findActiveStaff: async (): Promise<User[]> => {
-        return await sql<User[]>`
-            SELECT id, email, full_name, role, is_active, created_at, updated_at
-            FROM users
-            WHERE role IN ('ADMIN', 'MANAGER') AND is_active = true
-            ORDER BY role ASC, full_name ASC
-        `;
-    },
-
     findActiveAdmins: async (): Promise<User[]> => {
         return await sql<User[]>`
             SELECT id, email, full_name, role, is_active, created_at, updated_at

@@ -20,7 +20,6 @@ import { shippingQueries } from '../shipping/shipping.queries';
 import { normalisePhone } from '../../lib/phone';
 import { paymentsQueries } from '../payments/payments.queries';
 import { validateDiscount } from '../discounts/discounts.handlers';
-import { discountsQueries } from '../discounts/discounts.queries';
 import { settingsQueries } from '../settings/settings.queries';
 import { adminActionsFor, applyOrderEvent, requireAllowed } from './lifecycle/order-lifecycle';
 import { decideCreation, type Actor } from './lifecycle/transitions';

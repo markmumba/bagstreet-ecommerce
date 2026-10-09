@@ -63,18 +63,6 @@ export function useInitiatePesapalPayment() {
   });
 }
 
-export function useCheckPesapalPayment() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (data: OrderPaymentAccess & { order_tracking_id?: string }) =>
-      apiClient.post<PaymentStatusResponse>('/api/payments/pesapal/status', data),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['orders'] });
-      qc.invalidateQueries({ queryKey: ['cart'] });
-    },
-  });
-}
-
 export function useCompleteDevPayment() {
   const qc = useQueryClient();
   return useMutation({
