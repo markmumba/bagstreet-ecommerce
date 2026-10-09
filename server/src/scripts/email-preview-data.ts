@@ -66,9 +66,9 @@ export const emailPreviews: EmailPreview[] = [
         },
         trustedHtml: { itemsHtml: renderRecoveryItems({
             lines: [
-                { variant_id: 1, requested_quantity: 2, purchasable_quantity: 1, status: 'insufficient_stock', unit_price: 3700, compare_at_price: null, line_total: 3700, stock: 1, product_id: '1', product_slug: 'coach-terri', product_name: 'Coach Terri Shoulder Bag', image_url: null, size: null, color: 'Black' },
-                { variant_id: 2, requested_quantity: 1, purchasable_quantity: 0, status: 'out_of_stock', unit_price: 3900, compare_at_price: null, line_total: 0, stock: 0, product_id: '2', product_slug: 'cashmere', product_name: 'Cashmere Wrap Scarf', image_url: null, size: null, color: 'Forest green' },
-            ], subtotal: 3700, item_count: 1, free_delivery_threshold: 0, amount_to_free_delivery: 0, can_checkout: false,
+                { variant_id: 1, requested_quantity: 2, purchasable_quantity: 1, status: 'insufficient_stock', unit_price: 3700, compare_at_price: null, line_total: 3700, stock: 1, product_id: '1', product_slug: 'coach-terri', product_name: 'Coach Terri Shoulder Bag', image_url: null, sku: 'BAG-COACH-TERRI-BLK', size: null, color: 'Black' },
+                { variant_id: 2, requested_quantity: 1, purchasable_quantity: 0, status: 'out_of_stock', unit_price: 3900, compare_at_price: null, line_total: 0, stock: 0, product_id: '2', product_slug: 'cashmere', product_name: 'Cashmere Wrap Scarf', image_url: null, sku: 'SCF-CASH-WRAP-GRN', size: null, color: 'Forest green' },
+            ],
         }) },
     },
     customerOrder,

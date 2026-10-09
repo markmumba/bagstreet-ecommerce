@@ -175,6 +175,9 @@ function PromotionsPage() {
               <p className="mt-1 text-sm text-muted-foreground">
                 Current: {threshold > 0 ? formatPrice(threshold) : 'Disabled'}
               </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Judged on the bag subtotal before any discount code.
+              </p>
               <div className="mt-4 flex gap-2">
                 <input
                   type="number"

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { CartQuoteResponse } from 'shared';
+import type { CartQuoteRequest, CartQuoteResponse } from 'shared';
 import { apiClient } from '@/services/api';
 
 const CART_STORAGE_KEY = 'bagstreet_guest_cart';
@@ -170,14 +170,15 @@ export function useRestoreCart() {
 }
 
 /**
- * Prices and stock-checks the local cart against the server — the same pricing
- * order creation uses. Re-runs when quantities change and when the tab regains focus.
+ * Prices and stock-checks the local cart against the server — the same quote order creation
+ * charges. Checkout passes the discount code, phone and delivery area to get the exact total.
+ * Re-runs when any of them change and when the tab regains focus.
  */
-export function useCartQuote(items: StorefrontCartItem[]) {
-  const request = items.map((item) => ({ variant_id: item.variant_id, quantity: item.quantity }));
+export function useCartQuote(items: StorefrontCartItem[], checkout: Omit<CartQuoteRequest, 'items'> = {}) {
+  const request: CartQuoteRequest = { items: items.map((item) => ({ variant_id: item.variant_id, quantity: item.quantity })), ...checkout };
   return useQuery({
     queryKey: [...cartKeys.all, 'quote', request],
-    queryFn: () => apiClient.post<CartQuoteResponse>('/api/storefront/cart/quote', { items: request }),
+    queryFn: () => apiClient.post<CartQuoteResponse>('/api/storefront/cart/quote', request),
     enabled: items.length > 0,
     placeholderData: keepPreviousData,
     staleTime: 1000 * 15,

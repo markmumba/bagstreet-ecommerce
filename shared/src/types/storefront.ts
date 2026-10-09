@@ -40,6 +40,15 @@ export interface CartQuoteRequestItem {
     quantity: number;
 }
 
+/** Price a bag. Checkout adds the code, phone and delivery area to get the exact total it will charge. */
+export interface CartQuoteRequest {
+    items: CartQuoteRequestItem[];
+    discount_code?: string;
+    /** Needed with a discount code: each code is one use per phone. */
+    phone?: string;
+    shipping_location_id?: number;
+}
+
 /**
  * - `ok`: can be bought at the requested quantity
  * - `insufficient_stock`: fewer in stock than requested (`purchasable_quantity` says how many)
@@ -63,6 +72,7 @@ export interface CartQuoteLine {
     product_slug: string | null;
     product_name: string | null;
     image_url: string | null;
+    sku: string | null;
     size: string | null;
     color: string | null;
 }
@@ -73,9 +83,21 @@ export interface CartQuoteResponse {
     subtotal: number;
     item_count: number;
     free_delivery_threshold: number;
+    /** How much more to spend for free delivery (judged on the subtotal, before any discount). */
     amount_to_free_delivery: number;
+    qualifies_for_free_delivery: boolean;
     /** True only when every line is `ok`. */
     can_checkout: boolean;
+    /** The applied discount code, when one was requested and is valid. */
+    discount: { code: string; amount: number } | null;
+    /** Why the requested code can't be used. */
+    discount_problem: string | null;
+    /** The chosen delivery area; `cost` is 0 when free delivery applies. */
+    delivery: { location_id: string; name: string; price: number; cost: number } | null;
+    /** subtotal − discount + delivery: exactly what the order will charge. */
+    total: number;
+    /** Why an order can't be placed with this quote yet; empty when it can. */
+    problems: string[];
 }
 
 export interface RecoveryPreferencesResponse {

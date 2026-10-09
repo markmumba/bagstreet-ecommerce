@@ -1,30 +1,29 @@
 import type { sql } from '../../lib/db';
 import { BadRequestError } from '../../lib/errors';
 import { normalisePhone } from '../../lib/phone';
+import { evaluateDiscount, type DiscountRuleCode } from '../quote/discount-rules';
 
 type Executor = typeof sql;
 
 /**
- * Claims one use of a discount code for an order. Runs inside the order transaction and locks the
- * code row, so concurrent checkouts can't exceed `usage_limit` or reuse a code for the same phone.
+ * Claims one use of a discount code for an order. Runs inside the order transaction with the code
+ * row locked, and re-applies the same rules the quote used (discount-rules.ts), so concurrent
+ * checkouts can't exceed `usage_limit`, reuse a code for the same phone, or use an expired one.
  */
 export async function recordDiscountUsage(
     tx: Executor,
     orderId: number,
-    usage: { codeId: number; phone: string; amount: number },
+    usage: { codeId: number; phone: string; amount: number; subtotal: number },
 ) {
-    const [code] = await tx<{ id: number; is_active: boolean; usage_limit: number | null; used_count: number }[]>`
-        SELECT id, is_active, usage_limit, used_count FROM discount_codes WHERE id = ${usage.codeId} FOR UPDATE
+    const [code] = await tx<(DiscountRuleCode & { id: number })[]>`
+        SELECT * FROM discount_codes WHERE id = ${usage.codeId} FOR UPDATE
     `;
-    if (!code || !code.is_active) throw new BadRequestError('Discount code is not active');
-    if (code.usage_limit != null && code.used_count >= code.usage_limit) {
-        throw new BadRequestError('Discount code usage limit has been reached');
-    }
-
     const [alreadyUsed] = await tx`
         SELECT 1 FROM discount_code_usages WHERE code_id = ${usage.codeId} AND phone = ${usage.phone} LIMIT 1
     `;
-    if (alreadyUsed) throw new BadRequestError('This phone number has already used this code');
+    const verdict = evaluateDiscount(code, { subtotal: usage.subtotal, phoneAlreadyUsed: Boolean(alreadyUsed) });
+    if (!verdict.ok) throw new BadRequestError(verdict.reason);
+    if (verdict.amount !== usage.amount) throw new BadRequestError('This discount has changed. Please review your order.');
 
     await tx`
         INSERT INTO discount_code_usages (code_id, order_id, phone, discount_amount)
@@ -67,7 +66,8 @@ export async function claimOrderDiscount(
     const phone = normalisePhone(String(order.customer_phone ?? ''));
 
     if (!allowOverLimit) {
-        await recordDiscountUsage(tx, order.id, { codeId: code.id, phone, amount });
+        const [items] = await tx<{ subtotal: string }[]>`SELECT COALESCE(SUM(subtotal), 0) AS subtotal FROM order_items WHERE order_id = ${order.id}`;
+        await recordDiscountUsage(tx, order.id, { codeId: code.id, phone, amount, subtotal: Number(items?.subtotal ?? 0) });
         return;
     }
     const inserted = await tx`

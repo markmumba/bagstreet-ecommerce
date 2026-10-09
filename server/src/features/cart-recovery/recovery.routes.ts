@@ -9,14 +9,14 @@ import { success } from '../../lib/response';
 import { env } from '../../config/env';
 import { sql } from '../../lib/db';
 import { readJsonColumn } from '../../lib/json-column';
-import { cartQuoteSchema, mergeQuoteItems } from '../storefront/cart-quote';
-import { getCartQuote } from '../storefront/cart-quote.queries';
+import { cartItemsSchema, mergeQuoteItems, toQuoteResponse } from '../quote/quote';
+import { quoteOrder } from '../quote/quote.queries';
 import { getRecoveryPreference, recoveryState, saveRecoverySnapshot, setRecoveryPreference, snapshotByToken, unsubscribeRecovery, type RecoverySnapshot } from './recovery.queries';
 import { recoverySessionHash, rememberRecoverySource } from './recovery-session';
 import { USER_ROLE, type CartQuoteRequestItem, type CartRecoveryResponse } from 'shared/dist';
 
 const routes = new Hono<AppEnv>();
-const syncSchema = cartQuoteSchema.extend({ email: z.string().trim().email().max(254).optional(), consent: z.boolean().optional(), touch: z.boolean().optional() });
+const syncSchema = cartItemsSchema.extend({ email: z.string().trim().email().max(254).optional(), consent: z.boolean().optional(), touch: z.boolean().optional() });
 const tokenSchema = z.object({ token: z.string().regex(/^[A-Za-z0-9_-]{43}$/) });
 const unsubscribeSchema = tokenSchema.extend({ id: z.string().uuid() });
 
@@ -67,7 +67,7 @@ async function recover(c: AppContext, restore: boolean) {
     if (restore && state !== 'ready') throw new BadRequestError('This checkout cannot be restarted. Check any existing payment first.');
     const items = readJsonColumn<CartQuoteRequestItem[]>(snapshot.items) ?? [];
     const response: CartRecoveryResponse = {
-        state, expires_at: new Date(snapshot.expires_at).toISOString(), quote: state === 'ready' ? await getCartQuote(items) : null,
+        state, expires_at: new Date(snapshot.expires_at).toISOString(), quote: state === 'ready' ? toQuoteResponse(await quoteOrder({ items })) : null,
     };
     // A GET (including email scanners) changes nothing. Restore stops this reminder series; a new bag can start another.
     if (restore) {

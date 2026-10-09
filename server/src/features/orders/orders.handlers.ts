@@ -15,10 +15,10 @@ import { ORDER_SOURCE, ORDER_STATUS, PAYMENT_STATUS, USER_ROLE } from 'shared/di
 import { notificationsQueries } from '../notifications/notifications.queries';
 import { pushToMany } from '../../lib/sse';
 import { UsersQueries } from '../users/user.queries';
-import { shippingQueries } from '../shipping/shipping.queries';
 import { normalisePhone } from '../../lib/phone';
 import { paymentsQueries } from '../payments/payments.queries';
-import { validateDiscount } from '../discounts/discounts.handlers';
+import { quoteOrder } from '../quote/quote.queries';
+import type { Quote } from '../quote/quote';
 import { settingsQueries } from '../settings/settings.queries';
 import { adminActionsFor, applyOrderEvent, requireAllowed } from './lifecycle/order-lifecycle';
 import { decideCreation, type Actor } from './lifecycle/transitions';
@@ -30,7 +30,7 @@ import { verifyOrderReceivedToken } from '../../lib/order-received-token';
 import { normalizeShippingAddress } from '../../lib/shipping-address';
 import { auditFromContext } from '@server/lib/audit';
 import { randomUUID } from 'node:crypto';
-import { resolveUnitPrice, roundMoney, saleIsActive } from '@server/lib/pricing';
+import { resolveUnitPrice, saleIsActive } from '@server/lib/pricing';
 import { createOrderAccessToken, orderTokenRef } from '../../lib/order-received-token';
 import { summariseOrderPayments } from '../payments/order-balance';
 import { readJsonColumn } from '../../lib/json-column';
@@ -39,20 +39,8 @@ import type { OrderPaymentsResponse } from 'shared/dist';
 import { z } from 'zod';
 import { clearRecoverySource, recoverySessionHash, recoverySourceOrderId } from '../cart-recovery/recovery-session';
 
-interface VariantRow {
-    id: number;
-    product_id: number;
-    sku: string;
-    size: string | null;
-    color: string | null;
-    stock: number;
-    price_override: string | null;
-    is_active: boolean;
-}
-
 interface ProductRow { id: number; price: string; name: string; is_active: boolean }
 interface ProductPricingRow extends ProductRow { sale_price: string | null; sale_ends_at: string | null }
-type OrderLineInput = { variant_id: number; quantity: number };
 type PricedOrderItem = {
     variant_id: number;
     product_id: number;
@@ -129,46 +117,17 @@ async function orderResponse(orderId: number): Promise<OrderResponse> {
     return toOrderResponse(order, await ordersQueries.findItemsByOrderId(orderId));
 }
 
-async function buildPricedOrderItems(items: OrderLineInput[]): Promise<PricedOrderItem[]> {
-    const variantMap = new Map<number, VariantRow>();
-    for (const item of items) {
-        if (variantMap.has(item.variant_id)) continue;
-        const [variant] = await sql<VariantRow[]>`
-            SELECT id, product_id, sku, size, color, stock, price_override, is_active
-            FROM product_variants WHERE id = ${item.variant_id}
-        `;
-        if (variant) variantMap.set(variant.id, variant);
-    }
-
-    const productMap = new Map<number, ProductPricingRow>();
-    for (const variant of variantMap.values()) {
-        if (productMap.has(variant.product_id)) continue;
-        const [product] = await sql<ProductPricingRow[]>`
-            SELECT id, price, name, is_active, sale_price, sale_ends_at
-            FROM products WHERE id = ${variant.product_id}
-        `;
-        if (product) productMap.set(product.id, product);
-    }
-
-    return items.map((item) => {
-        const variant = variantMap.get(item.variant_id);
-        if (!variant) throw new BadRequestError(`Variant ${item.variant_id} not found`);
-        if (!variant.is_active) throw new BadRequestError(`Variant ${item.variant_id} is not available`);
-
-        const product = productMap.get(variant.product_id);
-        if (!product) throw new BadRequestError(`Product for variant ${item.variant_id} not found`);
-        if (!product.is_active) throw new BadRequestError(`Product "${product.name}" is not available`);
-
-        return {
-            variant_id: item.variant_id,
-            product_id: variant.product_id,
-            quantity: item.quantity,
-            unit_price: resolveUnitPrice(product, variant),
-            variant_sku: variant.sku,
-            variant_size: variant.size,
-            variant_color: variant.color,
-        };
-    });
+/** The quote's lines as order items. Only called once the quote has no problems, so every line is orderable. */
+function orderItemsFromQuote(quote: Quote): PricedOrderItem[] {
+    return quote.lines.map((line) => ({
+        variant_id: line.variant_id,
+        product_id: Number(line.product_id),
+        quantity: line.requested_quantity,
+        unit_price: line.unit_price!,
+        variant_sku: line.sku!,
+        variant_size: line.size,
+        variant_color: line.color,
+    }));
 }
 
 async function findOrderByParam(param: string) {
@@ -438,11 +397,11 @@ export const ordersHandlers = {
             throw new ValidationError('Invalid walk-in sale data', validated.error.errors);
         }
 
-        const itemsWithPrice = await buildPricedOrderItems(validated.data.items);
-        const totalAmount = itemsWithPrice.reduce(
-            (sum, item) => sum + item.unit_price * item.quantity,
-            0
-        );
+        // Same pricing as online orders, without delivery or discount codes.
+        const quote = await quoteOrder({ items: validated.data.items }, { mode: 'walk_in' });
+        if (quote.problems.length > 0) throw new BadRequestError(quote.problems[0]!);
+        const itemsWithPrice = orderItemsFromQuote(quote);
+        const totalAmount = quote.total;
         const customerName = validated.data.customer_name?.trim() || 'Walk-in customer';
         const customerPhone = validated.data.customer_phone?.trim()
             ? normalisePhone(validated.data.customer_phone)
@@ -547,11 +506,6 @@ export const ordersHandlers = {
             throw new BadRequestError('Email is required for guest checkout');
         }
 
-        // Validate shipping location
-        const shippingLocation = await shippingQueries.findById(validated.data.shipping_location_id);
-        if (!shippingLocation) throw new BadRequestError('Invalid shipping location');
-        if (!shippingLocation.is_active) throw new BadRequestError('Selected shipping location is not available');
-        const zoneShippingCost = parseFloat(shippingLocation.price);
         const { county, ...shippingAddressBase } = validated.data.shipping_address;
         const shippingAddress = {
             ...shippingAddressBase,
@@ -561,23 +515,20 @@ export const ordersHandlers = {
             phone: shippingAddressBase.phone ?? validated.data.phone,
         };
 
-        const itemsWithPrice = await buildPricedOrderItems(validated.data.items);
-
-        const itemsTotal = roundMoney(itemsWithPrice.reduce(
-            (sum, item) => sum + item.unit_price * item.quantity,
-            0
-        ));
+        // The order charges exactly what the quote says: the lines, discount, delivery and total the
+        // checkout showed. Stock and the discount limit are re-checked under lock when it's created.
         const normalizedPhone = normalisePhone(validated.data.phone);
-        const discount = await validateDiscount(validated.data.discount_code, itemsTotal, normalizedPhone);
-        if (!discount.valid) throw new BadRequestError(discount.reason ?? 'Discount code is invalid');
-
-        const discountAmount = discount.discountAmount;
-        const subtotalAfterDiscount = roundMoney(Math.max(0, itemsTotal - discountAmount));
-        const freeDeliveryThreshold = await settingsQueries.getNumber('free_delivery_threshold');
-        const shippingCost = freeDeliveryThreshold > 0 && subtotalAfterDiscount >= freeDeliveryThreshold
-            ? 0
-            : zoneShippingCost;
-        const totalAmount = roundMoney(subtotalAfterDiscount + shippingCost);
+        const quote = await quoteOrder({
+            items: validated.data.items,
+            discount_code: validated.data.discount_code,
+            phone: normalizedPhone,
+            shipping_location_id: validated.data.shipping_location_id,
+        });
+        if (quote.problems.length > 0) throw new BadRequestError(quote.problems[0]!);
+        const itemsWithPrice = orderItemsFromQuote(quote);
+        const shippingCost = quote.delivery!.cost;
+        const discountAmount = quote.discount?.amount ?? 0;
+        const totalAmount = quote.total;
 
         let order;
         try {
@@ -589,7 +540,7 @@ export const ordersHandlers = {
                 validated.data.shipping_location_id,
                 shippingCost,
                 validated.data.notes,
-                discount.normalizedCode ?? null,
+                quote.discount?.code ?? null,
                 discountAmount,
                 shippingAddress.full_name,
                 normalizedPhone,
@@ -599,8 +550,8 @@ export const ordersHandlers = {
                     policyAcceptance: validated.data.policy_acceptance,
                     recoverySessionHash: recoverySessionHash(c) ?? undefined,
                     recoverySourceOrderId: recoverySourceOrderId(c) ?? undefined,
-                    ...(discount.codeId && discountAmount > 0
-                        ? { discountUsage: { codeId: discount.codeId, phone: normalizedPhone, amount: discountAmount } }
+                    ...(quote.discount_code_id && discountAmount > 0
+                        ? { discountUsage: { codeId: quote.discount_code_id, phone: normalizedPhone, amount: discountAmount, subtotal: quote.subtotal } }
                         : {}),
                 }
             );

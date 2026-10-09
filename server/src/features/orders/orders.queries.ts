@@ -198,7 +198,7 @@ export const ordersQueries = {
             inventoryCreatedBy?: number | null;
             inventoryNote?: string | null;
             /** Recorded in the same transaction as the order, so a failed code check never leaves an orphan order. */
-            discountUsage?: { codeId: number; phone: string; amount: number };
+            discountUsage?: { codeId: number; phone: string; amount: number; subtotal: number };
             /** Online checkout only: enforce per-customer order limits (see order-limits.ts). */
             customerLimits?: { phone: string; email: string | null };
             payment?: {

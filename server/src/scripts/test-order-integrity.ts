@@ -18,6 +18,7 @@ import type { EmailJob } from '../services/email-jobs';
 import { applyOrderEvent } from '../features/orders/lifecycle/order-lifecycle';
 import { inventory, InsufficientStockError } from '../features/inventory/inventory';
 import { AfterCommit } from '../lib/after-commit';
+import { quoteOrder } from '../features/quote/quote.queries';
 import type { Actor } from '../features/orders/lifecycle/transitions';
 
 const results: [string, boolean, string?][] = [];
@@ -50,7 +51,7 @@ const place = (phone: string, discountUsage?: { codeId: number; phone: string; a
     [{ variant_id: V, product_id: PRODUCT, quantity, unit_price: 1000, variant_sku: 'ZZ-TEST-VAR', variant_size: null, variant_color: null }],
     1000, { full_name: 'ZZ Test', phone, address_line1: 'x', city: 'x', state: 'x', postal_code: '', country: 'Kenya' } as any,
     null, 0, undefined, discountUsage ? 'ZZ' : null, discountUsage ? 100 : 0, 'ZZ Test', phone, null,
-    discountUsage ? { discountUsage } : undefined);
+    discountUsage ? { discountUsage: { ...discountUsage, subtotal: 1000 * quantity } } : undefined);
 
 // Online checkout path with per-customer limits on (as the order handler does).
 const placeLimited = (phone: string, email: string) =>
@@ -427,6 +428,27 @@ try {
   const [movementSum] = await sql`SELECT COALESCE(SUM(delta), 0)::int AS n FROM inventory_movements WHERE reference_id = ${I1} AND variant_id = ${V}`;
   check('inventory: the order\'s stock movement is logged against it', movementSum.n === -1, `sum=${movementSum.n}`);
   check('inventory: no real low-stock email queued', (await sql`SELECT count(*)::int AS n FROM email_outbox WHERE dedupe_key LIKE ${`low-stock:${V}:%`} AND recipient NOT LIKE 'zz-outbox-%'`)[0].n === 0);
+
+  // Order quote: one calculation for checkout, order creation and walk-ins.
+  await sql`UPDATE product_variants SET stock = 10, low_stock_threshold = 0 WHERE id = ${V}`;
+  const [zzArea] = await sql`INSERT INTO shipping_locations (name, price, is_active) VALUES ('ZZ Test Area', 250, true) RETURNING id`;
+  const ZZ_AREA = Number(zzArea.id);
+  const q1 = await quoteOrder({ items: [{ variant_id: V, quantity: 2 }], discount_code: 'zzopen', phone: '254799000001', shipping_location_id: ZZ_AREA });
+  check('quote: 2 × 1000, 10% code (rounded down), delivery 250 → 2050, nothing blocking',
+    q1.subtotal === 2000 && q1.discount?.amount === 200 && q1.delivery?.cost === (q1.qualifies_for_free_delivery ? 0 : 250)
+      && q1.total === 1800 + (q1.qualifies_for_free_delivery ? 0 : 250) && q1.problems.length === 0,
+    JSON.stringify({ subtotal: q1.subtotal, discount: q1.discount, delivery: q1.delivery, total: q1.total, problems: q1.problems }));
+  const q2 = await quoteOrder({ items: [{ variant_id: V, quantity: 1 }], discount_code: 'NOPE-ZZ', phone: '254799000001', shipping_location_id: ZZ_AREA });
+  check('quote: unknown code → no discount, a reason, order blocked', q2.discount === null && q2.discount_problem === 'Discount code was not found' && q2.problems.includes('Discount code was not found'));
+  const q3 = await quoteOrder({ items: [{ variant_id: V, quantity: 1 }], discount_code: 'ZZOPEN', phone: '254799000001' }, { mode: 'walk_in' });
+  check('quote: walk-ins refuse codes and need no delivery', q3.discount === null && q3.problems.length === 1 && q3.total === 1000, JSON.stringify(q3.problems));
+
+  // The code expires between the quote and the order: the locked re-check refuses it.
+  await sql`UPDATE discount_codes SET expires_at = now() - interval '1 minute' WHERE id = ${open.id}`;
+  const expiredAtLock = await Promise.allSettled([place('254799000002', { codeId: Number(open.id), phone: '254799000002', amount: 100 })]);
+  check('quote: a code that expired after the quote is refused when the order is created', expiredAtLock[0]!.status === 'rejected' && reason(expiredAtLock[0]!).includes('expired'), reason(expiredAtLock[0]!));
+  await sql`UPDATE discount_codes SET expires_at = NULL WHERE id = ${open.id}`;
+  await sql`DELETE FROM shipping_locations WHERE id = ${ZZ_AREA}`;
 } catch (err) {
   check('script error', false, String(err));
 } finally {
@@ -443,6 +465,7 @@ try {
   await sql`DELETE FROM inventory_movements WHERE variant_id = ${V}`;
   await sql`DELETE FROM in_app_notifications WHERE data->>'variant_id' = ${String(V)}`;
   await sql`DELETE FROM discount_codes WHERE code IN ('ZZLIMIT1', 'ZZOPEN')`;
+  await sql`DELETE FROM shipping_locations WHERE name = 'ZZ Test Area'`;
   const outboxIds = (await sql`SELECT id FROM email_outbox WHERE recipient LIKE 'zz-outbox-%@example.invalid'`).map((r: any) => String(r.id));
   if (outboxIds.length) await sql`DELETE FROM in_app_notifications WHERE type = 'EMAIL_FAILED' AND data->>'outbox_id' IN ${sql(outboxIds)}`;
   await sql`DELETE FROM email_outbox WHERE recipient LIKE 'zz-outbox-%@example.invalid' OR dedupe_key = 'zz-dedupe-key'`;

@@ -91,14 +91,4 @@ export const discountsQueries = {
         return row;
     },
 
-    hasUsageForPhone: async (codeId: number, phone: string): Promise<boolean> => {
-        const [row] = await sql<{ exists: boolean }[]>`
-            SELECT EXISTS (
-                SELECT 1 FROM discount_code_usages
-                WHERE code_id = ${codeId} AND phone = ${phone}
-            ) AS exists
-        `;
-        return row?.exists ?? false;
-    },
-
 };

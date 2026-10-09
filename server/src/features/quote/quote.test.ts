@@ -1,11 +1,16 @@
 import { describe, expect, test } from 'bun:test';
-import { buildCartQuote, cartQuoteSchema, mergeQuoteItems, quoteLine, type QuoteVariantRow } from './cart-quote';
+import { buildQuote, cartQuoteSchema, mergeQuoteItems, quoteLine, type QuoteInputs, type QuoteVariantRow } from './quote';
+import type { CartQuoteRequestItem } from 'shared/dist';
 
 const NOW = new Date('2026-10-08T12:00:00Z').getTime();
+
+const buildCartQuote = (items: CartQuoteRequestItem[], rows: QuoteVariantRow[], threshold: number, now: number, extra: Partial<QuoteInputs> = {}) =>
+    buildQuote({ items, rows, freeDeliveryThreshold: threshold, mode: 'online', now, ...extra });
 
 const row = (overrides: Partial<QuoteVariantRow> = {}): QuoteVariantRow => ({
     variant_id: 1,
     product_id: 10,
+    sku: 'SHO-FLATS-BLK-38',
     size: '38',
     color: 'Black',
     stock: 5,
@@ -86,7 +91,7 @@ describe('mergeQuoteItems', () => {
     });
 });
 
-describe('buildCartQuote', () => {
+describe('buildQuote: lines and totals', () => {
     test('repeated variants cannot bypass the stock check', () => {
         const quote = buildCartQuote(
             [{ variant_id: 1, quantity: 2 }, { variant_id: 1, quantity: 2 }],
@@ -148,5 +153,93 @@ describe('cartQuoteSchema', () => {
     });
     test('accepts a valid cart', () => {
         expect(cartQuoteSchema.safeParse({ items: [{ variant_id: 3, quantity: 2 }] }).success).toBe(true);
+    });
+});
+
+describe('buildQuote: discount, delivery and total', () => {
+    const code = (o: Record<string, unknown> = {}) => ({
+        id: 7, code: 'WELCOME10', value: '10', min_order_amount: '0', usage_limit: null, used_count: 0,
+        expires_at: null, is_active: true, ...o,
+    });
+    const nairobi = { id: 3, name: 'Nairobi CBD', price: '300', is_active: true };
+    const bag = [{ variant_id: 1, quantity: 1 }]; // KES 3,900
+
+    test('online total: subtotal − discount (rounded down) + delivery', () => {
+        const quote = buildCartQuote(bag, [row()], 0, NOW, {
+            discount: { requested: 'welcome10', code: code(), phone: '254700000001', phoneAlreadyUsed: false },
+            delivery: { requestedId: 3, location: nairobi },
+        });
+        expect(quote.discount).toEqual({ code: 'WELCOME10', amount: 390 });
+        expect(quote.delivery).toEqual({ location_id: '3', name: 'Nairobi CBD', price: 300, cost: 300 });
+        expect(quote.total).toBe(3900 - 390 + 300);
+        expect(quote.problems).toEqual([]);
+        expect(quote.discount_code_id).toBe(7);
+    });
+
+    test('free delivery is judged before the discount, so the bag page promise holds', () => {
+        // Threshold 3,800: the 3,900 bag qualifies, even though 10% off brings it to 3,510.
+        const quote = buildCartQuote(bag, [row()], 3800, NOW, {
+            discount: { requested: 'WELCOME10', code: code(), phone: '254700000001', phoneAlreadyUsed: false },
+            delivery: { requestedId: 3, location: nairobi },
+        });
+        expect(quote.qualifies_for_free_delivery).toBe(true);
+        expect(quote.delivery?.cost).toBe(0);
+        expect(quote.total).toBe(3510);
+    });
+
+    test('a code needs the phone number (one use per phone)', () => {
+        const quote = buildCartQuote(bag, [row()], 0, NOW, { discount: { requested: 'WELCOME10', code: code(), phone: null, phoneAlreadyUsed: false } });
+        expect(quote.discount).toBeNull();
+        expect(quote.discount_problem).toContain('phone number');
+        expect(quote.problems).toContain(quote.discount_problem!);
+    });
+
+    test.each([
+        [{ code: undefined }, 'not found'],
+        [{ code: code({ is_active: false }) }, 'not active'],
+        [{ code: code({ expires_at: '2026-10-01T00:00:00Z' }) }, 'expired'],
+        [{ code: code({ usage_limit: 5, used_count: 5 }) }, 'usage limit'],
+        [{ code: code({ min_order_amount: '5000' }) }, 'at least KES 5000.00'],
+        [{ code: code(), phoneAlreadyUsed: true }, 'already used'],
+    ])('unusable code → no discount, a reason, and the order is blocked (%#)', (over, reason) => {
+        const quote = buildCartQuote(bag, [row()], 0, NOW, {
+            discount: { requested: 'WELCOME10', code: code(), phone: '254700000001', phoneAlreadyUsed: false, ...over } as QuoteInputs['discount'],
+            delivery: { requestedId: 3, location: nairobi },
+        });
+        expect(quote.discount).toBeNull();
+        expect(quote.discount_problem).toContain(reason);
+        expect(quote.total).toBe(4200);
+        expect(quote.problems).toHaveLength(1);
+    });
+
+    test('no delivery area chosen yet → total without delivery, order blocked', () => {
+        const quote = buildCartQuote(bag, [row()], 0, NOW);
+        expect(quote.delivery).toBeNull();
+        expect(quote.total).toBe(3900);
+        expect(quote.problems).toEqual(['Choose a delivery area']);
+    });
+
+    test('inactive or missing delivery area blocks the order', () => {
+        expect(buildCartQuote(bag, [row()], 0, NOW, { delivery: { requestedId: 3, location: { ...nairobi, is_active: false } } }).problems)
+            .toEqual(['That delivery area is no longer available']);
+        expect(buildCartQuote(bag, [row()], 0, NOW, { delivery: { requestedId: 9 } }).problems)
+            .toEqual(['That delivery area is no longer available']);
+    });
+
+    test('walk-ins: no delivery, no codes', () => {
+        const quote = buildQuote({ items: bag, rows: [row()], freeDeliveryThreshold: 0, mode: 'walk_in', now: NOW });
+        expect(quote.total).toBe(3900);
+        expect(quote.problems).toEqual([]);
+        const withCode = buildQuote({
+            items: bag, rows: [row()], freeDeliveryThreshold: 0, mode: 'walk_in', now: NOW,
+            discount: { requested: 'WELCOME10', code: code(), phone: '254700000001', phoneAlreadyUsed: false },
+        });
+        expect(withCode.discount).toBeNull();
+        expect(withCode.problems).toEqual(["Discount codes can't be used on walk-in sales"]);
+    });
+
+    test('a bag needing review blocks the order', () => {
+        const quote = buildCartQuote([{ variant_id: 1, quantity: 9 }], [row()], 0, NOW, { delivery: { requestedId: 3, location: nairobi } });
+        expect(quote.problems).toEqual(['Some items in your bag have changed: review your bag']);
     });
 });

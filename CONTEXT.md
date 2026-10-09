@@ -24,6 +24,13 @@ _Avoid_: Action, update, status change
 The rules for which **Order events** are allowed in each **Order state**, what state follows, and what else must happen with it (stock, discount use, money, notifications).
 _Avoid_: Order flow, workflow
 
+**Order quote**:
+The price of a bag worked out in one place: each item at its current price, any discount code, delivery, and the total. The bag page, checkout, placing the order and walk-in sales all use it, so what the customer is shown is what they pay.
+_Avoid_: Cart total, checkout total (as separate calculations)
+
+**Free delivery threshold**:
+The bag subtotal at which delivery becomes free, judged before any discount code.
+
 ## Payments
 
 **Held payment**:

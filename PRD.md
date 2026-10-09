@@ -359,7 +359,7 @@ When resolving the price of a line item at checkout:
 
 Discount codes are then applied to the **subtotal** of all line items at the cart level, not per item.
 
-Free delivery is checked after the promo code discount: if `subtotal_after_discount ≥ free_delivery_threshold`, shipping is zeroed out.
+Free delivery is checked on the subtotal **before** any promo code discount: if `subtotal ≥ free_delivery_threshold`, shipping is zeroed out. (Decided 9 Oct 2026, so the bag page's "free delivery" promise still holds once a code is applied at checkout.) The whole calculation lives in one place, the Order quote (`server/src/features/quote/`), which the bag, checkout, order creation and walk-ins all use.
 
 ```
 effective_item_price  = price_override ?? (sale active ? sale_price : base_price)
