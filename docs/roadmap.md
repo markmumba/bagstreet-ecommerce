@@ -41,14 +41,14 @@ real customers; sections 2–4 can follow launch.
 ## 2. Code health (architecture review follow-ups)
 
 - [x] **#1 Order lifecycle** owns all order state changes ([ADR 0001](adr/0001-order-lifecycle-owns-order-state.md))
-- [ ] **#2 Order quote module:** one function prices the cart, the checkout preview, order creation and walk-ins. Fixes the free-delivery mismatch (the cart checks the threshold before the discount, the order after) and removes the totals arithmetic in `checkout.tsx`
-- [ ] **#3 Inventory module (reserve, release, adjust):** fixes the admin stock-adjustment race (the "not below 0" check runs outside the transaction, `variants.handlers.ts:104`), stops the variant edit bypassing the movement log, raises low-stock alerts on every change
-- [ ] **#4 Discount claims:** partly done (`orders/discount-usage.ts`, re-claim on reinstatement). Remaining: one set of eligibility rules (`validateDiscount` in a handler vs the in-transaction check)
-- [ ] **Move online order creation into the lifecycle** (`decideCreation` exists; creation still lives in `ordersQueries.create`)
+- [x] **#2 Order quote module:** one function prices the cart, the checkout preview, order creation and walk-ins. Fixes the free-delivery mismatch (the cart checks the threshold before the discount, the order after) and removes the totals arithmetic in `checkout.tsx`
+- [x] **#3 Inventory module (reserve, release, adjust):** fixes the admin stock-adjustment race (the "not below 0" check runs outside the transaction, `variants.handlers.ts:104`), stops the variant edit bypassing the movement log, raises low-stock alerts on every change
+- [x] **#4 Discount claims:** one set of rules (`quote/discount-rules.ts`) used by the quote and re-checked under lock at order creation
+- [x] **Order creation is a lifecycle event** (`createOrder`); `ordersQueries.insertOrder` is only reachable through it
 - [ ] **#5 Typed client seam:** unwrap API responses once, drop the `as any` casts, and invalidate the right queries after each mutation
 - [ ] **#6 Staff alerts module:** one rule for who hears what (the duty manager never gets stock alerts today)
 - [ ] **#7 Shared order presentation** (status labels, order reference, KES formatting, receipt). Low priority
-- [ ] **Delete dead code:** unused M-Pesa queries in `payments.queries.ts`, `productsQueries.bulkDelete` (broken SQL), `discountsQueries.recordUsage`, `UsersQueries.findActiveStaff`, the server `/api/cart` feature, unused storefront hooks (`useCheckPesapalPayment`, `useFreeDeliveryThreshold`, `useCategoryTree`, `useProducts`). Confirm no callers first
+- [x] **Delete dead code:** unused M-Pesa queries in `payments.queries.ts`, `productsQueries.bulkDelete` (broken SQL), `discountsQueries.recordUsage`, `UsersQueries.findActiveStaff`, the server `/api/cart` feature, unused storefront hooks (`useCheckPesapalPayment`, `useFreeDeliveryThreshold`, `useCategoryTree`, `useProducts`). Confirm no callers first
 
 ---
 
