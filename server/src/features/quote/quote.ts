@@ -60,15 +60,12 @@ export interface QuoteInputs {
     freeDeliveryThreshold: number;
     /** Walk-in sales have no delivery and take no discount codes. */
     mode: 'online' | 'walk_in';
-    discount?: { requested: string; code?: DiscountRuleCode & { id: number }; phone: string | null; phoneAlreadyUsed: boolean };
+    discount?: { requested: string; code?: DiscountRuleCode; phone: string | null; phoneAlreadyUsed: boolean };
     delivery?: { requestedId: number; location?: QuoteLocation };
     now?: number;
 }
 
-/** The quote plus what order creation needs but the customer doesn't see. */
-export interface Quote extends CartQuoteResponse {
-    discount_code_id: number | null;
-}
+export type Quote = CartQuoteResponse;
 
 /** Merges repeated variants so the same item can't dodge the stock check by appearing twice. */
 export function mergeQuoteItems(items: CartQuoteRequestItem[]): CartQuoteRequestItem[] {
@@ -123,7 +120,6 @@ export function buildQuote(input: QuoteInputs): Quote {
 
     // Discount
     let discount: Quote['discount'] = null;
-    let discountCodeId: number | null = null;
     let discountProblem: string | null = null;
     if (input.discount?.requested) {
         if (input.mode === 'walk_in') {
@@ -134,7 +130,6 @@ export function buildQuote(input: QuoteInputs): Quote {
             const verdict = evaluateDiscount(input.discount.code, { subtotal, phoneAlreadyUsed: input.discount.phoneAlreadyUsed, now });
             if (verdict.ok) {
                 discount = { code: input.discount.code!.code, amount: Math.min(verdict.amount, subtotal) };
-                discountCodeId = input.discount.code!.id;
             } else {
                 discountProblem = verdict.reason;
             }
@@ -174,11 +169,5 @@ export function buildQuote(input: QuoteInputs): Quote {
         delivery,
         total: roundMoney(Math.max(0, subtotal - (discount?.amount ?? 0)) + (delivery?.cost ?? 0)),
         problems,
-        discount_code_id: discountCodeId,
     };
-}
-
-/** What the storefront receives (drops internal ids). */
-export function toQuoteResponse({ discount_code_id: _, ...response }: Quote): CartQuoteResponse {
-    return response;
 }

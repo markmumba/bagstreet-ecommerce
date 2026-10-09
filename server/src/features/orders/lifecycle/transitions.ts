@@ -26,7 +26,8 @@ export interface OrderState {
 export type Actor =
     | { kind: 'payment_provider' }
     | { kind: 'system' }
-    | { kind: 'customer'; isOwner: boolean; via: 'account' | 'received_link' }
+    /** `checkout`: placing an order; `account`: from their account page; `received_link`: the signed link in the confirmation email. */
+    | { kind: 'customer'; isOwner: boolean; via: 'checkout' | 'account' | 'received_link' }
     | { kind: 'staff'; userId: string; role: 'ADMIN' | 'MANAGER'; email?: string };
 
 // ── Events ──────────────────────────────────────────────────────────────────

@@ -9,13 +9,12 @@
  */
 import 'dotenv/config';
 import { sql } from '../lib/db';
-import { ordersQueries } from '../features/orders/orders.queries';
 import { paymentsQueries } from '../features/payments/payments.queries';
 import { expireUnpaidOrders } from '../services/unpaid-order-expiry';
 import { summariseOrderPayments } from '../features/payments/order-balance';
 import { enqueueEmail, processEmailOutboxBatch } from '../services/email-outbox';
 import type { EmailJob } from '../services/email-jobs';
-import { applyOrderEvent } from '../features/orders/lifecycle/order-lifecycle';
+import { applyOrderEvent, createOrder } from '../features/orders/lifecycle/order-lifecycle';
 import { inventory, InsufficientStockError } from '../features/inventory/inventory';
 import { AfterCommit } from '../lib/after-commit';
 import { quoteOrder } from '../features/quote/quote.queries';
@@ -46,20 +45,26 @@ for (const user of await sql`SELECT id FROM users`) {
   }
 }
 
-const place = (phone: string, discountUsage?: { codeId: number; phone: string; amount: number }, quantity = 1) =>
-  ordersQueries.create(null,
-    [{ variant_id: V, product_id: PRODUCT, quantity, unit_price: 1000, variant_sku: 'ZZ-TEST-VAR', variant_size: null, variant_color: null }],
-    1000, { full_name: 'ZZ Test', phone, address_line1: 'x', city: 'x', state: 'x', postal_code: '', country: 'Kenya' } as any,
-    null, 0, undefined, discountUsage ? 'ZZ' : null, discountUsage ? 100 : 0, 'ZZ Test', phone, null,
-    discountUsage ? { discountUsage: { ...discountUsage, subtotal: 1000 * quantity } } : undefined);
+// Orders are created the way the app creates them: through the Order lifecycle.
+const CHECKOUT: Actor = { kind: 'customer', isOwner: true, via: 'checkout' };
+const codeNames = new Map([[Number(limited.id), 'ZZLIMIT1'], [Number(open.id), 'ZZOPEN']]);
+const draft = (phone: string, quantity: number, email: string | null = null) => ({
+  userId: null,
+  items: [{ variant_id: V, product_id: PRODUCT, quantity, unit_price: 1000, variant_sku: 'ZZ-TEST-VAR', variant_size: null, variant_color: null }],
+  totalAmount: 1000 * quantity,
+  shippingAddress: { full_name: 'ZZ Test', phone, address_line1: 'x', city: 'x', state: 'x', postal_code: '', country: 'Kenya' } as any,
+  shippingLocationId: null, shippingCost: 0, discountCode: null as string | null, discountAmount: 0,
+  customerName: 'ZZ Test', customerPhone: phone, customerEmail: email,
+});
+const place = (phone: string, discount?: { codeId: number; phone: string; amount: number }, quantity = 1) =>
+  createOrder({
+    ...draft(phone, quantity),
+    ...(discount ? { discountCode: codeNames.get(discount.codeId)!, discountAmount: discount.amount } : {}),
+  }, { type: 'placed_online' }, CHECKOUT);
 
 // Online checkout path with per-customer limits on (as the order handler does).
 const placeLimited = (phone: string, email: string) =>
-  ordersQueries.create(null,
-    [{ variant_id: V, product_id: PRODUCT, quantity: 1, unit_price: 1000, variant_sku: 'ZZ-TEST-VAR', variant_size: null, variant_color: null }],
-    1000, { full_name: 'ZZ Test', phone, address_line1: 'x', city: 'x', state: 'x', postal_code: '', country: 'Kenya' } as any,
-    null, 0, undefined, null, 0, 'ZZ Test', phone, email,
-    { customerLimits: { phone, email } });
+  createOrder({ ...draft(phone, 1, email), customerLimits: { phone, email } }, { type: 'placed_online' }, CHECKOUT);
 const reason = (r: PromiseSettledResult<unknown>) => (r.status === 'rejected' ? (r.reason as Error).message : '');
 
 try {

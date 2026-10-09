@@ -1,9 +1,6 @@
 import { sql } from '../../lib/db';
-import { recordDiscountUsage } from './discount-usage';
 import { assertRecoveryCheckoutUnpaid, attachRecoveryOrder } from '../cart-recovery/recovery.queries';
 import { toJsonbParam } from '../../lib/json-column';
-import { inventory } from '../inventory/inventory';
-import { AfterCommit } from '../../lib/after-commit';
 import { ORDER_SOURCE, ORDER_STATUS, PAYMENT_STATUS, LEGAL_POLICIES } from 'shared/dist';
 import type { Order, OrderSource, OrderStatus, PaymentStatus, ShippingAddress } from 'shared/dist';
 import { randomBytes } from 'node:crypto';
@@ -78,6 +75,46 @@ async function enforceCustomerOrderLimits(tx: typeof sql, phone: string, email: 
     `;
     const violation = orderLimitViolation(counts ?? { openUnpaid: 0, lastHour: 0 });
     if (violation) throw new TooManyRequestsError(violation);
+}
+
+/** Everything about a new order except its state, which the Order lifecycle decides. */
+export interface OrderDraft {
+    userId: number | null;
+    items: {
+        variant_id: number;
+        product_id: number;
+        quantity: number;
+        unit_price: number;
+        variant_sku: string;
+        variant_size: string | null;
+        variant_color: string | null;
+    }[];
+    totalAmount: number;
+    shippingAddress: ShippingAddress;
+    shippingLocationId: number | null;
+    shippingCost: number;
+    notes?: string;
+    discountCode: string | null;
+    discountAmount: number;
+    customerName: string;
+    customerPhone: string;
+    customerEmail: string | null;
+    orderSource?: OrderSource;
+    recoverySessionHash?: string;
+    recoverySourceOrderId?: number;
+    policyAcceptance?: { accepted: true; version: string };
+    /** Online checkout only: enforce per-customer order limits (see order-limits.ts). */
+    customerLimits?: { phone: string; email: string | null };
+    /** A walk-in sale's payment, recorded at the counter. */
+    payment?: {
+        provider: string;
+        providerReference?: string | null;
+        merchantReference: string;
+        paymentMethod?: string | null;
+        amount: number;
+        currency: string;
+        rawPayload?: unknown;
+    };
 }
 
 export const ordersQueries = {
@@ -166,72 +203,32 @@ export const ordersQueries = {
         return result[0]?.is_in_order ?? false;
     },
 
-    create: async (
-        userId: number | null,
-        items: {
-            variant_id: number;
-            product_id: number;
-            quantity: number;
-            unit_price: number;
-            variant_sku: string;
-            variant_size: string | null;
-            variant_color: string | null;
-        }[],
-        totalAmount: number,
-        shippingAddress: ShippingAddress,
-        shippingLocationId: number | null,
-        shippingCost: number,
-        notes: string | undefined,
-        discountCode: string | null,
-        discountAmount: number,
-        customerName: string,
-        customerPhone: string,
-        customerEmail: string | null,
-        options?: {
-            recoverySessionHash?: string;
-            recoverySourceOrderId?: number;
-            policyAcceptance?: { accepted: true; version: string };
-            status?: OrderStatus;
-            paymentStatus?: PaymentStatus;
-            orderSource?: OrderSource;
-            paidAt?: Date | null;
-            inventoryCreatedBy?: number | null;
-            inventoryNote?: string | null;
-            /** Recorded in the same transaction as the order, so a failed code check never leaves an orphan order. */
-            discountUsage?: { codeId: number; phone: string; amount: number; subtotal: number };
-            /** Online checkout only: enforce per-customer order limits (see order-limits.ts). */
-            customerLimits?: { phone: string; email: string | null };
-            payment?: {
-                provider: string;
-                providerReference?: string | null;
-                merchantReference: string;
-                paymentMethod?: string | null;
-                amount: number;
-                currency: string;
-                reference: string;
-                metadata?: unknown;
-                rawPayload?: unknown;
-            };
-        }
+    /**
+     * Stores a new order: the row in its starting state, its items, and the intake records that go with
+     * it (policy acceptance, cart-recovery link, a walk-in's payment record). Only the Order lifecycle
+     * calls this (`createOrder`): it decides the starting state, and in `applyEffects` takes the stock,
+     * claims the discount and records any payment, all in this transaction.
+     */
+    insertOrder: async (
+        draft: OrderDraft,
+        start: { status: OrderStatus; payment: PaymentStatus },
+        applyEffects: (tx: typeof sql, order: OrderRow, paymentTransactionId: number | null) => Promise<void>,
     ): Promise<OrderRow> => {
-        const after = new AfterCommit();
-        const created = await sql.begin(async (tx: typeof sql) => {
+        const { userId, items, shippingAddress, customerEmail } = draft;
+        return await sql.begin(async (tx: typeof sql) => {
             // Serialise account erasure with checkout so an already-authenticated request cannot recreate account data.
             if (userId != null) {
                 const [active] = await tx`SELECT id FROM users WHERE id = ${userId} AND is_active = true FOR UPDATE`;
                 if (!active) throw new Error('Active customer account not found');
             }
-            if (options?.recoverySourceOrderId) {
-                await assertRecoveryCheckoutUnpaid(tx, options.recoverySourceOrderId);
+            if (draft.recoverySourceOrderId) {
+                await assertRecoveryCheckoutUnpaid(tx, draft.recoverySourceOrderId);
             }
-            if (options?.customerLimits) {
-                await enforceCustomerOrderLimits(tx, options.customerLimits.phone, options.customerLimits.email);
+            if (draft.customerLimits) {
+                await enforceCustomerOrderLimits(tx, draft.customerLimits.phone, draft.customerLimits.email);
             }
             const orderNumber = await uniqueOrderNumber(tx);
-            const paymentStatus = options?.paymentStatus ?? PAYMENT_STATUS.UNPAID;
-            const orderStatus = options?.status ?? ORDER_STATUS.PENDING;
-            const orderSource = options?.orderSource ?? ORDER_SOURCE.ONLINE;
-            const paidAt = options?.paidAt ?? null;
+            const paidAt = start.payment === PAYMENT_STATUS.PAID ? new Date().toISOString() : null;
 
             const [order] = await tx<OrderRow[]>`
                 INSERT INTO orders(
@@ -240,34 +237,14 @@ export const ordersQueries = {
                     status, payment_status, order_source, paid_at
                 )
                 VALUES (
-                    ${userId}, ${orderNumber}, ${totalAmount}, ${toJsonbParam(shippingAddress)}::jsonb,
-                    ${shippingLocationId}, ${shippingCost}, ${notes ?? null},
-                    ${discountCode}, ${discountAmount}, ${customerName}, ${customerPhone}, ${customerEmail},
-                    ${orderStatus}, ${paymentStatus}, ${orderSource}, ${paidAt ? paidAt.toISOString() : null}
+                    ${userId}, ${orderNumber}, ${draft.totalAmount}, ${toJsonbParam(shippingAddress)}::jsonb,
+                    ${draft.shippingLocationId}, ${draft.shippingCost}, ${draft.notes ?? null},
+                    ${draft.discountCode}, ${draft.discountAmount}, ${draft.customerName}, ${draft.customerPhone}, ${customerEmail},
+                    ${start.status}, ${start.payment}, ${draft.orderSource ?? ORDER_SOURCE.ONLINE}, ${paidAt}
                 )
                 RETURNING *
             `;
-
             if (!order) throw new Error('Failed to create order');
-            // Stock is taken once the order row exists, so the movements reference it; a shortfall rolls everything back.
-            await inventory.reserve(tx, items.map((item) => ({ variantId: item.variant_id, quantity: item.quantity })), {
-                referenceId: Number(order.id),
-                note: options?.inventoryNote ?? null,
-                by: options?.inventoryCreatedBy ?? userId,
-            }, after);
-            if (options?.policyAcceptance) {
-                const names = items.length ? await tx<{ id: number; name: string }[]>`SELECT id, name FROM products WHERE id IN ${tx(items.map(item => item.product_id))}` : [];
-                const snapshot: OrderAgreementSnapshot = { policies: LEGAL_POLICIES, order: {
-                    number: order.order_number, submitted_at: new Date(order.created_at).toISOString(), customer: customerName, email: customerEmail,
-                    address: { ...shippingAddress }, notes: notes ?? null, total: totalAmount, shipping: shippingCost, discount: discountAmount,
-                    items: items.map(item => ({ name: names.find(product => Number(product.id) === item.product_id)?.name ?? item.variant_sku,
-                        sku: item.variant_sku, size: item.variant_size, color: item.variant_color, quantity: item.quantity, unit_price: item.unit_price })),
-                } };
-                await tx`INSERT INTO order_policy_acceptances(order_id, policy_version, policy_snapshot)
-                    VALUES (${order.id}, ${options.policyAcceptance.version}, ${toJsonbParam(snapshot)}::jsonb)`;
-                if (customerEmail) await enqueueEmail({ type: 'ORDER_AGREEMENT', to: customerEmail, orderId: Number(order.id) },
-                    { tx, dedupeKey: `order-agreement:${order.id}` });
-            }
 
             for (const item of items) {
                 const subtotal = item.unit_price * item.quantity;
@@ -281,82 +258,49 @@ export const ordersQueries = {
                 `;
             }
 
-            if (options?.discountUsage) {
-                await recordDiscountUsage(tx, order.id, options.discountUsage);
+            if (draft.policyAcceptance) {
+                const names = items.length ? await tx<{ id: number; name: string }[]>`SELECT id, name FROM products WHERE id IN ${tx(items.map(item => item.product_id))}` : [];
+                const snapshot: OrderAgreementSnapshot = { policies: LEGAL_POLICIES, order: {
+                    number: order.order_number, submitted_at: new Date(order.created_at).toISOString(), customer: draft.customerName, email: customerEmail,
+                    address: { ...shippingAddress }, notes: draft.notes ?? null, total: draft.totalAmount, shipping: draft.shippingCost, discount: draft.discountAmount,
+                    items: items.map(item => ({ name: names.find(product => Number(product.id) === item.product_id)?.name ?? item.variant_sku,
+                        sku: item.variant_sku, size: item.variant_size, color: item.variant_color, quantity: item.quantity, unit_price: item.unit_price })),
+                } };
+                await tx`INSERT INTO order_policy_acceptances(order_id, policy_version, policy_snapshot)
+                    VALUES (${order.id}, ${draft.policyAcceptance.version}, ${toJsonbParam(snapshot)}::jsonb)`;
+                if (customerEmail) await enqueueEmail({ type: 'ORDER_AGREEMENT', to: customerEmail, orderId: Number(order.id) },
+                    { tx, dedupeKey: `order-agreement:${order.id}` });
             }
 
-            if (options?.recoverySessionHash && customerEmail) {
-                await attachRecoveryOrder(tx, options.recoverySessionHash, customerEmail, Number(order.id));
+            if (draft.recoverySessionHash && customerEmail) {
+                await attachRecoveryOrder(tx, draft.recoverySessionHash, customerEmail, Number(order.id));
             }
 
-            if (options?.payment) {
+            let paymentTransactionId: number | null = null;
+            if (draft.payment) {
                 const [paymentTransaction] = await tx<{ id: number }[]>`
                     INSERT INTO payment_transactions(
-                        order_id,
-                        provider,
-                        provider_reference,
-                        merchant_reference,
-                        checkout_url,
-                        amount,
-                        currency,
-                        status,
-                        payment_method,
-                        confirmation_code,
-                        result_desc,
-                        raw_payload
+                        order_id, provider, provider_reference, merchant_reference, checkout_url, amount, currency,
+                        status, payment_method, confirmation_code, result_desc, raw_payload
                     )
                     VALUES (
-                        ${order.id},
-                        ${options.payment.provider},
-                        ${options.payment.providerReference ?? null},
-                        ${options.payment.merchantReference},
-                        ${null},
-                        ${options.payment.amount},
-                        ${options.payment.currency},
-                        ${'COMPLETED'},
-                        ${options.payment.paymentMethod ?? null},
-                        ${options.payment.providerReference ?? options.payment.reference},
-                        ${'Payment recorded at checkout counter'},
-                        ${toJsonbParam(options.payment.rawPayload)}::jsonb
+                        ${order.id}, ${draft.payment.provider}, ${draft.payment.providerReference ?? null},
+                        ${draft.payment.merchantReference}, ${null}, ${draft.payment.amount}, ${draft.payment.currency},
+                        ${'COMPLETED'}, ${draft.payment.paymentMethod ?? null},
+                        ${draft.payment.providerReference ?? draft.payment.merchantReference},
+                        ${'Payment recorded at checkout counter'}, ${toJsonbParam(draft.payment.rawPayload)}::jsonb
                     )
                     ON CONFLICT (provider, merchant_reference) DO UPDATE
-                    SET
-                        status = EXCLUDED.status,
-                        payment_method = EXCLUDED.payment_method,
-                        confirmation_code = EXCLUDED.confirmation_code,
-                        raw_payload = EXCLUDED.raw_payload
+                    SET status = EXCLUDED.status, payment_method = EXCLUDED.payment_method,
+                        confirmation_code = EXCLUDED.confirmation_code, raw_payload = EXCLUDED.raw_payload
                     RETURNING id
                 `;
-
-                await tx`
-                    INSERT INTO payment_ledger_entries(
-                        order_id,
-                        payment_transaction_id,
-                        entry_type,
-                        direction,
-                        amount,
-                        currency,
-                        reference,
-                        metadata
-                    )
-                    VALUES (
-                        ${order.id},
-                        ${paymentTransaction?.id ?? null},
-                        ${'PAYMENT_CAPTURED'},
-                        ${'CREDIT'},
-                        ${options.payment.amount},
-                        ${options.payment.currency},
-                        ${options.payment.reference},
-                        ${toJsonbParam(options.payment.metadata)}::jsonb
-                    )
-                    ON CONFLICT (entry_type, reference) WHERE reference IS NOT NULL DO NOTHING
-                `;
+                paymentTransactionId = paymentTransaction ? Number(paymentTransaction.id) : null;
             }
 
-            return order!;
+            await applyEffects(tx, order, paymentTransactionId);
+            return order;
         }) as unknown as OrderRow;
-        after.run();
-        return created;
     },
 
     /** Online orders still unpaid after the payment window. */

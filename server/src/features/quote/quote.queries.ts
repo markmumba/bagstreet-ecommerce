@@ -34,7 +34,7 @@ export async function quoteOrder(request: QuoteRequest, options: { mode?: QuoteI
         const [used] = code && phone
             ? await db`SELECT 1 FROM discount_code_usages WHERE code_id = ${code.id} AND phone = ${phone} LIMIT 1`
             : [];
-        discount = { requested: requestedCode, code: code ? { ...code, id: Number(code.id) } : undefined, phone, phoneAlreadyUsed: Boolean(used) };
+        discount = { requested: requestedCode, code, phone, phoneAlreadyUsed: Boolean(used) };
     }
 
     let delivery: QuoteInputs['delivery'];

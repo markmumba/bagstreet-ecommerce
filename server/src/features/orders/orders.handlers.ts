@@ -20,8 +20,8 @@ import { paymentsQueries } from '../payments/payments.queries';
 import { quoteOrder } from '../quote/quote.queries';
 import type { Quote } from '../quote/quote';
 import { settingsQueries } from '../settings/settings.queries';
-import { adminActionsFor, applyOrderEvent, requireAllowed } from './lifecycle/order-lifecycle';
-import { decideCreation, type Actor } from './lifecycle/transitions';
+import { adminActionsFor, applyOrderEvent, createOrder, requireAllowed } from './lifecycle/order-lifecycle';
+import type { Actor } from './lifecycle/transitions';
 import type { AppContext, AuthUser } from '@server/lib/hono';
 import { getOptionalUser, getRequiredUser } from '@server/lib/hono';
 import { submitPesapalOrder } from '../../services/pesapal';
@@ -419,77 +419,45 @@ export const ordersHandlers = {
             country: 'Kenya',
         };
         const paymentReference = `walk-in-${randomUUID()}`;
-        // The Order lifecycle decides who may record a walk-in sale and the state it starts in.
-        const start = decideCreation(
-            { type: 'walk_in_sale', amount: totalAmount, currency: env.PESAPAL_CURRENCY, reference: paymentReference },
-            staffActor(c),
-            paymentReference,
-        );
-        if (start.kind !== 'transition') throw new ForbiddenError(start.kind === 'not_allowed' ? start.message : undefined);
 
         let order;
         try {
-            order = await ordersQueries.create(
-                null,
-                itemsWithPrice,
+            // The Order lifecycle checks who may record it, sets its starting state (delivered and
+            // paid), takes the stock and records the payment, in the transaction that stores it.
+            order = await createOrder({
+                userId: null,
+                items: itemsWithPrice,
                 totalAmount,
                 shippingAddress,
-                null,
-                0,
-                validated.data.notes,
-                null,
-                0,
+                shippingLocationId: null,
+                shippingCost: 0,
+                notes: validated.data.notes,
+                discountCode: null,
+                discountAmount: 0,
                 customerName,
                 customerPhone,
                 customerEmail,
-                {
-                    status: start.next.status,
-                    paymentStatus: start.next.payment,
-                    orderSource: ORDER_SOURCE.WALK_IN,
-                    paidAt: new Date(),
-                    inventoryCreatedBy: Number(actor.sub),
-                    inventoryNote: `Walk-in sale recorded by ${actor.email}`,
-                    payment: {
-                        provider: 'walk_in',
-                        providerReference: paymentReference,
-                        merchantReference: paymentReference,
-                        paymentMethod: validated.data.payment_method,
-                        amount: totalAmount,
-                        currency: env.PESAPAL_CURRENCY,
-                        reference: paymentReference,
-                        metadata: {
-                            source: ORDER_SOURCE.WALK_IN,
-                            payment_method: validated.data.payment_method,
-                            recorded_by: actor.email,
-                        },
-                        rawPayload: {
-                            source: ORDER_SOURCE.WALK_IN,
-                            payment_method: validated.data.payment_method,
-                        },
-                    },
-                }
-            );
+                orderSource: ORDER_SOURCE.WALK_IN,
+                payment: {
+                    provider: 'walk_in',
+                    providerReference: paymentReference,
+                    merchantReference: paymentReference,
+                    paymentMethod: validated.data.payment_method,
+                    amount: totalAmount,
+                    currency: env.PESAPAL_CURRENCY,
+                    rawPayload: { source: ORDER_SOURCE.WALK_IN, payment_method: validated.data.payment_method },
+                },
+            },
+            { type: 'walk_in_sale', amount: totalAmount, currency: env.PESAPAL_CURRENCY, reference: paymentReference },
+            staffActor(c),
+            { paymentMetadata: { source: ORDER_SOURCE.WALK_IN, payment_method: validated.data.payment_method, recorded_by: actor.email } });
         } catch (err: any) {
             // Stock shortfalls and missing variants arrive as typed errors from Inventory.
             if (err instanceof AppError) throw err;
             throw new InternalServerError('Failed to record walk-in sale');
         }
 
-        const items = await ordersQueries.findItemsByOrderId(order.id);
-        const response = toOrderResponse(order, items);
-        await auditFromContext(c, {
-            action: 'WALK_IN_SALE_CREATED',
-            entityType: 'order',
-            entityId: order.id,
-            after: response,
-            metadata: {
-                order_source: ORDER_SOURCE.WALK_IN,
-                payment_method: validated.data.payment_method,
-                item_count: items.reduce((sum, item) => sum + Number(item.quantity), 0),
-                total_amount: totalAmount,
-            },
-        });
-
+        const response = toOrderResponse(order, await ordersQueries.findItemsByOrderId(order.id));
         return success(c, response, 'Walk-in sale recorded', 201);
     },
 
@@ -532,29 +500,25 @@ export const ordersHandlers = {
 
         let order;
         try {
-            order = await ordersQueries.create(
-                authUser ? Number(authUser.sub) : null,
-                itemsWithPrice,
+            // Stock is taken and the discount use claimed (re-checked under lock) by the Order lifecycle.
+            order = await createOrder({
+                userId: authUser ? Number(authUser.sub) : null,
+                items: itemsWithPrice,
                 totalAmount,
                 shippingAddress,
-                validated.data.shipping_location_id,
+                shippingLocationId: validated.data.shipping_location_id,
                 shippingCost,
-                validated.data.notes,
-                quote.discount?.code ?? null,
+                notes: validated.data.notes,
+                discountCode: quote.discount?.code ?? null,
                 discountAmount,
-                shippingAddress.full_name,
-                normalizedPhone,
+                customerName: shippingAddress.full_name,
+                customerPhone: normalizedPhone,
                 customerEmail,
-                {
-                    customerLimits: { phone: normalizedPhone, email: customerEmail },
-                    policyAcceptance: validated.data.policy_acceptance,
-                    recoverySessionHash: recoverySessionHash(c) ?? undefined,
-                    recoverySourceOrderId: recoverySourceOrderId(c) ?? undefined,
-                    ...(quote.discount_code_id && discountAmount > 0
-                        ? { discountUsage: { codeId: quote.discount_code_id, phone: normalizedPhone, amount: discountAmount, subtotal: quote.subtotal } }
-                        : {}),
-                }
-            );
+                customerLimits: { phone: normalizedPhone, email: customerEmail },
+                policyAcceptance: validated.data.policy_acceptance,
+                recoverySessionHash: recoverySessionHash(c) ?? undefined,
+                recoverySourceOrderId: recoverySourceOrderId(c) ?? undefined,
+            }, { type: 'placed_online' }, { kind: 'customer', isOwner: true, via: 'checkout' });
         } catch (err: any) {
             // Discount and order-limit errors are thrown inside the transaction — nothing was saved.
             if (err instanceof AppError) throw err;

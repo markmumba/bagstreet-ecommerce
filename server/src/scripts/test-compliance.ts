@@ -15,7 +15,7 @@ import { archivedAgreement, type OrderAgreementSnapshot } from '../features/comp
 import { toJsonbParam, readJsonColumn } from '../lib/json-column';
 import { createAuditLog } from '../lib/audit';
 import { enqueueEmail } from '../services/email-outbox';
-import { ordersQueries } from '../features/orders/orders.queries';
+import { createOrder } from '../features/orders/lifecycle/order-lifecycle';
 import { AppError } from '../lib/errors';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import notificationsRoutes from '../features/notifications/notifications.routes';
@@ -147,14 +147,20 @@ try {
     check('rollback leaves no agreement email to send', (await sql`SELECT id FROM email_outbox WHERE dedupe_key = ${tag}`).length === 0);
 
     // Exercise the real creation transaction without stock or email delivery side effects.
-    const order = await ordersQueries.create(customer!.id, [], 0, { full_name: 'Compliance test', address_line1: 'Test', city: 'Nairobi', state: 'Nairobi', postal_code: '', country: 'Kenya' }, null, 0, undefined, null, 0, 'Compliance test', '254700000000', null, { policyAcceptance: { accepted: true, version: POLICY_VERSION } });
+    const complianceDraft = (name: string) => ({
+        userId: customer!.id, items: [], totalAmount: 0, shippingLocationId: null, shippingCost: 0, discountCode: null, discountAmount: 0,
+        shippingAddress: { full_name: name, address_line1: 'Test', city: 'Nairobi', state: 'Nairobi', postal_code: '', country: 'Kenya' },
+        customerName: name, customerPhone: '254700000000', customerEmail: null,
+    });
+    const order = await createOrder({ ...complianceDraft('Compliance test'), policyAcceptance: { accepted: true, version: POLICY_VERSION } },
+        { type: 'placed_online' }, { kind: 'customer', isOwner: true, via: 'checkout' });
     check('order creation stores the accepted policy archive', (await archivedAgreement(Number(order.id))).text.includes(POLICY_VERSION));
     await sql`UPDATE users SET is_active = false WHERE id = ${customer!.id}`;
     check('existing JWT stops working immediately after deactivation', (await request('/api/compliance/me/export', customerToken)).status === 401);
     check('notification stream rejects deactivated account tokens', (await app.request(`/api/notifications/stream?token=${customerToken}`)).status === 401);
     check('optional auth treats the inactive account as a guest', (await (await request('/optional', customerToken)).json() as { signed_in: boolean }).signed_in === false);
     let inactiveBlocked = false;
-    try { await ordersQueries.create(customer!.id, [], 0, { full_name: 'Test', address_line1: 'Test', city: 'Nairobi', state: 'Nairobi', postal_code: '', country: 'Kenya' }, null, 0, undefined, null, 0, 'Test', '254700000000', null); } catch { inactiveBlocked = true; }
+    try { await createOrder(complianceDraft('Test'), { type: 'placed_online' }, { kind: 'customer', isOwner: true, via: 'checkout' }); } catch { inactiveBlocked = true; }
     check('a stale authenticated checkout cannot recreate an erased account order', inactiveBlocked);
 
     if (process.argv.includes('--preview')) {

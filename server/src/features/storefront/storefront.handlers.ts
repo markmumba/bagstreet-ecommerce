@@ -1,7 +1,7 @@
 import type { AppContext } from '@server/lib/hono';
 import { success } from '@server/lib/response';
 import { NotFoundError, ValidationError } from '@server/lib/errors';
-import { cartQuoteSchema, toQuoteResponse } from '../quote/quote';
+import { cartQuoteSchema } from '../quote/quote';
 import { quoteOrder } from '../quote/quote.queries';
 import { categoriesQueries } from '../categories/categories.queries';
 import { productsQueries } from '../products/products.queries';
@@ -169,6 +169,6 @@ export const storefrontHandlers = {
             throw new ValidationError('Invalid cart', validated.error.errors);
         }
 
-        return success(c, toQuoteResponse(await quoteOrder(validated.data)));
+        return success(c, await quoteOrder(validated.data));
     },
 };

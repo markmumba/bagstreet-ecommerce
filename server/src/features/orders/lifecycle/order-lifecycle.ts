@@ -21,10 +21,10 @@ import { enqueueEmail } from '../../../services/email-outbox';
 import { notificationsQueries } from '../../notifications/notifications.queries';
 import { paymentsQueries } from '../../payments/payments.queries';
 import { LEDGER_ENTRY } from '../../payments/order-balance';
-import { ordersQueries, type OrderRow } from '../orders.queries';
+import { ordersQueries, type OrderDraft, type OrderRow } from '../orders.queries';
 import { claimOrderDiscount, releaseDiscountUsage } from '../discount-usage';
 import {
-    ALL_STATES, adminActions, decide,
+    ALL_STATES, adminActions, decide, decideCreation,
     type Actor, type AdminAction, type DecisionContext, type Effect, type NotAllowedReason, type OrderEvent, type OrderState,
 } from './transitions';
 import { orderAlertRecipients, orderConfirmationJob, paymentFailedJob, staffAlert, staffOrderConfirmedJobs } from './order-messages';
@@ -32,6 +32,8 @@ import { orderAlertRecipients, orderConfirmationJob, paymentFailedJob, staffAler
 type Executor = typeof sql;
 
 export interface ApplyOptions {
+    /** The payment_transactions row a recorded capture belongs to, when the event doesn't carry it. */
+    paymentTransactionId?: number | null;
     /** Extra provider details stored on a recorded capture (tracking ids, payment method…). */
     paymentMetadata?: Record<string, unknown>;
     /** Extra details for the audit log entry (e.g. why the expiry job acted). */
@@ -72,7 +74,8 @@ export function requireAllowed(result: ApplyResult): Exclude<ApplyResult, { outc
 interface Run {
     tx: Executor;
     order: OrderRow;
-    before: OrderState;
+    /** Null when the order is being created. */
+    before: OrderState | null;
     next: OrderState;
     event: OrderEvent;
     actor: Actor;
@@ -119,6 +122,35 @@ export async function applyOrderEvent(orderId: number, event: OrderEvent, actor:
 
     after.run();
     return result;
+}
+
+export type CreationEvent = Extract<OrderEvent, { type: 'placed_online' | 'walk_in_sale' }>;
+
+/**
+ * Creates an order. The transition table decides who may create it and its starting state; the
+ * effects (take stock, claim the discount, record a walk-in's payment, audit) are applied in the
+ * same transaction that stores it, exactly as for any other Order event.
+ */
+export async function createOrder(
+    draft: OrderDraft,
+    event: CreationEvent,
+    actor: Actor,
+    options: Pick<ApplyOptions, 'paymentMetadata'> = {},
+): Promise<OrderRow> {
+    const decision = decideCreation(event, actor, 'new');
+    if (decision.kind === 'not_allowed') throw new ForbiddenError(decision.message);
+    if (decision.kind !== 'transition') throw new Error(`"${event.type}" did not produce a starting state`);
+
+    const after = new AfterCommit();
+    const order = await ordersQueries.insertOrder(draft, decision.next, async (tx, created, paymentTransactionId) => {
+        const run: Run = {
+            tx, order: created, before: null, next: decision.next, event, actor, after, captured: 0,
+            options: { ...options, paymentTransactionId },
+        };
+        for (const effect of decision.effects) await applyEffect(run, effect);
+    });
+    after.run();
+    return order;
 }
 
 // ── Facts for the decision ─────────────────────────────────────────────────
@@ -187,7 +219,8 @@ async function applyEffect(run: Run, effect: Effect): Promise<void> {
         case 'reserve_stock':
             await inventory.reserve(tx, await orderStockLines(tx, orderId), {
                 referenceId: orderId,
-                note: run.before.status === 'CANCELLED' ? 'Reinstated after late payment' : null,
+                note: run.before?.status === 'CANCELLED' ? 'Reinstated after late payment'
+                    : run.event.type === 'walk_in_sale' ? 'Walk-in sale' : null,
                 by: staffId(run.actor),
             }, run.after);
             return;
@@ -208,7 +241,7 @@ async function applyEffect(run: Run, effect: Effect): Promise<void> {
         case 'record_capture': {
             await paymentsQueries.createLedgerEntry({
                 order_id: orderId,
-                payment_transaction_id: effect.transactionId ?? null,
+                payment_transaction_id: effect.transactionId ?? run.options.paymentTransactionId ?? null,
                 entry_type: LEDGER_ENTRY.PAYMENT_CAPTURED,
                 direction: 'CREDIT',
                 amount: effect.amount,
@@ -283,7 +316,7 @@ async function applyEffect(run: Run, effect: Effect): Promise<void> {
                 action: effect.action,
                 entityType: 'order',
                 entityId: orderId,
-                before: { status: run.before.status, payment_status: run.before.payment },
+                before: run.before ? { status: run.before.status, payment_status: run.before.payment } : null,
                 after: { status: run.next.status, payment_status: run.next.payment },
                 metadata: {
                     event: describeEvent(run.event),

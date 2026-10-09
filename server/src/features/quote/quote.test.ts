@@ -173,7 +173,6 @@ describe('buildQuote: discount, delivery and total', () => {
         expect(quote.delivery).toEqual({ location_id: '3', name: 'Nairobi CBD', price: 300, cost: 300 });
         expect(quote.total).toBe(3900 - 390 + 300);
         expect(quote.problems).toEqual([]);
-        expect(quote.discount_code_id).toBe(7);
     });
 
     test('free delivery is judged before the discount, so the bag page promise holds', () => {

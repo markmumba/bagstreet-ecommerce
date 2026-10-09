@@ -9,7 +9,7 @@ import { success } from '../../lib/response';
 import { env } from '../../config/env';
 import { sql } from '../../lib/db';
 import { readJsonColumn } from '../../lib/json-column';
-import { cartItemsSchema, mergeQuoteItems, toQuoteResponse } from '../quote/quote';
+import { cartItemsSchema, mergeQuoteItems } from '../quote/quote';
 import { quoteOrder } from '../quote/quote.queries';
 import { getRecoveryPreference, recoveryState, saveRecoverySnapshot, setRecoveryPreference, snapshotByToken, unsubscribeRecovery, type RecoverySnapshot } from './recovery.queries';
 import { recoverySessionHash, rememberRecoverySource } from './recovery-session';
@@ -67,7 +67,7 @@ async function recover(c: AppContext, restore: boolean) {
     if (restore && state !== 'ready') throw new BadRequestError('This checkout cannot be restarted. Check any existing payment first.');
     const items = readJsonColumn<CartQuoteRequestItem[]>(snapshot.items) ?? [];
     const response: CartRecoveryResponse = {
-        state, expires_at: new Date(snapshot.expires_at).toISOString(), quote: state === 'ready' ? toQuoteResponse(await quoteOrder({ items })) : null,
+        state, expires_at: new Date(snapshot.expires_at).toISOString(), quote: state === 'ready' ? await quoteOrder({ items }) : null,
     };
     // A GET (including email scanners) changes nothing. Restore stops this reminder series; a new bag can start another.
     if (restore) {
