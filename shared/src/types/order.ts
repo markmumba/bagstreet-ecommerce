@@ -214,6 +214,8 @@ export interface DiscountCodeResponse {
     used_count: number;
     expires_at?: string;
     is_active: boolean;
+    /** Only signed-in customers may use it, once per account. */
+    requires_account: boolean;
     created_at: string;
     updated_at: string;
 }

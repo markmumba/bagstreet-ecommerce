@@ -10,6 +10,7 @@ import { cartRecoveryMigration } from './009_cart_recovery';
 import { cartRecoveryOwnerMigration } from './010_cart_recovery_owner';
 import { paymentStatusHeldReversedMigration } from './011_payment_status_held_reversed';
 import { complianceControlsMigration } from './012_compliance_controls';
+import { discountRequiresAccountMigration } from './013_discount_requires_account';
 import type { Migration } from './types';
 
 export const migrations: Migration[] = [
@@ -25,4 +26,5 @@ export const migrations: Migration[] = [
     cartRecoveryOwnerMigration,
     paymentStatusHeldReversedMigration,
     complianceControlsMigration,
+    discountRequiresAccountMigration,
 ];

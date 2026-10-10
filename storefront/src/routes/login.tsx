@@ -7,6 +7,8 @@ export const Route = createFileRoute('/login')({
   validateSearch: z.object({
     reset: z.string().optional(),
     activated: z.string().optional(),
+    /** Where to return after signing in. Same-site paths only, so the link can't send anyone elsewhere. */
+    next: z.string().regex(/^\/(?!\/)/).optional().catch(undefined),
   }),
   component: LoginPage,
 });
@@ -14,7 +16,7 @@ export const Route = createFileRoute('/login')({
 function LoginPage() {
   const { login, register } = useAuth();
   const navigate = useNavigate();
-  const { reset, activated } = Route.useSearch();
+  const { reset, activated, next } = Route.useSearch();
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -30,7 +32,8 @@ function LoginPage() {
     try {
       if (mode === 'login') {
         await login(email, password);
-        navigate({ to: '/' });
+        if (next) window.location.assign(next);
+        else navigate({ to: '/' });
       } else {
         await register(email);
         setSuccessMessage(

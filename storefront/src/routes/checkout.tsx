@@ -598,7 +598,14 @@ function CheckoutForm() {
                 </button>
               </div>
               {discount && <p className="mt-2 text-[12px] text-olive">Discount applied</p>}
-              {discountProblem && !quoteQuery.isFetching && <p className="mt-2 text-[12px] text-destructive">{discountProblem}</p>}
+              {discountProblem && !quoteQuery.isFetching && (
+                <p className="mt-2 text-[12px] text-destructive">
+                  {discountProblem}
+                  {!user && discountProblem === 'Sign in to use this code' && (
+                    <> · <a href="/login?next=/checkout" className="underline underline-offset-2">Sign in</a></>
+                  )}
+                </p>
+              )}
             </div>
 
             <dl className="mt-6 space-y-3 border-t border-border pt-6 text-[14px]">

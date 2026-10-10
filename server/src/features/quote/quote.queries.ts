@@ -10,6 +10,8 @@ export interface QuoteRequest {
     discount_code?: string;
     phone?: string;
     shipping_location_id?: number;
+    /** The signed-in customer, from the auth token (never from the request body). */
+    userId?: number | null;
 }
 
 /** Loads everything a quote needs in a handful of queries (not one per item) and prices it. */
@@ -34,7 +36,14 @@ export async function quoteOrder(request: QuoteRequest, options: { mode?: QuoteI
         const [used] = code && phone
             ? await db`SELECT 1 FROM discount_code_usages WHERE code_id = ${code.id} AND phone = ${phone} LIMIT 1`
             : [];
-        discount = { requested: requestedCode, code, phone, phoneAlreadyUsed: Boolean(used) };
+        const userId = request.userId ?? null;
+        const [usedByAccount] = code && userId != null
+            ? await db`SELECT 1 FROM discount_code_usages WHERE code_id = ${code.id} AND user_id = ${userId} LIMIT 1`
+            : [];
+        discount = {
+            requested: requestedCode, code, phone,
+            phoneAlreadyUsed: Boolean(used), signedIn: userId != null, accountAlreadyUsed: Boolean(usedByAccount),
+        };
     }
 
     let delivery: QuoteInputs['delivery'];

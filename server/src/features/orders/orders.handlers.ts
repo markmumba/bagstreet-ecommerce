@@ -489,6 +489,7 @@ export const ordersHandlers = {
             discount_code: validated.data.discount_code,
             phone: normalizedPhone,
             shipping_location_id: validated.data.shipping_location_id,
+            userId: authUser ? Number(authUser.sub) : null,
         });
         if (quote.problems.length > 0) throw new BadRequestError(quote.problems[0]!);
         const itemsWithPrice = orderItemsFromQuote(quote);

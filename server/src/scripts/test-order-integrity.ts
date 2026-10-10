@@ -29,8 +29,8 @@ const used = async (c: number) => (await sql`SELECT used_count FROM discount_cod
 const [cat] = await sql`INSERT INTO categories(name, slug, description) VALUES ('ZZ Test', 'zz-test-cat', '') RETURNING id`;
 const [prod] = await sql`INSERT INTO products(category_id, sku, name, slug, description, price, stock, image_url, is_active) VALUES (${cat.id}, 'ZZ-TEST-PRD', 'ZZ Test Product', 'zz-test-product', '', 1000, 0, '', true) RETURNING id`;
 const [variant] = await sql`INSERT INTO product_variants(product_id, sku, stock, is_active) VALUES (${prod.id}, 'ZZ-TEST-VAR', 3, true) RETURNING id`;
-const [limited] = await sql`INSERT INTO discount_codes(code, value, min_order_amount, usage_limit, is_active) VALUES ('ZZLIMIT1', 10, 0, 1, true) RETURNING id`;
-const [open] = await sql`INSERT INTO discount_codes(code, value, min_order_amount, is_active) VALUES ('ZZOPEN', 10, 0, true) RETURNING id`;
+const [limited] = await sql`INSERT INTO discount_codes(code, value, min_order_amount, usage_limit, is_active, requires_account) VALUES ('ZZLIMIT1', 10, 0, 1, true, false) RETURNING id`;
+const [open] = await sql`INSERT INTO discount_codes(code, value, min_order_amount, is_active, requires_account) VALUES ('ZZOPEN', 10, 0, true, false) RETURNING id`;
 const V = Number(variant.id), PRODUCT = Number(prod.id);
 // Taking stock can raise low-stock alerts. Reserve their email dedupe keys (today and tomorrow, in
 // case the run spans midnight UTC) so no real low-stock email reaches staff; notifications are removed at the end.
@@ -470,6 +470,26 @@ try {
   check('quote: a code that expired after the quote is refused when the order is created', expiredAtLock[0]!.status === 'rejected' && reason(expiredAtLock[0]!).includes('expired'), reason(expiredAtLock[0]!));
   await sql`UPDATE discount_codes SET expires_at = NULL WHERE id = ${open.id}`;
   await sql`DELETE FROM shipping_locations WHERE id = ${ZZ_AREA}`;
+
+  // Signed-in-only codes (the default): guests refused, each account once.
+  const [acctCode] = await sql`INSERT INTO discount_codes(code, value, min_order_amount, is_active, requires_account) VALUES ('ZZACCOUNT', 10, 0, true, true) RETURNING id`;
+  const [zzCustomer] = await sql`INSERT INTO users (email, full_name, password_hash, role, is_active) VALUES ('zz-customer@example.invalid', 'ZZ Customer', 'x', 'CUSTOMER', true) RETURNING id`;
+  const ZZ_USER = Number(zzCustomer.id);
+  await sql`UPDATE product_variants SET stock = 10 WHERE id = ${V}`;
+  const accountOrder = (phone: string, userId: number | null) => guarded(createOrder({
+    ...draft(phone, 1), userId, discountCode: 'ZZACCOUNT', discountAmount: 100,
+  }, { type: 'placed_online' }, CHECKOUT));
+  const asGuest = await Promise.allSettled([accountOrder('254733000001', null)]);
+  const signedIn = await Promise.allSettled([accountOrder('254733000002', ZZ_USER)]);
+  const again = await Promise.allSettled([accountOrder('254733000003', ZZ_USER)]);
+  check('discounts: a signed-in-only code refuses guests, works once per account (even with a new phone)',
+    asGuest[0]!.status === 'rejected' && reason(asGuest[0]!) === 'Sign in to use this code'
+      && signedIn[0]!.status === 'fulfilled'
+      && again[0]!.status === 'rejected' && reason(again[0]!) === 'Your account has already used this code',
+    `guest=${reason(asGuest[0]!) || 'ok'} first=${reason(signedIn[0]!) || 'ok'} again=${reason(again[0]!) || 'ok'}`);
+  const qGuest = await quoteOrder({ items: [{ variant_id: V, quantity: 1 }], discount_code: 'ZZACCOUNT', phone: '254733000004' });
+  check('discounts: the quote tells a guest to sign in', qGuest.discount_problem === 'Sign in to use this code', String(qGuest.discount_problem));
+  void acctCode;
 } catch (err) {
   check('script error', false, String(err));
 } finally {
@@ -483,9 +503,10 @@ try {
     await sql`DELETE FROM discount_code_usages WHERE order_id IN ${sql(orderIds)}`;
     await sql`DELETE FROM orders WHERE id IN ${sql(orderIds)}`;
   }
+  await sql`DELETE FROM users WHERE email = 'zz-customer@example.invalid'`;
   await sql`DELETE FROM inventory_movements WHERE variant_id = ${V}`;
   await sql`DELETE FROM in_app_notifications WHERE data->>'variant_id' = ${String(V)}`;
-  await sql`DELETE FROM discount_codes WHERE code IN ('ZZLIMIT1', 'ZZOPEN')`;
+  await sql`DELETE FROM discount_codes WHERE code IN ('ZZLIMIT1', 'ZZOPEN', 'ZZACCOUNT')`;
   await sql`DELETE FROM shipping_locations WHERE name = 'ZZ Test Area'`;
   const outboxIds = (await sql`SELECT id FROM email_outbox WHERE recipient LIKE 'zz-outbox-%@example.invalid'`).map((r: any) => String(r.id));
   if (outboxIds.length) await sql`DELETE FROM in_app_notifications WHERE type = 'EMAIL_FAILED' AND data->>'outbox_id' IN ${sql(outboxIds)}`;
@@ -493,7 +514,7 @@ try {
   await sql`DELETE FROM products WHERE id = ${PRODUCT}`;
   await sql`DELETE FROM categories WHERE id = ${cat.id}`;
   for (const [name, ok, detail] of results) console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${ok ? '' : `  — ${detail}`}`);
-  const leftovers = (await sql`SELECT (SELECT count(*) FROM products WHERE slug LIKE 'zz-test%')::int AS p, (SELECT count(*) FROM discount_codes WHERE code LIKE 'ZZ%')::int AS d, (SELECT count(*) FROM email_outbox WHERE recipient LIKE 'zz-outbox-%')::int AS e`)[0];
+  const leftovers = (await sql`SELECT (SELECT count(*) FROM products WHERE slug LIKE 'zz-test%')::int AS p, (SELECT count(*) FROM discount_codes WHERE code LIKE 'ZZ%')::int AS d, (SELECT count(*) FROM users WHERE email LIKE 'zz-%')::int AS u, (SELECT count(*) FROM email_outbox WHERE recipient LIKE 'zz-outbox-%')::int AS e`)[0];
   console.log('cleanup leftovers:', leftovers);
   await sql.end();
 }
