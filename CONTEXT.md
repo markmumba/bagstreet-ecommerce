@@ -8,6 +8,10 @@ An online and in-store shop selling bags, shoes, scarves and pajamas in Kenya. C
 A customer's purchase of one or more variants, with its delivery details and the amount owed.
 _Avoid_: Purchase, transaction, sale (except **Walk-in sale**)
 
+**Out for delivery**:
+An **Order** whose rider has left with it. Staff mark it when the rider leaves, which records the dispatch time.
+_Avoid_: Shipped (the shop delivers by rider, it doesn't ship)
+
 **Walk-in sale**:
 An **Order** recorded by staff for a customer buying in the shop, paid on the spot.
 _Avoid_: POS order, counter order
