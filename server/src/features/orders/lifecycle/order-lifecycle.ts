@@ -36,6 +36,8 @@ export interface ApplyOptions {
     paymentTransactionId?: number | null;
     /** Extra provider details stored on a recorded capture (tracking ids, payment method…). */
     paymentMetadata?: Record<string, unknown>;
+    /** Where an action from the dashboard or storefront came from, for the audit log. */
+    request?: { ip: string | null; userAgent: string | null };
     /** Extra details for the audit log entry (e.g. why the expiry job acted). */
     auditMetadata?: Record<string, unknown>;
 }
@@ -134,7 +136,7 @@ export async function createOrder(
     draft: OrderDraft,
     event: CreationEvent,
     actor: Actor,
-    options: Pick<ApplyOptions, 'paymentMetadata'> = {},
+    options: Pick<ApplyOptions, 'paymentMetadata' | 'request'> = {},
 ): Promise<OrderRow> {
     const decision = decideCreation(event, actor, 'new');
     if (decision.kind === 'not_allowed') throw new ForbiddenError(decision.message);
@@ -334,6 +336,8 @@ async function applyEffect(run: Run, effect: Effect): Promise<void> {
                     ...(effect.note ? { note: effect.note } : {}),
                     ...run.options.auditMetadata,
                 },
+                ipAddress: run.options.request?.ip ?? null,
+                userAgent: run.options.request?.userAgent ?? null,
             }, tx);
             return;
     }
