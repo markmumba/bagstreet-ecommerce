@@ -45,8 +45,8 @@ real customers; sections 2–4 can follow launch.
 - [x] **#3 Inventory module (reserve, release, adjust):** fixes the admin stock-adjustment race (the "not below 0" check runs outside the transaction, `variants.handlers.ts:104`), stops the variant edit bypassing the movement log, raises low-stock alerts on every change
 - [x] **#4 Discount claims:** one set of rules (`quote/discount-rules.ts`) used by the quote and re-checked under lock at order creation
 - [x] **Order creation is a lifecycle event** (`createOrder`); `ordersQueries.insertOrder` is only reachable through it
-- [ ] **#5 Typed client seam:** unwrap API responses once, drop the `as any` casts, and invalidate the right queries after each mutation
-- [ ] **#6 Staff alerts module:** one rule for who hears what (the duty manager never gets stock alerts today)
+- [x] **#5 Typed client seam** (admin app): unwrap API responses once, drop the `as any` casts, and invalidate the right queries after each mutation
+- [x] **#6 Staff alerts module:** one rule for who hears what (the duty manager never gets stock alerts today)
 - [ ] **#7 Shared order presentation** (status labels, order reference, KES formatting, receipt). Low priority
 - [x] **Delete dead code:** unused M-Pesa queries in `payments.queries.ts`, `productsQueries.bulkDelete` (broken SQL), `discountsQueries.recordUsage`, `UsersQueries.findActiveStaff`, the server `/api/cart` feature, unused storefront hooks (`useCheckPesapalPayment`, `useFreeDeliveryThreshold`, `useCategoryTree`, `useProducts`). Confirm no callers first
 
