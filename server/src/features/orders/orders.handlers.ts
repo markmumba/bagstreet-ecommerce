@@ -12,15 +12,12 @@ import {
 } from '@server/lib/errors';
 import type { OrderItemResponse, OrderReceiptResponse, OrderResponse, WalkInCatalogItemResponse } from 'shared/dist';
 import { ORDER_SOURCE, ORDER_STATUS, PAYMENT_STATUS, USER_ROLE } from 'shared/dist';
-import { notificationsQueries } from '../notifications/notifications.queries';
-import { pushToMany } from '../../lib/sse';
-import { UsersQueries } from '../users/user.queries';
 import { normalisePhone } from '../../lib/phone';
 import { paymentsQueries } from '../payments/payments.queries';
 import { quoteOrder } from '../quote/quote.queries';
 import type { Quote } from '../quote/quote';
-import { settingsQueries } from '../settings/settings.queries';
 import { adminActionsFor, applyOrderEvent, createOrder, requireAllowed } from './lifecycle/order-lifecycle';
+import { alertStaff } from '../staff-alerts/staff-alerts';
 import type { Actor } from './lifecycle/transitions';
 import type { AppContext, AuthUser } from '@server/lib/hono';
 import { getOptionalUser, getRequiredUser } from '@server/lib/hono';
@@ -164,20 +161,15 @@ async function orderPaymentsResponse(order: any): Promise<OrderPaymentsResponse>
 /** Tells staff when an order was created but Pesapal couldn't start the payment (e.g. Pesapal is down). */
 async function notifyPaymentInitFailed(order: any, totalAmount: number, err: unknown) {
     try {
-        const handover = await settingsQueries.getOrderHandover();
-        const recipients = await UsersQueries.findActiveOrderAlertRecipients(handover.enabled ? handover.managerId : null);
-        const staffIds = recipients.map((user) => Number(user.id));
-        if (staffIds.length === 0) return;
-
-        const orderNumber = order.order_number ?? `#${order.id}`;
-        const created = await notificationsQueries.create(staffIds.map((id) => ({
-            recipient_id: id,
+        await alertStaff({
+            audience: 'money',
             type: 'PAYMENT_INIT_FAILED',
-            title: `Payment could not start for ${orderNumber}`,
+            title: `Payment could not start for ${order.order_number ?? `#${order.id}`}`,
             body: `KES ${totalAmount.toFixed(2)} — Pesapal error: ${err instanceof Error ? err.message : 'unknown'}. The customer can retry from checkout.`,
-            data: { link: '/orders', order_id: String(order.id) },
-        })));
-        pushToMany(staffIds, 'notification', { notifications: created });
+            link: '/orders',
+            data: { order_id: String(order.id) },
+            dedupeKey: `staff-alert:PAYMENT_INIT_FAILED:${order.id}`,
+        });
     } catch (notifyErr) {
         console.error('[notifications] payment init failure alert failed:', notifyErr);
     }

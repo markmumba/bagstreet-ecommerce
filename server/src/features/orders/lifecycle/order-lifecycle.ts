@@ -18,7 +18,6 @@ import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from '.
 import { roundMoney } from '../../../lib/pricing';
 import type { AuthUser } from '../../../lib/hono';
 import { enqueueEmail } from '../../../services/email-outbox';
-import { notificationsQueries } from '../../notifications/notifications.queries';
 import { paymentsQueries } from '../../payments/payments.queries';
 import { LEDGER_ENTRY } from '../../payments/order-balance';
 import { ordersQueries, type OrderDraft, type OrderRow } from '../orders.queries';
@@ -27,7 +26,8 @@ import {
     ALL_STATES, adminActions, decide, decideCreation,
     type Actor, type AdminAction, type DecisionContext, type Effect, type NotAllowedReason, type OrderEvent, type OrderState,
 } from './transitions';
-import { orderAlertRecipients, orderConfirmationJob, paymentFailedJob, staffAlert, staffOrderConfirmedJobs } from './order-messages';
+import { orderConfirmationJob, paymentFailedJob, staffAlert, staffOrderConfirmedEmail } from './order-messages';
+import { alertStaff } from '../../staff-alerts/staff-alerts';
 
 type Executor = typeof sql;
 
@@ -83,7 +83,6 @@ interface Run {
     after: AfterCommit;
     /** Money held for the order, updated as captures are recorded in this run. */
     captured: number;
-    staff?: Awaited<ReturnType<typeof orderAlertRecipients>>;
 }
 
 export async function applyOrderEvent(orderId: number, event: OrderEvent, actor: Actor, options: ApplyOptions = {}): Promise<ApplyResult> {
@@ -294,21 +293,32 @@ async function applyEffect(run: Run, effect: Effect): Promise<void> {
         case 'email_staff_order_confirmed': {
             const items = await ordersQueries.findItemsByOrderId(orderId);
             const itemCount = items.reduce((sum, item) => sum + Number(item.quantity), 0);
-            for (const { job, dedupeKey } of await staffOrderConfirmedJobs(order, itemCount)) {
-                if (await enqueueEmail(job, { tx, dedupeKey })) run.after.wakeOutbox();
-            }
-            const staff = await recipients(run);
-            await notifyStaff(run, staff, {
+            const staffIds = await alertStaff({
+                audience: 'orders',
                 type: 'NEW_ORDER',
                 title: `New order ${order.order_number ?? `#${orderId}`}`,
                 body: `Paid — KES ${run.captured.toFixed(2)}`,
-            });
-            run.after.push(staff.map((u) => Number(u.id)), 'order_paid', { order_id: orderId });
+                link: '/orders',
+                data: { order_id: String(orderId) },
+                dedupeKey: `admin-order-confirmed:${orderId}`,
+                email: staffOrderConfirmedEmail(order, itemCount),
+            }, { tx, after: run.after });
+            run.after.push(staffIds, 'order_paid', { order_id: orderId });
             return;
         }
-        case 'alert_staff':
-            await notifyStaff(run, await recipients(run), staffAlert(effect.kind, order, run.event, { captured: run.captured }));
+        case 'alert_staff': {
+            const message = staffAlert(effect.kind, order, run.event, { captured: run.captured });
+            // A repeat payment can happen more than once on an order; the others are once per order.
+            const occurrence = effect.kind === 'duplicate_payment' && run.event.type === 'payment_captured' ? `:${run.event.reference}` : '';
+            await alertStaff({
+                audience: 'money',
+                ...message,
+                link: '/orders',
+                data: { order_id: String(orderId) },
+                dedupeKey: `staff-alert:${message.type}:${orderId}${occurrence}`,
+            }, { tx, after: run.after });
             return;
+        }
 
         case 'audit':
             await createAuditLog({
@@ -327,22 +337,6 @@ async function applyEffect(run: Run, effect: Effect): Promise<void> {
             }, tx);
             return;
     }
-}
-
-async function recipients(run: Run) {
-    run.staff ??= await orderAlertRecipients();
-    return run.staff;
-}
-
-async function notifyStaff(run: Run, staff: { id: number | string }[], message: { type: string; title: string; body: string }) {
-    if (staff.length === 0) return;
-    const userIds = staff.map((u) => Number(u.id));
-    const created = await notificationsQueries.create(userIds.map((id) => ({
-        recipient_id: id,
-        ...message,
-        data: { link: '/orders', order_id: String(run.order.id) },
-    })), run.tx);
-    run.after.push(userIds, 'notification', { notifications: created });
 }
 
 /** One ledger reference per refund form submission, so a double submit records one refund. */

@@ -274,6 +274,18 @@ export async function sendLowStockEmail(
 }
 
 
+/** A staff alert that needs someone to act (a held or reversed payment, a refund owed). */
+export async function sendStaffAlertEmail(to: string, name: string, eyebrow: string, heading: string, message: string, linkPath: string) {
+    const actionUrl = buildAdminUrl(linkPath);
+    if (!emailDeliveryConfigured()) {
+        console.log(`[DEV] Staff alert for ${name} <${to}> - ${heading}: ${message}`);
+        return;
+    }
+    const html = await renderEmail('staff-alert', { title: heading, preheader: message, eyebrow, heading, message, name, actionUrl });
+    const text = `Hi ${name},\n\n${heading}\n\n${message}\n\nOpen in the dashboard:\n${actionUrl}`;
+    await send(to, `Bagstreet: ${heading}`, html, text);
+}
+
 export async function sendPasswordResetEmail(to: string, name: string, resetUrl: string) {
     if (!emailDeliveryConfigured()) {
         console.log(`[DEV] Password reset for ${name} <${to}>`);

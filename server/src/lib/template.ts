@@ -8,6 +8,7 @@ import passwordReset from './templates/password-reset.html' with { type: 'text' 
 import paymentFailed from './templates/payment-failed.html' with { type: 'text' };
 import cartRecovery from './templates/cart-recovery.html' with { type: 'text' };
 import orderAgreement from './templates/order-agreement.html' with { type: 'text' };
+import staffAlert from './templates/staff-alert.html' with { type: 'text' };
 
 // Text imports embed the templates in production bundles as well as loading them in dev.
 const templates = {
@@ -21,6 +22,7 @@ const templates = {
     'payment-failed': paymentFailed,
     'cart-recovery': cartRecovery,
     'order-agreement': orderAgreement,
+    'staff-alert': staffAlert,
 };
 
 export type EmailTemplateName = Exclude<keyof typeof templates, 'email-layout'>;

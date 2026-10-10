@@ -90,6 +90,20 @@ export const emailPreviews: EmailPreview[] = [
     },
     lowStock,
     {
+        filename: 'staff-alert',
+        template: 'staff-alert',
+        label: 'Staff alert (payment problem)',
+        vars: {
+            title: 'Payment reversed: BS-1A2B3C4D',
+            preheader: 'The payment provider took back the money for this order.',
+            eyebrow: 'Payments',
+            heading: 'Payment reversed: BS-1A2B3C4D',
+            message: 'The payment provider took back the money for this order. Decide: cancel and restock, mark it paid if Wanjiru (0712 345 678) paid another way, or write it off.',
+            name: 'BagStreet team',
+            actionUrl: 'https://admin.example.com/orders',
+        },
+    },
+    {
         ...lowStock,
         filename: 'out-of-stock-alert',
         label: 'Out of stock alert',

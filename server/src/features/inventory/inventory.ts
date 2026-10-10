@@ -6,7 +6,7 @@
  *   foreign-key locks taken by inserting order items don't conflict with it),
  * - refuses to take stock below zero, with a readable `InsufficientStockError`,
  * - writes an inventory movement, so the history accounts for every unit,
- * - raises a low-stock alert when the change crosses a variant's threshold or empties it.
+ * - raises a low-stock alert (staff-alerts, "stock") when the change crosses a variant's threshold or empties it.
  *
  * Alerts are written in the same transaction; their live pushes and the outbox wake-up go into the
  * caller's `AfterCommit`.
@@ -14,9 +14,7 @@
 import type { sql } from '../../lib/db';
 import { BadRequestError } from '../../lib/errors';
 import type { AfterCommit } from '../../lib/after-commit';
-import { enqueueEmail } from '../../services/email-outbox';
-import { notificationsQueries } from '../notifications/notifications.queries';
-import { UsersQueries } from '../users/user.queries';
+import { alertStaff } from '../staff-alerts/staff-alerts';
 import { stockCrossing, type StockLevel } from './stock-policy';
 
 type Executor = typeof sql;
@@ -118,37 +116,29 @@ async function applyChanges(
     if (crossings.length > 0) await alertLowStock(tx, crossings, after);
 }
 
-/** In-app notification for admins, plus at most one email per variant, admin, day and level. */
+/** A stock alert for admins and the duty manager; at most one email per variant, person, day and level. */
 async function alertLowStock(tx: Executor, crossings: { variant: LockedVariant; stock: number; level: StockLevel }[], after: AfterCommit) {
-    const adminIds = await notificationsQueries.findAdminIds();
-    if (adminIds.length > 0) {
-        const created = await notificationsQueries.create(crossings.flatMap(({ variant, stock, level }) => {
-            const label = variantLabel(variant);
-            return adminIds.map((recipient_id) => ({
-                recipient_id,
-                type: level === 'out' ? 'OUT_OF_STOCK' : 'LOW_STOCK',
-                title: `${level === 'out' ? 'Out of stock' : 'Low stock'}: ${variant.product_name}`,
-                body: `${label ? `(${label}) — ` : ''}${stock} unit${stock === 1 ? '' : 's'} remaining`,
-                data: { link: '/products', variant_id: String(variant.id) },
-            }));
-        }), tx);
-        after.push(adminIds, 'notification', { notifications: created });
-    }
-
     const day = new Date().toISOString().slice(0, 10);
-    for (const admin of await UsersQueries.findActiveAdmins()) {
-        for (const { variant, stock, level } of crossings) {
-            const queued = await enqueueEmail({
+    for (const { variant, stock, level } of crossings) {
+        const label = variantLabel(variant);
+        await alertStaff({
+            audience: 'stock',
+            type: level === 'out' ? 'OUT_OF_STOCK' : 'LOW_STOCK',
+            title: `${level === 'out' ? 'Out of stock' : 'Low stock'}: ${variant.product_name}`,
+            body: `${label ? `(${label}) — ` : ''}${stock} unit${stock === 1 ? '' : 's'} remaining`,
+            link: '/products',
+            data: { variant_id: String(variant.id) },
+            dedupeKey: `low-stock:${variant.id}:${day}:${level}`,
+            email: (member) => ({
                 type: 'LOW_STOCK_ALERT',
-                to: admin.email,
-                name: admin.full_name,
+                to: member.email,
+                name: member.full_name,
                 productName: variant.product_name,
-                variantLabel: variantLabel(variant),
+                variantLabel: label,
                 stock,
                 threshold: variant.low_stock_threshold,
-            }, { tx, dedupeKey: `low-stock:${variant.id}:${admin.id}:${day}:${level}` });
-            if (queued) after.wakeOutbox();
-        }
+            }),
+        }, { tx, after });
     }
 }
 

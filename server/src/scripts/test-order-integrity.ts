@@ -18,6 +18,7 @@ import { applyOrderEvent, createOrder } from '../features/orders/lifecycle/order
 import { inventory, InsufficientStockError } from '../features/inventory/inventory';
 import { AfterCommit } from '../lib/after-commit';
 import { quoteOrder } from '../features/quote/quote.queries';
+import { staffFor } from '../features/staff-alerts/staff-alerts';
 import type { Actor } from '../features/orders/lifecycle/transitions';
 
 const results: [string, boolean, string?][] = [];
@@ -33,17 +34,30 @@ const [open] = await sql`INSERT INTO discount_codes(code, value, min_order_amoun
 const V = Number(variant.id), PRODUCT = Number(prod.id);
 // Taking stock can raise low-stock alerts. Reserve their email dedupe keys (today and tomorrow, in
 // case the run spans midnight UTC) so no real low-stock email reaches staff; notifications are removed at the end.
-for (const user of await sql`SELECT id FROM users`) {
-  for (const offset of [0, 1]) {
-    const day = new Date(Date.now() + offset * 86_400_000).toISOString().slice(0, 10);
-    for (const level of ['low', 'out']) {
-      await sql`
-        INSERT INTO email_outbox (job_type, recipient, payload, dedupe_key, status, sent_at)
-        VALUES ('ZZ_TEST', 'zz-outbox-guard@example.invalid', '{}'::jsonb, ${`low-stock:${V}:${user.id}:${day}:${level}`}, 'SKIPPED', now())
-        ON CONFLICT DO NOTHING`;
-    }
+// Staff emails can never go out from this script: for every order it creates, and for the test
+// variant's low-stock alerts, the email dedupe keys are reserved first as already-skipped ZZ_TEST rows,
+// so the real emails are dropped as duplicates. (Notifications are removed at the end.)
+const staffIds: number[] = (await sql`SELECT id FROM users`).map((r: any) => Number(r.id));
+const reserveEmailKeys = async (keys: string[]) => {
+  for (const key of keys) {
+    await sql`
+      INSERT INTO email_outbox (job_type, recipient, payload, dedupe_key, status, sent_at)
+      VALUES ('ZZ_TEST', 'zz-outbox-guard@example.invalid', '{}'::jsonb, ${key}, 'SKIPPED', now())
+      ON CONFLICT DO NOTHING`;
   }
-}
+};
+const MONEY_ALERTS = ['PAYMENT_MISMATCH', 'REFUND_REQUIRED', 'PAYMENT_REVERSED', 'PAYMENT_INIT_FAILED'];
+const guardEmails = async (orderId: number) => reserveEmailKeys([
+  `order-confirmation:${orderId}`,
+  ...staffIds.flatMap((id) => [
+    `admin-order-confirmed:${orderId}:${id}`,
+    ...MONEY_ALERTS.map((type) => `staff-alert:${type}:${orderId}:${id}`),
+  ]),
+]);
+await reserveEmailKeys([0, 1].flatMap((offset) => {
+  const day = new Date(Date.now() + offset * 86_400_000).toISOString().slice(0, 10);
+  return ['low', 'out'].flatMap((level) => staffIds.map((id) => `low-stock:${V}:${day}:${level}:${id}`));
+}));
 
 // Orders are created the way the app creates them: through the Order lifecycle.
 const CHECKOUT: Actor = { kind: 'customer', isOwner: true, via: 'checkout' };
@@ -56,31 +70,26 @@ const draft = (phone: string, quantity: number, email: string | null = null) => 
   shippingLocationId: null, shippingCost: 0, discountCode: null as string | null, discountAmount: 0,
   customerName: 'ZZ Test', customerPhone: phone, customerEmail: email,
 });
+const guarded = async (created: Promise<Awaited<ReturnType<typeof createOrder>>>) => {
+  const order = await created;
+  await guardEmails(Number(order.id));
+  return order;
+};
 const place = (phone: string, discount?: { codeId: number; phone: string; amount: number }, quantity = 1) =>
-  createOrder({
+  guarded(createOrder({
     ...draft(phone, quantity),
     ...(discount ? { discountCode: codeNames.get(discount.codeId)!, discountAmount: discount.amount } : {}),
-  }, { type: 'placed_online' }, CHECKOUT);
+  }, { type: 'placed_online' }, CHECKOUT));
 
 // Online checkout path with per-customer limits on (as the order handler does).
 const placeLimited = (phone: string, email: string) =>
-  createOrder({ ...draft(phone, 1, email), customerLimits: { phone, email } }, { type: 'placed_online' }, CHECKOUT);
+  guarded(createOrder({ ...draft(phone, 1, email), customerLimits: { phone, email } }, { type: 'placed_online' }, CHECKOUT));
 const reason = (r: PromiseSettledResult<unknown>) => (r.status === 'rejected' ? (r.reason as Error).message : '');
 
 try {
   // Every order change goes through the Order lifecycle, as the app does.
   const PROVIDER: Actor = { kind: 'payment_provider' };
   const SYSTEM: Actor = { kind: 'system' };
-  const staffIds: number[] = (await sql`SELECT id FROM users`).map((r: any) => Number(r.id));
-  const guardEmails = async (orderId: number) => {
-    const keys = [`order-confirmation:${orderId}`, ...staffIds.map((id) => `admin-order-confirmed:${orderId}:${id}`)];
-    for (const key of keys) {
-      await sql`
-        INSERT INTO email_outbox (job_type, recipient, payload, dedupe_key, status, sent_at)
-        VALUES ('ZZ_TEST', 'zz-outbox-guard@example.invalid', '{}'::jsonb, ${key}, 'SKIPPED', now())
-        ON CONFLICT DO NOTHING`;
-    }
-  };
   const stateOf = async (id: number) => {
     const [o] = await sql`SELECT status, payment_status FROM orders WHERE id = ${id}`;
     return `${o.status}/${o.payment_status}`;
@@ -262,6 +271,9 @@ try {
   check('lifecycle: wrong currency is held, not confirmed', (await stateOf(LFX)) === 'PENDING/HELD', await stateOf(LFX));
   const heldAlerts = (await sql`SELECT count(*)::int AS n FROM in_app_notifications WHERE type = 'PAYMENT_MISMATCH' AND data->>'order_id' IN (${String(L2)}, ${String(LFX)})`)[0].n;
   check('lifecycle: staff alerted about held payments', staffIds.length === 0 || heldAlerts >= 2, `alerts=${heldAlerts}`);
+  const [moneyStaff] = await sql`SELECT count(DISTINCT recipient_id)::int AS n FROM in_app_notifications WHERE type = 'PAYMENT_MISMATCH' AND data->>'order_id' = ${String(L2)}`;
+  const expectedMoneyStaff = (await staffFor('money')).length;
+  check('staff alerts: money problems go to admins only', moneyStaff.n === expectedMoneyStaff, `got=${moneyStaff.n} expected=${expectedMoneyStaff}`);
 
   // Late payment with stock: expiry gives back stock and the discount; the payment takes both again.
   const L3 = Number((await place('254755000003', { codeId: Number(open.id), phone: '254755000003', amount: 100 })).id);
@@ -433,6 +445,9 @@ try {
   const [movementSum] = await sql`SELECT COALESCE(SUM(delta), 0)::int AS n FROM inventory_movements WHERE reference_id = ${I1} AND variant_id = ${V}`;
   check('inventory: the order\'s stock movement is logged against it', movementSum.n === -1, `sum=${movementSum.n}`);
   check('inventory: no real low-stock email queued', (await sql`SELECT count(*)::int AS n FROM email_outbox WHERE dedupe_key LIKE ${`low-stock:${V}:%`} AND recipient NOT LIKE 'zz-outbox-%'`)[0].n === 0);
+  const [stockStaff] = await sql`SELECT count(DISTINCT recipient_id)::int AS n FROM in_app_notifications WHERE type = 'LOW_STOCK' AND data->>'variant_id' = ${String(V)}`;
+  const expectedStockStaff = (await staffFor('stock')).length;
+  check('staff alerts: stock alerts reach the stock audience (admins + duty manager)', stockStaff.n === expectedStockStaff, `got=${stockStaff.n} expected=${expectedStockStaff}`);
 
   // Order quote: one calculation for checkout, order creation and walk-ins.
   await sql`UPDATE product_variants SET stock = 10, low_stock_threshold = 0 WHERE id = ${V}`;
