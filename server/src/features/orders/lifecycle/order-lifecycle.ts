@@ -114,6 +114,7 @@ export async function applyOrderEvent(orderId: number, event: OrderEvent, actor:
             SET status = ${next.status},
                 payment_status = ${next.payment},
                 paid_at = CASE WHEN ${next.payment === PAYMENT_STATUS.PAID} THEN COALESCE(paid_at, CURRENT_TIMESTAMP) ELSE paid_at END,
+                dispatched_at = CASE WHEN ${next.status === 'SHIPPED'} THEN COALESCE(dispatched_at, CURRENT_TIMESTAMP) ELSE dispatched_at END,
                 updated_at = CURRENT_TIMESTAMP
             WHERE id = ${order.id}
             RETURNING *

@@ -11,8 +11,11 @@ import { roundMoney } from '@server/lib/pricing';
 
 // ── State ───────────────────────────────────────────────────────────────────
 
-/** Fulfilment statuses an order can actually reach. (PROCESSING/SHIPPED exist in the enum but are unused.) */
-export type FulfilmentStatus = 'PENDING' | 'CONFIRMED' | 'DELIVERED' | 'CANCELLED' | 'REFUNDED';
+/**
+ * Fulfilment statuses an order can actually reach. SHIPPED is "out for delivery": the rider has left.
+ * (PROCESSING exists in the enum but is unused.)
+ */
+export type FulfilmentStatus = 'PENDING' | 'CONFIRMED' | 'SHIPPED' | 'DELIVERED' | 'CANCELLED' | 'REFUNDED';
 export type PaymentState = 'UNPAID' | 'PAID' | 'FAILED' | 'HELD' | 'REVERSED';
 
 /** An Order's state is both columns together — never one alone. */
@@ -41,6 +44,7 @@ export type OrderEvent =
     | { type: 'expired' }
     | { type: 'cancelled'; reason?: string }
     | { type: 'marked_paid'; reference?: string }
+    | { type: 'dispatched' }
     | { type: 'delivered' }
     | { type: 'refund_recorded'; amount: number; method: string; reason: string; externalReference?: string; idempotencyKey: string }
     | { type: 'written_off'; note: string };
@@ -282,12 +286,22 @@ export function decide(state: OrderState, event: OrderEvent, actor: Actor, ctx: 
             return notAllowed('invalid_in_state', 'This order cannot be marked as paid');
         }
 
+        case 'dispatched': {
+            // Staff press "Out for delivery" when the rider leaves; it records the dispatch time.
+            if (!isStaffAdmin(actor)) return notAllowed('not_permitted', 'Only an admin can mark an order out for delivery');
+            if (state.status === 'SHIPPED' || state.status === 'DELIVERED') return unchanged();
+            if (state.status === 'CONFIRMED' && state.payment === 'PAID') {
+                return to({ status: 'SHIPPED', payment: 'PAID' }, [{ type: 'audit', action: 'ORDER_DISPATCHED' }]);
+            }
+            return notAllowed('invalid_in_state', 'Only paid, confirmed orders can go out for delivery');
+        }
+
         case 'delivered': {
             // The signed "I've received it" link in the confirmation email is itself the proof of ownership.
             const mayDeliver = isStaffAdmin(actor) || (actor.kind === 'customer' && actor.via === 'received_link');
             if (!mayDeliver) return notAllowed('not_permitted', 'Only an admin, or the customer via their email link, can mark this delivered');
             if (state.status === 'DELIVERED') return unchanged();
-            if (state.status === 'CONFIRMED' && state.payment === 'PAID') {
+            if ((state.status === 'CONFIRMED' || state.status === 'SHIPPED') && state.payment === 'PAID') {
                 return to({ status: 'DELIVERED', payment: 'PAID' }, [{ type: 'audit', action: 'ORDER_DELIVERED' }]);
             }
             return notAllowed('invalid_in_state', 'Only paid, confirmed orders can be marked delivered');
@@ -314,7 +328,7 @@ export function decide(state: OrderState, event: OrderEvent, actor: Actor, ctx: 
             };
             const fullyRefunded = roundMoney(refundable - amount) <= 0.5;
             // Cancelled orders stay cancelled; fulfilled ones become REFUNDED once nothing is left.
-            if (fullyRefunded && (state.status === 'CONFIRMED' || state.status === 'DELIVERED')) {
+            if (fullyRefunded && (state.status === 'CONFIRMED' || state.status === 'SHIPPED' || state.status === 'DELIVERED')) {
                 return to({ status: 'REFUNDED', payment: state.payment }, [refund, { type: 'audit', action: 'ORDER_REFUNDED' }]);
             }
             return unchanged([refund, { type: 'audit', action: 'ORDER_REFUND_RECORDED' }]);
@@ -331,12 +345,13 @@ export function decide(state: OrderState, event: OrderEvent, actor: Actor, ctx: 
 
 // ── What an admin can do ──────────────────────────────────────────────────
 
-export type AdminAction = 'cancel' | 'mark_paid' | 'mark_delivered' | 'write_off' | 'refund';
+export type AdminAction = 'cancel' | 'mark_paid' | 'mark_dispatched' | 'mark_delivered' | 'write_off' | 'refund';
 
 const ADMIN_PROBE: Actor = { kind: 'staff', userId: '0', role: 'ADMIN' };
 const ACTION_EVENTS: Record<AdminAction, OrderEvent> = {
     cancel: { type: 'cancelled' },
     mark_paid: { type: 'marked_paid' },
+    mark_dispatched: { type: 'dispatched' },
     mark_delivered: { type: 'delivered' },
     write_off: { type: 'written_off', note: 'probe' },
     refund: { type: 'refund_recorded', amount: 0.01, method: 'probe', reason: 'probe', idempotencyKey: 'probe' },
@@ -390,6 +405,8 @@ export const ALL_STATES: OrderState[] = [
     { status: 'PENDING', payment: 'REVERSED' },
     { status: 'CONFIRMED', payment: 'PAID' },
     { status: 'CONFIRMED', payment: 'REVERSED' },
+    { status: 'SHIPPED', payment: 'PAID' },
+    { status: 'SHIPPED', payment: 'REVERSED' },
     { status: 'DELIVERED', payment: 'PAID' },
     { status: 'DELIVERED', payment: 'REVERSED' },
     { status: 'REFUNDED', payment: 'PAID' },

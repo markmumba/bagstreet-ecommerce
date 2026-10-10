@@ -586,7 +586,7 @@ export const ordersHandlers = {
         );
     },
 
-    /** Admin status changes, as Order events: cancel or mark received. Everything else follows payments and refunds. */
+    /** Admin status changes, as Order events: cancel, out for delivery, or mark received. Everything else follows payments and refunds. */
     updateStatus: async (c: AppContext) => {
         const id = parseInt(c.req.param('id')!);
         const body = await c.req.json();
@@ -605,7 +605,9 @@ export const ordersHandlers = {
 
         requireAllowed(await applyOrderEvent(
             id,
-            target === ORDER_STATUS.CANCELLED ? { type: 'cancelled', reason: validated.data.reason } : { type: 'delivered' },
+            target === ORDER_STATUS.CANCELLED ? { type: 'cancelled', reason: validated.data.reason }
+                : target === ORDER_STATUS.SHIPPED ? { type: 'dispatched' }
+                : { type: 'delivered' },
             staffActor(c),
             { request: requestOf(c) },
         ));

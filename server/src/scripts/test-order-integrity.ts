@@ -490,6 +490,19 @@ try {
   const qGuest = await quoteOrder({ items: [{ variant_id: V, quantity: 1 }], discount_code: 'ZZACCOUNT', phone: '254733000004' });
   check('discounts: the quote tells a guest to sign in', qGuest.discount_problem === 'Sign in to use this code', String(qGuest.discount_problem));
   void acctCode;
+
+  // Out for delivery: records the dispatch time; the order can then be received.
+  await sql`UPDATE product_variants SET stock = 10 WHERE id = ${V}`;
+  const D1 = Number((await place('254744000009')).id);
+  await applyOrderEvent(D1, captured(1000, `zz-d1:${D1}`), PROVIDER);
+  const managerTry = await applyOrderEvent(D1, { type: 'dispatched' }, MANAGER);
+  const out = await applyOrderEvent(D1, { type: 'dispatched' }, ADMIN);
+  const [d1row] = await sql`SELECT status, dispatched_at, paid_at FROM orders WHERE id = ${D1}`;
+  await applyOrderEvent(D1, { type: 'delivered' }, { kind: 'customer', isOwner: true, via: 'received_link' });
+  check('dispatch: admin marks a paid order out for delivery (dispatch time recorded), then it is received',
+    managerTry.outcome === 'not_allowed' && out.outcome === 'changed' && d1row.status === 'SHIPPED' && d1row.dispatched_at != null
+      && (await stateOf(D1)) === 'DELIVERED/PAID',
+    `manager=${managerTry.outcome} out=${out.outcome} status=${d1row.status} dispatched_at=${d1row.dispatched_at} final=${await stateOf(D1)}`);
 } catch (err) {
   check('script error', false, String(err));
 } finally {

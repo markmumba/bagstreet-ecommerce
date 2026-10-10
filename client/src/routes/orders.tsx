@@ -63,7 +63,7 @@ const STATUS_STYLES: Record<OrderStatus, { label: string; icon: React.ElementTyp
   [ORDER_STATUS.PENDING]: { label: 'Pending', icon: Timer, className: 'bg-[var(--color-warning-bg)] text-[var(--color-warning-text)]' },
   [ORDER_STATUS.CONFIRMED]: { label: 'Confirmed', icon: Check, className: 'bg-[var(--color-info-bg)] text-[var(--color-info-text)]' },
   [ORDER_STATUS.PROCESSING]: { label: 'Processing', icon: PackageCheck, className: 'bg-[var(--color-info-bg)] text-[var(--color-info-text)]' },
-  [ORDER_STATUS.SHIPPED]: { label: 'Shipped', icon: Truck, className: 'bg-[var(--color-info-bg)] text-[var(--color-info-text)]' },
+  [ORDER_STATUS.SHIPPED]: { label: 'Out for delivery', icon: Truck, className: 'bg-[var(--color-info-bg)] text-[var(--color-info-text)]' },
   [ORDER_STATUS.DELIVERED]: { label: 'Received', icon: Check, className: 'bg-[var(--color-success-bg)] text-[var(--color-success-text)]' },
   [ORDER_STATUS.CANCELLED]: { label: 'Cancelled', icon: X, className: 'bg-[var(--color-danger-bg)] text-[var(--color-danger-text)]' },
   [ORDER_STATUS.REFUNDED]: { label: 'Refunded', icon: PackageX, className: 'bg-muted text-muted-foreground' },

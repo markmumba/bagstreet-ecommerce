@@ -28,6 +28,8 @@ export type PaymentStatus = typeof PAYMENT_STATUS[keyof typeof PAYMENT_STATUS];
 export const ORDER_ACTION = {
     CANCEL: 'cancel',
     MARK_PAID: 'mark_paid',
+    /** The rider has left with the order. */
+    MARK_DISPATCHED: 'mark_dispatched',
     MARK_DELIVERED: 'mark_delivered',
     /** Accept a payment reversal as lost (needs a note). */
     WRITE_OFF: 'write_off',

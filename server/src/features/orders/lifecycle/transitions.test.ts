@@ -245,6 +245,24 @@ describe('delivered', () => {
     });
 });
 
+describe('out for delivery', () => {
+    test('an admin marks a paid order out for delivery; then it can be received', () => {
+        const out = decide(S('CONFIRMED', 'PAID'), { type: 'dispatched' }, admin, paidCtx(), REF);
+        expect(next(out)).toEqual(S('SHIPPED', 'PAID'));
+        expect(next(decide(S('SHIPPED', 'PAID'), ev.delivered(), receivedLink, paidCtx(), REF))).toEqual(S('DELIVERED', 'PAID'));
+    });
+    test('not before payment, not by a manager, and pressing it twice changes nothing', () => {
+        expect(decide(S('PENDING', 'UNPAID'), { type: 'dispatched' }, admin, ctx(), REF).kind).toBe('not_allowed');
+        expect(decide(S('CONFIRMED', 'PAID'), { type: 'dispatched' }, manager, paidCtx(), REF).kind).toBe('not_allowed');
+        expect(decide(S('SHIPPED', 'PAID'), { type: 'dispatched' }, admin, paidCtx(), REF)).toEqual({ kind: 'unchanged', effects: [] });
+    });
+    test('a paid order on its way is refunded, not cancelled; a reversal keeps it on its way', () => {
+        expect(decide(S('SHIPPED', 'PAID'), ev.cancelled(), admin, paidCtx(), REF)).toMatchObject({ kind: 'not_allowed', reason: 'refund_instead' });
+        expect(next(decide(S('SHIPPED', 'PAID'), ev.reversed(), provider, paidCtx(), REF))).toEqual(S('SHIPPED', 'REVERSED'));
+        expect(next(decide(S('SHIPPED', 'PAID'), ev.refund(8500), admin, paidCtx(), REF))).toEqual(S('REFUNDED', 'PAID'));
+    });
+});
+
 describe('refunds', () => {
     test('partial refund keeps the status', () => {
         const d = decide(S('DELIVERED', 'PAID'), ev.refund(2000), admin, paidCtx(), REF);
@@ -299,7 +317,8 @@ describe('admin actions offered', () => {
         [S('PENDING', 'UNPAID'), ['cancel', 'mark_paid']],
         [S('PENDING', 'FAILED'), ['cancel', 'mark_paid']],
         [S('PENDING', 'HELD'), ['cancel', 'mark_paid']],
-        [S('CONFIRMED', 'PAID'), ['mark_delivered', 'refund']],
+        [S('CONFIRMED', 'PAID'), ['mark_dispatched', 'mark_delivered', 'refund']],
+        [S('SHIPPED', 'PAID'), ['mark_delivered', 'refund']],
         [S('DELIVERED', 'PAID'), ['refund']],
         [S('CONFIRMED', 'REVERSED'), ['cancel', 'mark_paid', 'write_off']],
         [S('CANCELLED', 'UNPAID'), []],
@@ -316,7 +335,7 @@ describe('admin actions offered', () => {
 const EVENTS: OrderEvent[] = [
     ev.captured(), ev.captured(8000), ev.captured(9000), ev.captured(8500, 'USD'),
     ev.failed(), ev.reversed(), ev.expired(), ev.cancelled(), ev.markedPaid(),
-    ev.delivered(), ev.refund(100), ev.refund(8500), ev.writtenOff(),
+    { type: 'dispatched' }, ev.delivered(), ev.refund(100), ev.refund(8500), ev.writtenOff(),
     { type: 'placed_online' }, { type: 'walk_in_sale', amount: 1, currency: 'KES', reference: 'x' },
 ];
 const CONTEXTS = [ctx(), paidCtx(), ctx({ stockAvailable: true }), ctx({ stockAvailable: false }), paidCtx({ refunded: 8500 })];
