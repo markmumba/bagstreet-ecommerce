@@ -66,7 +66,7 @@ export interface DecisionContext {
 // ── Effects ─────────────────────────────────────────────────────────────────
 
 export type StaffAlertKind = 'payment_held' | 'overpaid' | 'refund_needed' | 'payment_reversed' | 'duplicate_payment';
-export type CustomerEmailKind = 'order_confirmation' | 'payment_failed';
+export type CustomerEmailKind = 'order_confirmation' | 'payment_failed' | 'order_expired';
 
 /** Things that must happen in the same transaction as the state change (executed by the adapter). */
 export type Effect =
@@ -222,6 +222,8 @@ export function decide(state: OrderState, event: OrderEvent, actor: Actor, ctx: 
             return to({ status: 'CANCELLED', payment: state.payment }, [
                 { type: 'release_stock' },
                 { type: 'release_discount' },
+                // Tell the customer, so a returning shopper isn't left wondering where the order went.
+                { type: 'email_customer', kind: 'order_expired', dedupeKey: `order-expired:${orderRef}` },
                 { type: 'audit', action: 'ORDER_EXPIRED' },
             ]);
         }

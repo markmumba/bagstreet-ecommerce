@@ -190,6 +190,7 @@ describe('expiry and cancellation', () => {
         const d = decide(S('PENDING', 'UNPAID'), ev.expired(), system, ctx(), REF);
         expect(next(d)).toEqual(S('CANCELLED', 'UNPAID'));
         expect(types(d)).toEqual(expect.arrayContaining(['release_stock', 'release_discount']));
+        expect(d.kind !== 'not_allowed' && d.effects).toContainEqual({ type: 'email_customer', kind: 'order_expired', dedupeKey: `order-expired:${REF}` });
     });
     test('expiry never touches held or reversed orders', () => {
         expect(decide(S('PENDING', 'HELD'), ev.expired(), system, ctx(), REF).kind).toBe('unchanged');

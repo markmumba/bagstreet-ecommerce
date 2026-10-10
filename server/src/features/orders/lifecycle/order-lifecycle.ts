@@ -26,7 +26,7 @@ import {
     ALL_STATES, adminActions, decide, decideCreation,
     type Actor, type AdminAction, type DecisionContext, type Effect, type NotAllowedReason, type OrderEvent, type OrderState,
 } from './transitions';
-import { orderConfirmationJob, paymentFailedJob, staffAlert, staffOrderConfirmedEmail } from './order-messages';
+import { orderConfirmationJob, orderExpiredJob, paymentFailedJob, staffAlert, staffOrderConfirmedEmail } from './order-messages';
 import { alertStaff } from '../../staff-alerts/staff-alerts';
 
 type Executor = typeof sql;
@@ -287,7 +287,9 @@ async function applyEffect(run: Run, effect: Effect): Promise<void> {
         case 'email_customer': {
             const job = effect.kind === 'order_confirmation'
                 ? await orderConfirmationJob(order, await ordersQueries.findItemsByOrderId(orderId))
-                : await paymentFailedJob(order, run.event.type === 'payment_failed' ? run.event.reason : null);
+                : effect.kind === 'order_expired'
+                    ? await orderExpiredJob(order)
+                    : await paymentFailedJob(order, run.event.type === 'payment_failed' ? run.event.reason : null);
             if (!job) return;
             if (await enqueueEmail(job, { tx, dedupeKey: effect.dedupeKey })) run.after.wakeOutbox();
             return;

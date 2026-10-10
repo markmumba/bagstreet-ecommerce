@@ -49,6 +49,7 @@ const reserveEmailKeys = async (keys: string[]) => {
 const MONEY_ALERTS = ['PAYMENT_MISMATCH', 'REFUND_REQUIRED', 'PAYMENT_REVERSED', 'PAYMENT_INIT_FAILED'];
 const guardEmails = async (orderId: number) => reserveEmailKeys([
   `order-confirmation:${orderId}`,
+  `order-expired:${orderId}`,
   ...staffIds.flatMap((id) => [
     `admin-order-confirmed:${orderId}:${id}`,
     ...MONEY_ALERTS.map((type) => `staff-alert:${type}:${orderId}:${id}`),
