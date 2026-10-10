@@ -52,9 +52,8 @@ function entryLabel(entry: LedgerEntryResponse) {
 
 /** Ledger-backed money view of an order, with the admin "Record refund" action. */
 export function OrderPaymentsPanel({ orderId, canRefund }: { orderId: string; canRefund: boolean }) {
-  const { data, isLoading, isError } = useOrderPayments(orderId);
+  const { data: payments, isLoading, isError } = useOrderPayments(orderId);
   const [formOpen, setFormOpen] = useState(false);
-  const payments = data?.data;
 
   if (isLoading) return <div className="h-24 animate-pulse rounded-xl bg-muted/40" />;
   if (isError || !payments) {

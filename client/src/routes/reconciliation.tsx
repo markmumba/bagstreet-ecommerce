@@ -48,8 +48,7 @@ function ReconciliationPage() {
   const today = new Date();
   const [from, setFrom] = useState(isoDay(new Date(today.getTime() - 29 * 86_400_000)));
   const [to, setTo] = useState(isoDay(today));
-  const { data, isLoading, isError, error } = useReconciliationReport(from, to);
-  const report = data?.data;
+  const { data: report, isLoading, isError, error } = useReconciliationReport(from, to);
 
   return (
     <DashboardLayout>
@@ -78,7 +77,7 @@ function ReconciliationPage() {
 
         {isError && (
           <p className="rounded-xl bg-destructive/10 px-3 py-2 text-sm text-destructive">
-            {(error as any)?.message || 'Could not load the report'}
+            {error?.message || 'Could not load the report'}
           </p>
         )}
 

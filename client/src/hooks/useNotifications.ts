@@ -10,10 +10,7 @@ export const notificationKeys = {
 export function useNotifications(page = 1, limit = 20) {
     return useQuery({
         queryKey: notificationKeys.list(),
-        queryFn: async () => {
-            const response = await notificationsService.getAll(page, limit);
-            return response.data ?? [];
-        },
+        queryFn: async () => (await notificationsService.getAll(page, limit)).items,
         staleTime: 0,
     });
 }

@@ -7,10 +7,7 @@ const QUERY_KEY = ['shipping-locations'] as const;
 export function useShippingLocations() {
     return useQuery({
         queryKey: QUERY_KEY,
-        queryFn: async () => {
-            const res = await shippingService.getAll();
-            return res.data ?? [];
-        },
+        queryFn: () => shippingService.getAll(),
     });
 }
 

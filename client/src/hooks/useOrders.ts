@@ -16,10 +16,7 @@ export const orderKeys = {
 export function useOrders(params?: OrderListParams) {
   return useQuery({
     queryKey: orderKeys.list(params),
-    queryFn: async () => {
-      const res = await ordersService.getAll(params);
-      return res;
-    },
+    queryFn: () => ordersService.getAll(params),
   });
 }
 
@@ -37,10 +34,7 @@ export function useOrderReceipt(id: string | undefined, enabled = true) {
 export function useWalkInCatalog(search: string, enabled = true) {
   return useQuery({
     queryKey: orderKeys.walkInCatalog(search),
-    queryFn: async () => {
-      const res = await ordersService.getWalkInCatalog(search);
-      return res.data || [];
-    },
+    queryFn: () => ordersService.getWalkInCatalog(search),
     enabled,
     staleTime: 1000 * 30,
   });

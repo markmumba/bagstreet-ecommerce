@@ -75,8 +75,8 @@ function UsersPage() {
     status: statusFilter || undefined,
   });
 
-  const users: UserResponse[] = res?.data ?? [];
-  const total = (res as any)?.pagination?.total ?? 0;
+  const users: UserResponse[] = res?.items ?? [];
+  const total = res?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / LIMIT));
 
   const deleteMutation = useDeleteUser();

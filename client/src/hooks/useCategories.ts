@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { categoriesService, type CategoryListParams } from '@/services/categories.service';
-import type { CategoryRequest, CategoryResponse, CategoryTreeNode } from 'shared';
+import type { CategoryRequest } from 'shared';
 
 export const categoryKeys = {
   all: ['categories'] as const,
@@ -11,7 +11,7 @@ export const categoryKeys = {
   tree: () => [...categoryKeys.all, 'tree'] as const,
 };
 
-/** Full paginated response — use on the categories admin page */
+/** One page of categories with the total — use on the categories admin page */
 export function useCategories(params?: CategoryListParams) {
   return useQuery({
     queryKey: categoryKeys.list(params),
@@ -25,8 +25,7 @@ export function useCategoryOptions() {
   return useQuery({
     queryKey: categoryKeys.list({ limit: 200 }),
     queryFn: async () => {
-      const res = await categoriesService.getAll({ limit: 200 });
-      return (res.data as CategoryResponse[]) || [];
+      return (await categoriesService.getAll({ limit: 200 })).items;
     },
     staleTime: 1000 * 60 * 5,
   });
@@ -36,10 +35,7 @@ export function useCategoryOptions() {
 export function useCategoryTree() {
   return useQuery({
     queryKey: categoryKeys.tree(),
-    queryFn: async () => {
-      const res = await categoriesService.getTree();
-      return (res.data as CategoryTreeNode[]) || [];
-    },
+    queryFn: () => categoriesService.getTree(),
     staleTime: 1000 * 60 * 5,
   });
 }
@@ -47,10 +43,7 @@ export function useCategoryTree() {
 export function useCategory(id: string) {
   return useQuery({
     queryKey: categoryKeys.detail(id),
-    queryFn: async () => {
-      const response = await categoriesService.getById(id);
-      return response.data;
-    },
+    queryFn: () => categoriesService.getById(id),
     enabled: !!id,
     staleTime: 1000 * 60 * 5,
   });

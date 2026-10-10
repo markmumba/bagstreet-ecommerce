@@ -10,10 +10,7 @@ export const variantKeys = {
 export function useProductVariants(productId: string) {
   return useQuery({
     queryKey: variantKeys.all(productId),
-    queryFn: async () => {
-      const response = await variantsService.getAll(productId);
-      return response.data || [];
-    },
+    queryFn: () => variantsService.getAll(productId),
     enabled: !!productId,
   });
 }
@@ -69,10 +66,7 @@ export function useAdjustStock(productId: string) {
 export function useStockHistory(productId: string, variantId: string, enabled: boolean) {
   return useQuery({
     queryKey: variantKeys.history(productId, variantId),
-    queryFn: async () => {
-      const res = await variantsService.getStockHistory(productId, variantId);
-      return res.data || [];
-    },
+    queryFn: () => variantsService.getStockHistory(productId, variantId),
     enabled: enabled && !!productId && !!variantId,
   });
 }

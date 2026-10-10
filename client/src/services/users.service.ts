@@ -24,7 +24,7 @@ export interface UserListParams {
 
 export const usersService = {
   getAll: (params?: UserListParams) =>
-    apiClient.get<UserResponse[]>('/api/users', params as Record<string, unknown>),
+    apiClient.getPage<UserResponse>('/api/users', params as Record<string, unknown>),
 
   getById: (id: string) => apiClient.get<UserResponse>(`/api/users/${id}`),
 

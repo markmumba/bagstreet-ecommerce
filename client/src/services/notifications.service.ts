@@ -12,7 +12,7 @@ export interface NotificationItem {
 
 export const notificationsService = {
     getAll: async (page = 1, limit = 20) => {
-        return apiClient.get<NotificationItem[]>('/api/notifications', { page, limit });
+        return apiClient.getPage<NotificationItem>('/api/notifications', { page, limit });
     },
 
     markRead: async (id: string) => {

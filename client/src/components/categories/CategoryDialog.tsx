@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import type { Category } from 'shared';
+import type { CategoryResponse } from 'shared';
 import { useCreateCategory, useUpdateCategory, useCategoryOptions } from '@/hooks/useCategories';
 import {
   Dialog,
@@ -23,7 +23,7 @@ import {
 interface CategoryDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  category?: Category | null;
+  category?: CategoryResponse | null;
 }
 
 export function CategoryDialog({ open, onOpenChange, category }: CategoryDialogProps) {

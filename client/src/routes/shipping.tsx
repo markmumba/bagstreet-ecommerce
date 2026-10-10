@@ -249,8 +249,7 @@ function ShippingPage() {
                 templateFilename="bagstreet-shipping-locations-template.csv"
                 templateCsv={'name,price,is_active\nNairobi CBD,150,true\nWestlands,250,true\n'}
                 onImport={async (file) => {
-                    const response = await importMutation.mutateAsync(file);
-                    return response.data!;
+                    return importMutation.mutateAsync(file);
                 }}
             />
         </DashboardLayout>
