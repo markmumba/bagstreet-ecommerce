@@ -511,8 +511,7 @@ function ReceiptBody({ receipt }: { receipt: OrderReceiptResponse }) {
 }
 
 export function OrderReceiptDialog({ orderId, open, onOpenChange }: OrderReceiptDialogProps) {
-  const { data, isLoading, error } = useOrderReceipt(orderId ?? undefined, open);
-  const receipt = data?.data;
+  const { data: receipt, isLoading, error } = useOrderReceipt(orderId ?? undefined, open);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -528,7 +527,7 @@ export function OrderReceiptDialog({ orderId, open, onOpenChange }: OrderReceipt
 
         {error && (
           <div className="mx-auto w-full max-w-[420px] rounded-3xl bg-background px-4 py-3 text-sm text-destructive shadow-2xl">
-            {(error as any)?.message || 'Could not load receipt'}
+            {error?.message || 'Could not load receipt'}
           </div>
         )}
 

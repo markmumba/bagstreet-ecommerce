@@ -14,7 +14,6 @@ import {
   useUpdateFreeDeliveryThreshold,
   useUpdateDiscountCode,
 } from '@/hooks/usePromotions';
-import type { DiscountCodeResponse, ProductResponse } from 'shared';
 
 export const Route = createFileRoute('/promotions')({
   component: PromotionsPage,
@@ -48,9 +47,9 @@ function PromotionsPage() {
   const updateThreshold = useUpdateFreeDeliveryThreshold();
   const setProductSale = useSetProductSale();
 
-  const discounts = (discountsRes?.data ?? []) as DiscountCodeResponse[];
-  const sales = (salesRes?.data ?? []) as ProductResponse[];
-  const threshold = thresholdRes?.data?.threshold ?? 0;
+  const discounts = discountsRes ?? [];
+  const sales = salesRes ?? [];
+  const threshold = thresholdRes?.threshold ?? 0;
 
   const [form, setForm] = useState({
     code: '',
@@ -174,6 +173,9 @@ function PromotionsPage() {
               <h2 className="text-sm font-semibold">Free delivery threshold</h2>
               <p className="mt-1 text-sm text-muted-foreground">
                 Current: {threshold > 0 ? formatPrice(threshold) : 'Disabled'}
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Judged on the bag subtotal before any discount code.
               </p>
               <div className="mt-4 flex gap-2">
                 <input

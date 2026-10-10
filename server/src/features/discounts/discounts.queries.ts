@@ -91,30 +91,4 @@ export const discountsQueries = {
         return row;
     },
 
-    hasUsageForPhone: async (codeId: number, phone: string): Promise<boolean> => {
-        const [row] = await sql<{ exists: boolean }[]>`
-            SELECT EXISTS (
-                SELECT 1 FROM discount_code_usages
-                WHERE code_id = ${codeId} AND phone = ${phone}
-            ) AS exists
-        `;
-        return row?.exists ?? false;
-    },
-
-    recordUsage: async (data: {
-        code_id: number;
-        order_id: number;
-        phone: string;
-        discount_amount: number;
-    }): Promise<void> => {
-        await sql.begin(async (tx: typeof sql) => {
-            await tx`
-                INSERT INTO discount_code_usages (code_id, order_id, phone, discount_amount)
-                VALUES (${data.code_id}, ${data.order_id}, ${data.phone}, ${data.discount_amount})
-            `;
-            await tx`
-                UPDATE discount_codes SET used_count = used_count + 1 WHERE id = ${data.code_id}
-            `;
-        });
-    },
 };

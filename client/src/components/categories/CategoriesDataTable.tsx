@@ -7,7 +7,7 @@ import {
   type SortingState,
 } from '@tanstack/react-table';
 import { useState } from 'react';
-import type { Category } from 'shared';
+import type { CategoryResponse } from 'shared';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Pencil, Plus, Tag, Trash2, Upload } from 'lucide-react';
@@ -21,8 +21,8 @@ import {
 } from '@/components/ui/table';
 
 interface CategoriesDataTableProps {
-  data: Category[];
-  columns: ColumnDef<Category>[];
+  data: CategoryResponse[];
+  columns: ColumnDef<CategoryResponse>[];
   onCreateNew?: () => void;
   onImportCsv?: () => void;
   // server-side controls
@@ -32,8 +32,8 @@ interface CategoriesDataTableProps {
   page: number;
   totalPages: number;
   onPageChange: (p: number) => void;
-  onEdit?: (category: Category) => void;
-  onDelete?: (category: Category) => void;
+  onEdit?: (category: CategoryResponse) => void;
+  onDelete?: (category: CategoryResponse) => void;
   isDeleting?: boolean;
 }
 
@@ -92,7 +92,7 @@ export function CategoriesDataTable({
       <div className="space-y-3 lg:hidden">
         {data.length > 0 ? (
           data.map((category) => {
-            const cat = category as Category & { parent_name?: string | null; children_count?: number };
+            const cat = category;
             return (
               <div key={category.id} className="rounded-xl border bg-card p-4 shadow-sm">
                 <div className="flex items-start justify-between gap-3">

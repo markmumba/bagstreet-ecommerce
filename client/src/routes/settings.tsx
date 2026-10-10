@@ -37,8 +37,8 @@ function SettingsPage() {
   });
   const updateHandover = useUpdateOrderHandoverSettings();
 
-  const handover = handoverRes?.data;
-  const managers: UserResponse[] = managersRes?.data ?? [];
+  const handover = handoverRes;
+  const managers: UserResponse[] = managersRes?.items ?? [];
   const canSaveHandover = !handoverEnabled || Boolean(managerId);
 
   useEffect(() => {
@@ -141,7 +141,7 @@ function SettingsPage() {
             )}
             {updateHandover.error && (
               <p className="rounded-xl bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                {(updateHandover.error as any)?.message || 'Failed to update order handover'}
+                {updateHandover.error?.message || 'Failed to update order handover'}
               </p>
             )}
             {saved && (

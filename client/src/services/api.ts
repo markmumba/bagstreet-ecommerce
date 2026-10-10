@@ -1,5 +1,20 @@
-import axios, { type AxiosError, type AxiosInstance } from 'axios';
-import type { ApiResponse } from 'shared';
+import axios, { type AxiosError, type AxiosInstance, type AxiosResponse, type InternalAxiosRequestConfig } from 'axios';
+import type { ApiResponse, PaginatedResponse } from 'shared';
+
+/** What every failed request rejects with. */
+export interface ApiError {
+  message: string;
+  status: number;
+  code: string;
+}
+
+/** One page of a server-paginated list. */
+export interface Page<T> {
+  items: T[];
+  total: number;
+  page: number;
+  limit: number;
+}
 
 let authToken: string | null = localStorage.getItem('bagstreet_token');
 let isRefreshing = false;
@@ -58,7 +73,7 @@ class ApiClient {
     this.client.interceptors.response.use(
       (response) => response,
       async (error: AxiosError<ApiResponse>) => {
-        const originalRequest = error.config as any;
+        const originalRequest = error.config as (InternalAxiosRequestConfig & { _retry?: boolean }) | undefined;
         const requestUrl = originalRequest?.url ?? '';
         const isAuthRequest =
           requestUrl.includes('/api/auth/login') ||
@@ -69,6 +84,7 @@ class ApiClient {
         // Attempt silent token refresh on 401 — only when we had a token
         if (
           error.response?.status === 401 &&
+          originalRequest &&
           !originalRequest._retry &&
           authToken !== null &&
           !isAuthRequest
@@ -77,7 +93,7 @@ class ApiClient {
             return new Promise((resolve, reject) => {
               refreshQueue.push((token) => {
                 if (token) {
-                  delete (originalRequest.headers as any).Authorization;
+                  delete originalRequest.headers.Authorization;
                   resolve(this.client(originalRequest));
                 } else {
                   reject(error);
@@ -99,7 +115,7 @@ class ApiClient {
             localStorage.setItem('bagstreet_token', newToken);
             drainQueue(newToken);
             // Delete stale header; request interceptor re-adds it with fresh token
-            delete (originalRequest.headers as any).Authorization;
+            delete originalRequest.headers.Authorization;
             return this.client(originalRequest);
           } catch {
             expireAuth();
@@ -109,7 +125,7 @@ class ApiClient {
           }
         }
 
-        const apiError = {
+        const apiError: ApiError = {
           message: error.response?.data?.message || 'An unexpected error occurred',
           status: error.response?.status || 500,
           code: error.response?.data?.error || 'UNKNOWN_ERROR',
@@ -119,43 +135,58 @@ class ApiClient {
     );
   }
 
-  async get<T>(url: string, params?: Record<string, unknown>) {
-    const response = await this.client.get<ApiResponse<T>>(url, { params });
-    return response.data;
+  // Every method unwraps the server's envelope once: callers get the data itself, and a response
+  // with success: false is thrown like any other error (as an ApiError).
+  private unwrap<T>(response: AxiosResponse<ApiResponse<T>>): T {
+    const body = response.data;
+    if (!body.success) throw { message: body.message, status: body.status, code: body.error ?? 'UNKNOWN_ERROR' } satisfies ApiError;
+    return body.data as T;
   }
 
-  async post<T>(url: string, data?: unknown) {
-    const response = await this.client.post<ApiResponse<T>>(url, data);
-    return response.data;
+  async get<T>(url: string, params?: Record<string, unknown>): Promise<T> {
+    return this.unwrap(await this.client.get<ApiResponse<T>>(url, { params }));
   }
 
-  async postForm<T>(url: string, data: FormData) {
+  /** A paginated list: the rows and the total, for tables with server-side paging. */
+  async getPage<T>(url: string, params?: Record<string, unknown>): Promise<Page<T>> {
+    const response = await this.client.get<PaginatedResponse<T>>(url, { params });
+    const items = this.unwrap(response) ?? [];
+    const pagination = response.data.pagination;
+    return { items, total: pagination?.total ?? items.length, page: pagination?.page ?? 1, limit: pagination?.limit ?? items.length };
+  }
+
+  async post<T>(url: string, data?: unknown): Promise<T> {
+    return this.unwrap(await this.client.post<ApiResponse<T>>(url, data));
+  }
+
+  async postForm<T>(url: string, data: FormData): Promise<T> {
+    return (await this.postFormWithMessage<T>(url, data)).data;
+  }
+
+  /** For the few screens that show the server's message alongside the result (e.g. a statement preview). */
+  async postFormWithMessage<T>(url: string, data: FormData): Promise<{ data: T; message: string }> {
     const response = await this.client.post<ApiResponse<T>>(url, data, {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
-    return response.data;
+    return { data: this.unwrap(response), message: response.data.message };
   }
 
-  async put<T>(url: string, data?: unknown) {
-    const response = await this.client.put<ApiResponse<T>>(url, data);
-    return response.data;
+  async put<T>(url: string, data?: unknown): Promise<T> {
+    return this.unwrap(await this.client.put<ApiResponse<T>>(url, data));
   }
 
-  async putForm<T>(url: string, data: FormData) {
-    const response = await this.client.put<ApiResponse<T>>(url, data, {
+  async putForm<T>(url: string, data: FormData): Promise<T> {
+    return this.unwrap(await this.client.put<ApiResponse<T>>(url, data, {
       headers: { 'Content-Type': 'multipart/form-data' },
-    });
-    return response.data;
+    }));
   }
 
-  async patch<T>(url: string, data?: unknown) {
-    const response = await this.client.patch<ApiResponse<T>>(url, data);
-    return response.data;
+  async patch<T>(url: string, data?: unknown): Promise<T> {
+    return this.unwrap(await this.client.patch<ApiResponse<T>>(url, data));
   }
 
-  async delete<T>(url: string) {
-    const response = await this.client.delete<ApiResponse<T>>(url);
-    return response.data;
+  async delete<T>(url: string): Promise<T> {
+    return this.unwrap(await this.client.delete<ApiResponse<T>>(url));
   }
 }
 

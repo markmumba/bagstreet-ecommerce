@@ -19,7 +19,7 @@ export interface OrderListParams {
 
 export const ordersService = {
   getAll: (params?: OrderListParams) =>
-    apiClient.get<OrderResponse[]>('/api/orders', params as Record<string, unknown>),
+    apiClient.getPage<OrderResponse>('/api/orders', params as Record<string, unknown>),
 
   getById: (id: string) => apiClient.get<OrderResponse>(`/api/orders/${id}`),
 

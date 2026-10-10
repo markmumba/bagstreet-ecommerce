@@ -10,9 +10,8 @@ const MAX_IMAGE_BYTES = 15 * 1024 * 1024;
 
 /** Lets the owner swap the storefront homepage campaign photo and headline. */
 export function StorefrontHeroCard() {
-  const { data, isLoading } = useStorefrontHeroSettings();
+  const { data: hero, isLoading } = useStorefrontHeroSettings();
   const update = useUpdateStorefrontHero();
-  const hero = data?.data;
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [eyebrow, setEyebrow] = useState('');
@@ -130,7 +129,7 @@ export function StorefrontHeroCard() {
 
         {update.error && (
           <p className="rounded-xl bg-destructive/10 px-3 py-2 text-sm text-destructive">
-            {(update.error as any)?.message || 'Failed to update the homepage campaign'}
+            {update.error?.message || 'Failed to update the homepage campaign'}
           </p>
         )}
         {saved && (

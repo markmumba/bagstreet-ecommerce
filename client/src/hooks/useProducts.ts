@@ -13,10 +13,7 @@ export const productKeys = {
 export function useProducts(params?: ProductListParams) {
   return useQuery({
     queryKey: productKeys.list(params),
-    queryFn: async () => {
-      const response = await productsService.getAll(params);
-      return response;
-    },
+    queryFn: () => productsService.getAll(params),
     staleTime: 1000 * 60 * 2,
   });
 }
@@ -24,10 +21,7 @@ export function useProducts(params?: ProductListParams) {
 export function useProduct(id: string) {
   return useQuery({
     queryKey: productKeys.detail(id),
-    queryFn: async () => {
-      const response = await productsService.getById(id);
-      return response.data;
-    },
+    queryFn: () => productsService.getById(id),
     enabled: !!id,
     staleTime: 1000 * 60 * 5,
   });

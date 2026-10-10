@@ -5,10 +5,10 @@
 import { env } from '../../../config/env';
 import { createOrderReceivedToken } from '../../../lib/order-received-token';
 import { normalizeShippingAddress } from '../../../lib/shipping-address';
-import { settingsQueries } from '../../settings/settings.queries';
 import { UsersQueries } from '../../users/user.queries';
 import type { EmailJob } from '../../../services/email-jobs';
 import type { OrderEvent, StaffAlertKind } from './transitions';
+import type { StaffMember } from '../../staff-alerts/staff-alerts';
 
 const money = (n: number) => `KES ${n.toFixed(2)}`;
 const orderLabel = (order: any) => order.order_number ?? `#${order.id}`;
@@ -29,29 +29,19 @@ async function customerOf(order: any): Promise<{ email: string | null; name: str
     };
 }
 
-/** Staff who get order alerts: admins, plus the on-duty manager when order handover is on. */
-export async function orderAlertRecipients() {
-    const handover = await settingsQueries.getOrderHandover();
-    return await UsersQueries.findActiveOrderAlertRecipients(handover.enabled ? handover.managerId : null);
-}
-
-/** Staff "order confirmed" emails, one per alert recipient, each with its own dedupe key. */
-export async function staffOrderConfirmedJobs(order: any, itemCount: number): Promise<{ job: EmailJob; dedupeKey: string }[]> {
-    const staff = await orderAlertRecipients();
-    return staff.map((user) => ({
-        dedupeKey: `admin-order-confirmed:${order.id}:${user.id}`,
-        job: {
-            type: 'ADMIN_ORDER_CONFIRMED',
-            to: user.email,
-            name: user.full_name,
-            orderId: Number(order.id),
-            orderRef: order.order_number,
-            customerName: order.customer_name ?? shippingAddressOf(order).full_name ?? 'Customer',
-            customerPhone: order.customer_phone ?? '',
-            totalAmount: parseFloat(order.total_amount),
-            itemCount,
-        },
-    }));
+/** The staff "order confirmed" email for one recipient. */
+export function staffOrderConfirmedEmail(order: any, itemCount: number) {
+    return (member: StaffMember): EmailJob => ({
+        type: 'ADMIN_ORDER_CONFIRMED',
+        to: member.email,
+        name: member.full_name,
+        orderId: Number(order.id),
+        orderRef: order.order_number,
+        customerName: order.customer_name ?? shippingAddressOf(order).full_name ?? 'Customer',
+        customerPhone: order.customer_phone ?? '',
+        totalAmount: parseFloat(order.total_amount),
+        itemCount,
+    });
 }
 
 /** The customer's order confirmation email, or null when there's no address to send it to. */

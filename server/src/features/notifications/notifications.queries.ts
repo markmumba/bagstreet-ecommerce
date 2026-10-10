@@ -1,6 +1,5 @@
 import { sql } from '../../lib/db';
 import { toJsonbParam } from '../../lib/json-column';
-import { USER_ROLE } from 'shared/dist';
 
 export interface NotificationRow {
     id: number;
@@ -68,13 +67,6 @@ export const notificationsQueries = {
             if (notif) result.push(notif);
         }
         return result;
-    },
-
-    findAdminIds: async (): Promise<number[]> => {
-        const rows = await sql<{ id: number }[]>`
-            SELECT id FROM users WHERE role = ${USER_ROLE.ADMIN} AND is_active = true
-        `;
-        return rows.map((r) => r.id);
     },
 
 };

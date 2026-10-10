@@ -137,11 +137,10 @@ export function OrderSheet({ order, open, onOpenChange }: OrderSheetProps) {
   // The sheet is opened with a row from the list; after an action, show the order the server returned.
   const current = latest && latest.id === order?.id ? latest : order;
 
-  const run = async (action: () => Promise<{ data?: OrderResponse }>, fallback: string) => {
+  const run = async (action: () => Promise<OrderResponse>, fallback: string) => {
     setError(null);
     try {
-      const res = await action();
-      if (res.data) setLatest(res.data);
+      setLatest(await action());
       setConfirmingCancel(false);
       setWritingOff(false);
       setWriteOffNote('');

@@ -5,7 +5,8 @@ import { createVariantSchema, updateVariantSchema, adjustStockSchema } from './v
 import { success } from '@server/lib/response';
 import { BadRequestError, NotFoundError, ValidationError } from '@server/lib/errors';
 import { generateSku } from '@server/lib/util';
-import { adjustStock } from '@server/lib/inventory';
+import { inventory } from '../inventory/inventory';
+import { AfterCommit } from '@server/lib/after-commit';
 import { sql } from '@server/lib/db';
 import type { ProductVariantResponse } from 'shared/dist';
 import { getRequiredUser } from '@server/lib/hono';
@@ -56,8 +57,18 @@ export const variantsHandlers = {
             throw new ValidationError('Invalid variant data', validated.error.errors);
         }
 
-        const sku = generateSku();
-        const variant = await variantsQueries.create(productId, validated.data, sku);
+        const { sub } = getRequiredUser(c);
+        const { stock: openingStock, ...data } = validated.data;
+        const after = new AfterCommit();
+        const variant = await sql.begin(async (tx: typeof sql) => {
+            const created = await variantsQueries.create(productId, data, generateSku(), tx);
+            if (openingStock > 0) {
+                await inventory.adjust(tx, Number(created.id), openingStock, 'RESTOCK', { note: 'Opening stock', by: Number(sub) }, after);
+            }
+            const [withStock] = await tx`SELECT * FROM product_variants WHERE id = ${created.id}`;
+            return withStock;
+        });
+        after.run();
         return success(c, toVariantResponse(variant), 'Variant created', 201);
     },
 
@@ -101,21 +112,16 @@ export const variantsHandlers = {
         const existing = await variantsQueries.findById(variantId);
         if (!existing) throw new NotFoundError('Variant', variantId);
 
-        if (existing.stock + validated.data.delta < 0) {
-            throw new BadRequestError(
-                `Cannot reduce stock below 0 (current: ${existing.stock}, delta: ${validated.data.delta})`
-            );
-        }
-
+        // Inventory locks the row and checks the result under that lock, so two adjustments at once
+        // can't both pass a stale "not below zero" check.
+        const after = new AfterCommit();
         await sql.begin(async (tx: typeof sql) => {
-            await adjustStock(
-                tx, variantId, validated.data.delta,
-                validated.data.reason,
-                null,
-                validated.data.note ?? null,
-                Number(sub)
-            );
+            await inventory.adjust(tx, variantId, validated.data.delta, validated.data.reason, {
+                note: validated.data.note ?? null,
+                by: Number(sub),
+            }, after);
         });
+        after.run();
 
         const updated = await variantsQueries.findById(variantId);
         return success(c, toVariantResponse(updated!), 'Stock adjusted');

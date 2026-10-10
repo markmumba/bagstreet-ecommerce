@@ -42,22 +42,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     apiClient.setAuthToken(savedToken);
     authService
       .me()
-      .then((res) => {
-        if (res.data) {
-          const authUser = {
-            id: res.data.id,
-            email: res.data.email,
-            full_name: res.data.full_name,
-            role: res.data.role,
-          };
-          if (!isStaffUser(authUser)) {
-            localStorage.removeItem(TOKEN_KEY);
-            apiClient.setAuthToken(null);
-            setUser(null);
-            return;
-          }
-          setUser(authUser);
+      .then((me) => {
+        const authUser = { id: me.id, email: me.email, full_name: me.full_name, role: me.role };
+        if (!isStaffUser(authUser)) {
+          localStorage.removeItem(TOKEN_KEY);
+          apiClient.setAuthToken(null);
+          setUser(null);
+          return;
         }
+        setUser(authUser);
       })
       .catch(() => {
         localStorage.removeItem(TOKEN_KEY);
@@ -69,18 +62,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const login = async (email: string, password: string): Promise<AuthUser> => {
-    const res = await authService.login(email, password);
-    if (res.data) {
-      const { access_token, user: authUser } = res.data;
-      if (!isStaffUser(authUser)) {
-        throw new Error('This account does not have admin access');
-      }
-      localStorage.setItem(TOKEN_KEY, access_token);
-      apiClient.setAuthToken(access_token);
-      setUser(authUser);
-      return authUser;
+    const { access_token, user: authUser } = await authService.login(email, password);
+    if (!isStaffUser(authUser)) {
+      throw new Error('This account does not have admin access');
     }
-    throw new Error('Invalid email or password');
+    localStorage.setItem(TOKEN_KEY, access_token);
+    apiClient.setAuthToken(access_token);
+    setUser(authUser);
+    return authUser;
   };
 
   const logout = async () => {

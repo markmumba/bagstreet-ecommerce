@@ -10,6 +10,6 @@ export const reconciliationService = {
     const data = new FormData();
     data.append('file', file);
     if (recordFees) data.append('record_fees', 'true');
-    return apiClient.postForm<StatementReconciliationReport>('/api/payments/reconciliation/statement', data);
+    return apiClient.postFormWithMessage<StatementReconciliationReport>('/api/payments/reconciliation/statement', data);
   },
 };

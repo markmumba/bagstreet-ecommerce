@@ -11,7 +11,7 @@ import { sql } from '../lib/db';
 import { readJsonColumn, toJsonbParam } from '../lib/json-column';
 import { sendEmailJob, type EmailJob } from './email-jobs';
 import { afterFailure, describeError } from './email-outbox-policy';
-import { notificationsQueries } from '../features/notifications/notifications.queries';
+import { alertStaff } from '../features/staff-alerts/staff-alerts';
 
 type Executor = typeof sql;
 
@@ -134,15 +134,14 @@ export async function processEmailOutboxBatch(
 
 async function alertAdminsEmailFailed(row: OutboxRow, error: string) {
     try {
-        const adminIds = await notificationsQueries.findAdminIds();
-        if (adminIds.length === 0) return;
-        await notificationsQueries.create(adminIds.map((id) => ({
-            recipient_id: id,
+        await alertStaff({
+            audience: 'system',
             type: 'EMAIL_FAILED',
             title: `Email could not be sent to ${row.recipient}`,
             body: `${row.job_type.replace(/_/g, ' ').toLowerCase()} — gave up after ${row.attempts} attempts. Last error: ${error.slice(0, 200)}`,
-            data: { link: '/settings', outbox_id: String(row.id) },
-        })));
+            link: '/settings',
+            data: { outbox_id: String(row.id) },
+        });
     } catch (err) {
         console.error('[email-outbox] could not alert admins:', err);
     }

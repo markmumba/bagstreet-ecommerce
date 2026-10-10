@@ -7,6 +7,7 @@ import {
     sendPaymentFailedEmail,
     sendPasswordResetEmail,
     sendOrderAgreementEmail,
+    sendStaffAlertEmail,
 } from '../lib/email';
 import { deliverRecoveryReminder } from '../features/cart-recovery/recovery.delivery';
 import { archivedAgreement } from '../features/compliance/order-agreement';
@@ -56,7 +57,8 @@ export type EmailJob =
         itemCount: number;
     }
     | { type: 'PAYMENT_FAILED'; to: string; name: string; orderId: number; orderRef?: string; reason?: string | null }
-    | { type: 'PASSWORD_RESET'; to: string; name: string; resetUrl: string };
+    | { type: 'PASSWORD_RESET'; to: string; name: string; resetUrl: string }
+    | { type: 'STAFF_ALERT'; to: string; name: string; eyebrow: string; heading: string; message: string; linkPath: string };
 
 /** Sends one email now. Throws on failure so the outbox can retry. */
 export async function sendEmailJob(job: EmailJob): Promise<void | boolean> {
@@ -85,6 +87,9 @@ export async function sendEmailJob(job: EmailJob): Promise<void | boolean> {
                 job.confirmReceivedUrl,
                 job.orderRef,
             );
+            break;
+        case 'STAFF_ALERT':
+            await sendStaffAlertEmail(job.to, job.name, job.eyebrow, job.heading, job.message, job.linkPath);
             break;
         case 'LOW_STOCK_ALERT':
             await sendLowStockEmail(job.to, job.name, job.productName, job.variantLabel, job.stock, job.threshold);

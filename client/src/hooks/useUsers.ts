@@ -11,10 +11,7 @@ export const userKeys = {
 export function useUsers(params?: UserListParams) {
   return useQuery({
     queryKey: userKeys.list(params),
-    queryFn: async () => {
-      const res = await usersService.getAll(params);
-      return res;
-    },
+    queryFn: () => usersService.getAll(params),
   });
 }
 

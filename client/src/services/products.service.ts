@@ -16,7 +16,7 @@ export const productsService = {
     if (params?.page) query.page = params.page;
     if (params?.limit) query.limit = params.limit;
     if (params?.status != null) query.status = params.status;
-    return apiClient.get<ProductResponse[]>('/api/products', query);
+    return apiClient.getPage<ProductResponse>('/api/products', query);
   },
 
   getById: async (id: string) => {

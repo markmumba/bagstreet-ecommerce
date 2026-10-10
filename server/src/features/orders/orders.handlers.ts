@@ -12,18 +12,13 @@ import {
 } from '@server/lib/errors';
 import type { OrderItemResponse, OrderReceiptResponse, OrderResponse, WalkInCatalogItemResponse } from 'shared/dist';
 import { ORDER_SOURCE, ORDER_STATUS, PAYMENT_STATUS, USER_ROLE } from 'shared/dist';
-import { notificationsQueries } from '../notifications/notifications.queries';
-import { pushToMany } from '../../lib/sse';
-import { UsersQueries } from '../users/user.queries';
-import { enqueueEmail } from '../../services/email-outbox';
-import { shippingQueries } from '../shipping/shipping.queries';
 import { normalisePhone } from '../../lib/phone';
 import { paymentsQueries } from '../payments/payments.queries';
-import { validateDiscount } from '../discounts/discounts.handlers';
-import { discountsQueries } from '../discounts/discounts.queries';
-import { settingsQueries } from '../settings/settings.queries';
-import { adminActionsFor, applyOrderEvent, requireAllowed } from './lifecycle/order-lifecycle';
-import { decideCreation, type Actor } from './lifecycle/transitions';
+import { quoteOrder } from '../quote/quote.queries';
+import type { Quote } from '../quote/quote';
+import { adminActionsFor, applyOrderEvent, createOrder, requireAllowed } from './lifecycle/order-lifecycle';
+import { alertStaff } from '../staff-alerts/staff-alerts';
+import type { Actor } from './lifecycle/transitions';
 import type { AppContext, AuthUser } from '@server/lib/hono';
 import { getOptionalUser, getRequiredUser } from '@server/lib/hono';
 import { submitPesapalOrder } from '../../services/pesapal';
@@ -32,7 +27,7 @@ import { verifyOrderReceivedToken } from '../../lib/order-received-token';
 import { normalizeShippingAddress } from '../../lib/shipping-address';
 import { auditFromContext } from '@server/lib/audit';
 import { randomUUID } from 'node:crypto';
-import { resolveUnitPrice, roundMoney, saleIsActive } from '@server/lib/pricing';
+import { resolveUnitPrice, saleIsActive } from '@server/lib/pricing';
 import { createOrderAccessToken, orderTokenRef } from '../../lib/order-received-token';
 import { summariseOrderPayments } from '../payments/order-balance';
 import { readJsonColumn } from '../../lib/json-column';
@@ -41,20 +36,8 @@ import type { OrderPaymentsResponse } from 'shared/dist';
 import { z } from 'zod';
 import { clearRecoverySource, recoverySessionHash, recoverySourceOrderId } from '../cart-recovery/recovery-session';
 
-interface VariantRow {
-    id: number;
-    product_id: number;
-    sku: string;
-    size: string | null;
-    color: string | null;
-    stock: number;
-    price_override: string | null;
-    is_active: boolean;
-}
-
 interface ProductRow { id: number; price: string; name: string; is_active: boolean }
 interface ProductPricingRow extends ProductRow { sale_price: string | null; sale_ends_at: string | null }
-type OrderLineInput = { variant_id: number; quantity: number };
 type PricedOrderItem = {
     variant_id: number;
     product_id: number;
@@ -131,108 +114,17 @@ async function orderResponse(orderId: number): Promise<OrderResponse> {
     return toOrderResponse(order, await ordersQueries.findItemsByOrderId(orderId));
 }
 
-async function buildPricedOrderItems(items: OrderLineInput[]): Promise<PricedOrderItem[]> {
-    const variantMap = new Map<number, VariantRow>();
-    for (const item of items) {
-        if (variantMap.has(item.variant_id)) continue;
-        const [variant] = await sql<VariantRow[]>`
-            SELECT id, product_id, sku, size, color, stock, price_override, is_active
-            FROM product_variants WHERE id = ${item.variant_id}
-        `;
-        if (variant) variantMap.set(variant.id, variant);
-    }
-
-    const productMap = new Map<number, ProductPricingRow>();
-    for (const variant of variantMap.values()) {
-        if (productMap.has(variant.product_id)) continue;
-        const [product] = await sql<ProductPricingRow[]>`
-            SELECT id, price, name, is_active, sale_price, sale_ends_at
-            FROM products WHERE id = ${variant.product_id}
-        `;
-        if (product) productMap.set(product.id, product);
-    }
-
-    return items.map((item) => {
-        const variant = variantMap.get(item.variant_id);
-        if (!variant) throw new BadRequestError(`Variant ${item.variant_id} not found`);
-        if (!variant.is_active) throw new BadRequestError(`Variant ${item.variant_id} is not available`);
-
-        const product = productMap.get(variant.product_id);
-        if (!product) throw new BadRequestError(`Product for variant ${item.variant_id} not found`);
-        if (!product.is_active) throw new BadRequestError(`Product "${product.name}" is not available`);
-
-        return {
-            variant_id: item.variant_id,
-            product_id: variant.product_id,
-            quantity: item.quantity,
-            unit_price: resolveUnitPrice(product, variant),
-            variant_sku: variant.sku,
-            variant_size: variant.size,
-            variant_color: variant.color,
-        };
-    });
-}
-
-async function notifyLowStockAlerts(items: Pick<PricedOrderItem, 'variant_id'>[]) {
-    const adminIds = await notificationsQueries.findAdminIds();
-    if (adminIds.length === 0) return;
-
-    const lowStockVariants: { id: number; sku: string; size: string | null; color: string | null; stock: number; low_stock_threshold: number; product_name: string }[] = [];
-    const seenVariantIds = new Set<number>();
-    for (const item of items) {
-        if (seenVariantIds.has(item.variant_id)) continue;
-        seenVariantIds.add(item.variant_id);
-        const rows = await sql<{ id: number; sku: string; size: string | null; color: string | null; stock: number; low_stock_threshold: number; product_name: string }[]>`
-            SELECT pv.id, pv.sku, pv.size, pv.color, pv.stock, pv.low_stock_threshold, p.name AS product_name
-            FROM product_variants pv
-            JOIN products p ON p.id = pv.product_id
-            WHERE pv.id = ${item.variant_id}
-              AND pv.stock <= pv.low_stock_threshold
-              AND pv.stock >= 0
-        `;
-        lowStockVariants.push(...rows);
-    }
-
-    if (lowStockVariants.length === 0) return;
-
-    const lowStockNotifs: { recipient_id: number; type: string; title: string; body: string; data: object }[] = [];
-    for (const variant of lowStockVariants) {
-        const variantLabel = [variant.size, variant.color].filter(Boolean).join(' / ');
-        const title = variant.stock === 0 ? `Out of stock: ${variant.product_name}` : `Low stock: ${variant.product_name}`;
-        const body = `${variantLabel ? `(${variantLabel}) — ` : ''}${variant.stock} unit${variant.stock === 1 ? '' : 's'} remaining`;
-        for (const adminId of adminIds) {
-            lowStockNotifs.push({
-                recipient_id: adminId,
-                type: variant.stock === 0 ? 'OUT_OF_STOCK' : 'LOW_STOCK',
-                title,
-                body,
-                data: { link: '/products', variant_id: String(variant.id) },
-            });
-        }
-    }
-
-    const lowStockCreated = await notificationsQueries.create(lowStockNotifs);
-    pushToMany(adminIds, 'notification', { notifications: lowStockCreated });
-
-    const staff = await UsersQueries.findActiveAdmins();
-    for (const variant of lowStockVariants) {
-        const variantLabel = [variant.size, variant.color].filter(Boolean).join(' / ');
-        // At most one "low" and one "out of stock" email per item, per admin, per day.
-        const level = variant.stock === 0 ? 'out' : 'low';
-        const day = new Date().toISOString().slice(0, 10);
-        for (const user of staff) {
-            await enqueueEmail({
-                type: 'LOW_STOCK_ALERT',
-                to: user.email,
-                name: user.full_name,
-                productName: variant.product_name,
-                variantLabel,
-                stock: variant.stock,
-                threshold: variant.low_stock_threshold,
-            }, { dedupeKey: `low-stock:${variant.id}:${user.id}:${day}:${level}` })
-                .catch((err) => console.error('[email] low stock alert could not be queued:', err));
-        }
-    }
+/** The quote's lines as order items. Only called once the quote has no problems, so every line is orderable. */
+function orderItemsFromQuote(quote: Quote): PricedOrderItem[] {
+    return quote.lines.map((line) => ({
+        variant_id: line.variant_id,
+        product_id: Number(line.product_id),
+        quantity: line.requested_quantity,
+        unit_price: line.unit_price!,
+        variant_sku: line.sku!,
+        variant_size: line.size,
+        variant_color: line.color,
+    }));
 }
 
 async function findOrderByParam(param: string) {
@@ -269,20 +161,15 @@ async function orderPaymentsResponse(order: any): Promise<OrderPaymentsResponse>
 /** Tells staff when an order was created but Pesapal couldn't start the payment (e.g. Pesapal is down). */
 async function notifyPaymentInitFailed(order: any, totalAmount: number, err: unknown) {
     try {
-        const handover = await settingsQueries.getOrderHandover();
-        const recipients = await UsersQueries.findActiveOrderAlertRecipients(handover.enabled ? handover.managerId : null);
-        const staffIds = recipients.map((user) => Number(user.id));
-        if (staffIds.length === 0) return;
-
-        const orderNumber = order.order_number ?? `#${order.id}`;
-        const created = await notificationsQueries.create(staffIds.map((id) => ({
-            recipient_id: id,
+        await alertStaff({
+            audience: 'money',
             type: 'PAYMENT_INIT_FAILED',
-            title: `Payment could not start for ${orderNumber}`,
+            title: `Payment could not start for ${order.order_number ?? `#${order.id}`}`,
             body: `KES ${totalAmount.toFixed(2)} — Pesapal error: ${err instanceof Error ? err.message : 'unknown'}. The customer can retry from checkout.`,
-            data: { link: '/orders', order_id: String(order.id) },
-        })));
-        pushToMany(staffIds, 'notification', { notifications: created });
+            link: '/orders',
+            data: { order_id: String(order.id) },
+            dedupeKey: `staff-alert:PAYMENT_INIT_FAILED:${order.id}`,
+        });
     } catch (notifyErr) {
         console.error('[notifications] payment init failure alert failed:', notifyErr);
     }
@@ -502,11 +389,11 @@ export const ordersHandlers = {
             throw new ValidationError('Invalid walk-in sale data', validated.error.errors);
         }
 
-        const itemsWithPrice = await buildPricedOrderItems(validated.data.items);
-        const totalAmount = itemsWithPrice.reduce(
-            (sum, item) => sum + item.unit_price * item.quantity,
-            0
-        );
+        // Same pricing as online orders, without delivery or discount codes.
+        const quote = await quoteOrder({ items: validated.data.items }, { mode: 'walk_in' });
+        if (quote.problems.length > 0) throw new BadRequestError(quote.problems[0]!);
+        const itemsWithPrice = orderItemsFromQuote(quote);
+        const totalAmount = quote.total;
         const customerName = validated.data.customer_name?.trim() || 'Walk-in customer';
         const customerPhone = validated.data.customer_phone?.trim()
             ? normalisePhone(validated.data.customer_phone)
@@ -524,79 +411,45 @@ export const ordersHandlers = {
             country: 'Kenya',
         };
         const paymentReference = `walk-in-${randomUUID()}`;
-        // The Order lifecycle decides who may record a walk-in sale and the state it starts in.
-        const start = decideCreation(
-            { type: 'walk_in_sale', amount: totalAmount, currency: env.PESAPAL_CURRENCY, reference: paymentReference },
-            staffActor(c),
-            paymentReference,
-        );
-        if (start.kind !== 'transition') throw new ForbiddenError(start.kind === 'not_allowed' ? start.message : undefined);
 
         let order;
         try {
-            order = await ordersQueries.create(
-                null,
-                itemsWithPrice,
+            // The Order lifecycle checks who may record it, sets its starting state (delivered and
+            // paid), takes the stock and records the payment, in the transaction that stores it.
+            order = await createOrder({
+                userId: null,
+                items: itemsWithPrice,
                 totalAmount,
                 shippingAddress,
-                null,
-                0,
-                validated.data.notes,
-                null,
-                0,
+                shippingLocationId: null,
+                shippingCost: 0,
+                notes: validated.data.notes,
+                discountCode: null,
+                discountAmount: 0,
                 customerName,
                 customerPhone,
                 customerEmail,
-                {
-                    status: start.next.status,
-                    paymentStatus: start.next.payment,
-                    orderSource: ORDER_SOURCE.WALK_IN,
-                    paidAt: new Date(),
-                    inventoryCreatedBy: Number(actor.sub),
-                    inventoryNote: `Walk-in sale recorded by ${actor.email}`,
-                    payment: {
-                        provider: 'walk_in',
-                        providerReference: paymentReference,
-                        merchantReference: paymentReference,
-                        paymentMethod: validated.data.payment_method,
-                        amount: totalAmount,
-                        currency: env.PESAPAL_CURRENCY,
-                        reference: paymentReference,
-                        metadata: {
-                            source: ORDER_SOURCE.WALK_IN,
-                            payment_method: validated.data.payment_method,
-                            recorded_by: actor.email,
-                        },
-                        rawPayload: {
-                            source: ORDER_SOURCE.WALK_IN,
-                            payment_method: validated.data.payment_method,
-                        },
-                    },
-                }
-            );
+                orderSource: ORDER_SOURCE.WALK_IN,
+                payment: {
+                    provider: 'walk_in',
+                    providerReference: paymentReference,
+                    merchantReference: paymentReference,
+                    paymentMethod: validated.data.payment_method,
+                    amount: totalAmount,
+                    currency: env.PESAPAL_CURRENCY,
+                    rawPayload: { source: ORDER_SOURCE.WALK_IN, payment_method: validated.data.payment_method },
+                },
+            },
+            { type: 'walk_in_sale', amount: totalAmount, currency: env.PESAPAL_CURRENCY, reference: paymentReference },
+            staffActor(c),
+            { paymentMetadata: { source: ORDER_SOURCE.WALK_IN, payment_method: validated.data.payment_method, recorded_by: actor.email } });
         } catch (err: any) {
-            if (err.message?.includes('Insufficient stock') || err.message?.includes('not found')) {
-                throw new BadRequestError(err.message);
-            }
+            // Stock shortfalls and missing variants arrive as typed errors from Inventory.
+            if (err instanceof AppError) throw err;
             throw new InternalServerError('Failed to record walk-in sale');
         }
 
-        const items = await ordersQueries.findItemsByOrderId(order.id);
-        const response = toOrderResponse(order, items);
-        await notifyLowStockAlerts(itemsWithPrice);
-        await auditFromContext(c, {
-            action: 'WALK_IN_SALE_CREATED',
-            entityType: 'order',
-            entityId: order.id,
-            after: response,
-            metadata: {
-                order_source: ORDER_SOURCE.WALK_IN,
-                payment_method: validated.data.payment_method,
-                item_count: items.reduce((sum, item) => sum + Number(item.quantity), 0),
-                total_amount: totalAmount,
-            },
-        });
-
+        const response = toOrderResponse(order, await ordersQueries.findItemsByOrderId(order.id));
         return success(c, response, 'Walk-in sale recorded', 201);
     },
 
@@ -613,11 +466,6 @@ export const ordersHandlers = {
             throw new BadRequestError('Email is required for guest checkout');
         }
 
-        // Validate shipping location
-        const shippingLocation = await shippingQueries.findById(validated.data.shipping_location_id);
-        if (!shippingLocation) throw new BadRequestError('Invalid shipping location');
-        if (!shippingLocation.is_active) throw new BadRequestError('Selected shipping location is not available');
-        const zoneShippingCost = parseFloat(shippingLocation.price);
         const { county, ...shippingAddressBase } = validated.data.shipping_address;
         const shippingAddress = {
             ...shippingAddressBase,
@@ -627,53 +475,46 @@ export const ordersHandlers = {
             phone: shippingAddressBase.phone ?? validated.data.phone,
         };
 
-        const itemsWithPrice = await buildPricedOrderItems(validated.data.items);
-
-        const itemsTotal = roundMoney(itemsWithPrice.reduce(
-            (sum, item) => sum + item.unit_price * item.quantity,
-            0
-        ));
+        // The order charges exactly what the quote says: the lines, discount, delivery and total the
+        // checkout showed. Stock and the discount limit are re-checked under lock when it's created.
         const normalizedPhone = normalisePhone(validated.data.phone);
-        const discount = await validateDiscount(validated.data.discount_code, itemsTotal, normalizedPhone);
-        if (!discount.valid) throw new BadRequestError(discount.reason ?? 'Discount code is invalid');
-
-        const discountAmount = discount.discountAmount;
-        const subtotalAfterDiscount = roundMoney(Math.max(0, itemsTotal - discountAmount));
-        const freeDeliveryThreshold = await settingsQueries.getNumber('free_delivery_threshold');
-        const shippingCost = freeDeliveryThreshold > 0 && subtotalAfterDiscount >= freeDeliveryThreshold
-            ? 0
-            : zoneShippingCost;
-        const totalAmount = roundMoney(subtotalAfterDiscount + shippingCost);
+        const quote = await quoteOrder({
+            items: validated.data.items,
+            discount_code: validated.data.discount_code,
+            phone: normalizedPhone,
+            shipping_location_id: validated.data.shipping_location_id,
+        });
+        if (quote.problems.length > 0) throw new BadRequestError(quote.problems[0]!);
+        const itemsWithPrice = orderItemsFromQuote(quote);
+        const shippingCost = quote.delivery!.cost;
+        const discountAmount = quote.discount?.amount ?? 0;
+        const totalAmount = quote.total;
 
         let order;
         try {
-            order = await ordersQueries.create(
-                authUser ? Number(authUser.sub) : null,
-                itemsWithPrice,
+            // Stock is taken and the discount use claimed (re-checked under lock) by the Order lifecycle.
+            order = await createOrder({
+                userId: authUser ? Number(authUser.sub) : null,
+                items: itemsWithPrice,
                 totalAmount,
                 shippingAddress,
-                validated.data.shipping_location_id,
+                shippingLocationId: validated.data.shipping_location_id,
                 shippingCost,
-                validated.data.notes,
-                discount.normalizedCode ?? null,
+                notes: validated.data.notes,
+                discountCode: quote.discount?.code ?? null,
                 discountAmount,
-                shippingAddress.full_name,
-                normalizedPhone,
+                customerName: shippingAddress.full_name,
+                customerPhone: normalizedPhone,
                 customerEmail,
-                {
-                    customerLimits: { phone: normalizedPhone, email: customerEmail },
-                    policyAcceptance: validated.data.policy_acceptance,
-                    recoverySessionHash: recoverySessionHash(c) ?? undefined,
-                    recoverySourceOrderId: recoverySourceOrderId(c) ?? undefined,
-                    ...(discount.codeId && discountAmount > 0
-                        ? { discountUsage: { codeId: discount.codeId, phone: normalizedPhone, amount: discountAmount } }
-                        : {}),
-                }
-            );
+                customerLimits: { phone: normalizedPhone, email: customerEmail },
+                policyAcceptance: validated.data.policy_acceptance,
+                recoverySessionHash: recoverySessionHash(c) ?? undefined,
+                recoverySourceOrderId: recoverySourceOrderId(c) ?? undefined,
+            }, { type: 'placed_online' }, { kind: 'customer', isOwner: true, via: 'checkout' });
         } catch (err: any) {
             // Discount and order-limit errors are thrown inside the transaction — nothing was saved.
             if (err instanceof AppError) throw err;
-            if (err.message?.includes('Insufficient stock') || err.message?.includes('not found')) {
+            if (err.message?.includes('not found')) {
                 throw new BadRequestError(err.message);
             }
             if (err.message?.includes('discount_code_usages_code_id_phone_key')) {
@@ -687,7 +528,6 @@ export const ordersHandlers = {
         clearRecoverySource(c);
         // Staff are alerted about new orders once payment is confirmed (see the Order lifecycle),
         // not here — most unpaid orders are abandoned checkouts. Stock was taken, so low-stock alerts stay.
-        await notifyLowStockAlerts(itemsWithPrice);
 
         let paymentRedirectUrl: string | null = null;
         let paymentReference: string | null = null;

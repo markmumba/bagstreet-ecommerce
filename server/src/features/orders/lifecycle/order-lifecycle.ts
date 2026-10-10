@@ -11,27 +11,29 @@
 import { PAYMENT_STATUS } from 'shared/dist';
 import { sql } from '../../../lib/db';
 import { env } from '../../../config/env';
-import { adjustStock } from '../../../lib/inventory';
+import { inventory, type StockLine } from '../../inventory/inventory';
+import { AfterCommit } from '../../../lib/after-commit';
 import { createAuditLog } from '../../../lib/audit';
 import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from '../../../lib/errors';
 import { roundMoney } from '../../../lib/pricing';
-import { pushToMany } from '../../../lib/sse';
 import type { AuthUser } from '../../../lib/hono';
-import { enqueueEmail, wakeEmailOutbox } from '../../../services/email-outbox';
-import { notificationsQueries } from '../../notifications/notifications.queries';
+import { enqueueEmail } from '../../../services/email-outbox';
 import { paymentsQueries } from '../../payments/payments.queries';
 import { LEDGER_ENTRY } from '../../payments/order-balance';
-import { ordersQueries, type OrderRow } from '../orders.queries';
+import { ordersQueries, type OrderDraft, type OrderRow } from '../orders.queries';
 import { claimOrderDiscount, releaseDiscountUsage } from '../discount-usage';
 import {
-    ALL_STATES, adminActions, decide,
+    ALL_STATES, adminActions, decide, decideCreation,
     type Actor, type AdminAction, type DecisionContext, type Effect, type NotAllowedReason, type OrderEvent, type OrderState,
 } from './transitions';
-import { orderAlertRecipients, orderConfirmationJob, paymentFailedJob, staffAlert, staffOrderConfirmedJobs } from './order-messages';
+import { orderConfirmationJob, paymentFailedJob, staffAlert, staffOrderConfirmedEmail } from './order-messages';
+import { alertStaff } from '../../staff-alerts/staff-alerts';
 
 type Executor = typeof sql;
 
 export interface ApplyOptions {
+    /** The payment_transactions row a recorded capture belongs to, when the event doesn't carry it. */
+    paymentTransactionId?: number | null;
     /** Extra provider details stored on a recorded capture (tracking ids, payment method…). */
     paymentMetadata?: Record<string, unknown>;
     /** Extra details for the audit log entry (e.g. why the expiry job acted). */
@@ -69,16 +71,11 @@ export function requireAllowed(result: ApplyResult): Exclude<ApplyResult, { outc
     throw new BadRequestError(result.message);
 }
 
-/** What to do once the transaction has committed. */
-interface AfterCommit {
-    wakeOutbox: boolean;
-    pushes: { userIds: number[]; event: string; data: object }[];
-}
-
 interface Run {
     tx: Executor;
     order: OrderRow;
-    before: OrderState;
+    /** Null when the order is being created. */
+    before: OrderState | null;
     next: OrderState;
     event: OrderEvent;
     actor: Actor;
@@ -86,11 +83,10 @@ interface Run {
     after: AfterCommit;
     /** Money held for the order, updated as captures are recorded in this run. */
     captured: number;
-    staff?: Awaited<ReturnType<typeof orderAlertRecipients>>;
 }
 
 export async function applyOrderEvent(orderId: number, event: OrderEvent, actor: Actor, options: ApplyOptions = {}): Promise<ApplyResult> {
-    const after: AfterCommit = { wakeOutbox: false, pushes: [] };
+    const after = new AfterCommit();
 
     const result = await sql.begin(async (tx: Executor) => {
         const [order] = await tx<OrderRow[]>`SELECT * FROM orders WHERE id = ${orderId} FOR UPDATE`;
@@ -123,9 +119,37 @@ export async function applyOrderEvent(orderId: number, event: OrderEvent, actor:
         return { outcome: 'changed', before: state, state: next, order: updated ?? order } satisfies ApplyResult;
     }) as unknown as ApplyResult;
 
-    if (after.wakeOutbox) wakeEmailOutbox();
-    for (const push of after.pushes) pushToMany(push.userIds, push.event, push.data);
+    after.run();
     return result;
+}
+
+export type CreationEvent = Extract<OrderEvent, { type: 'placed_online' | 'walk_in_sale' }>;
+
+/**
+ * Creates an order. The transition table decides who may create it and its starting state; the
+ * effects (take stock, claim the discount, record a walk-in's payment, audit) are applied in the
+ * same transaction that stores it, exactly as for any other Order event.
+ */
+export async function createOrder(
+    draft: OrderDraft,
+    event: CreationEvent,
+    actor: Actor,
+    options: Pick<ApplyOptions, 'paymentMetadata'> = {},
+): Promise<OrderRow> {
+    const decision = decideCreation(event, actor, 'new');
+    if (decision.kind === 'not_allowed') throw new ForbiddenError(decision.message);
+    if (decision.kind !== 'transition') throw new Error(`"${event.type}" did not produce a starting state`);
+
+    const after = new AfterCommit();
+    const order = await ordersQueries.insertOrder(draft, decision.next, async (tx, created, paymentTransactionId) => {
+        const run: Run = {
+            tx, order: created, before: null, next: decision.next, event, actor, after, captured: 0,
+            options: { ...options, paymentTransactionId },
+        };
+        for (const effect of decision.effects) await applyEffect(run, effect);
+    });
+    after.run();
+    return order;
 }
 
 // ── Facts for the decision ─────────────────────────────────────────────────
@@ -170,32 +194,18 @@ async function loadContext(tx: Executor, order: OrderRow, state: OrderState, eve
         ctx.captureAlreadyRecorded = Boolean(seen);
         if (state.status === 'CANCELLED') {
             // Late payment: can the order be reinstated? Variants stay locked until commit.
-            const items = await lockOrderStock(tx, order.id);
-            ctx.stockAvailable = items.every((item) => item.stock >= item.quantity);
+            ctx.stockAvailable = await inventory.canReserve(tx, await orderStockLines(tx, order.id));
         }
     }
     return ctx;
 }
 
-/** The order's quantity per variant, with each variant row locked (in id order, to avoid deadlocks). */
-async function lockOrderStock(tx: Executor, orderId: number) {
-    const variants = await tx<{ id: number; stock: number }[]>`
-        SELECT id, stock FROM product_variants
-        WHERE id IN (SELECT variant_id FROM order_items WHERE order_id = ${orderId})
-        ORDER BY id
-        FOR UPDATE
+/** What the order holds (or would take) from stock. */
+async function orderStockLines(tx: Executor, orderId: number): Promise<StockLine[]> {
+    const rows = await tx<{ variant_id: number; quantity: number }[]>`
+        SELECT variant_id, quantity FROM order_items WHERE order_id = ${orderId} AND variant_id IS NOT NULL
     `;
-    const quantities = await tx<{ variant_id: number; quantity: number }[]>`
-        SELECT variant_id, SUM(quantity)::int AS quantity FROM order_items
-        WHERE order_id = ${orderId} AND variant_id IS NOT NULL
-        GROUP BY variant_id
-    `;
-    const stockById = new Map(variants.map((v) => [Number(v.id), Number(v.stock)]));
-    return quantities.map((q) => ({
-        variant_id: Number(q.variant_id),
-        quantity: Number(q.quantity),
-        stock: stockById.get(Number(q.variant_id)) ?? 0,
-    }));
+    return rows.map((r) => ({ variantId: Number(r.variant_id), quantity: Number(r.quantity) }));
 }
 
 // ── Effects ─────────────────────────────────────────────────────────────────
@@ -205,22 +215,21 @@ async function applyEffect(run: Run, effect: Effect): Promise<void> {
     const orderId = Number(order.id);
 
     switch (effect.type) {
-        case 'reserve_stock': {
-            const items = await lockOrderStock(tx, orderId);
-            const short = items.find((item) => item.stock < item.quantity);
-            if (short) throw new ConflictError(`Not enough stock to take for order ${order.order_number}`);
-            const note = run.before.status === 'CANCELLED' ? 'Reinstated after late payment' : null;
-            for (const item of items) await adjustStock(tx, item.variant_id, -item.quantity, 'ORDER_PLACED', orderId, note, staffId(run.actor));
+        case 'reserve_stock':
+            await inventory.reserve(tx, await orderStockLines(tx, orderId), {
+                referenceId: orderId,
+                note: run.before?.status === 'CANCELLED' ? 'Reinstated after late payment'
+                    : run.event.type === 'walk_in_sale' ? 'Walk-in sale' : null,
+                by: staffId(run.actor),
+            }, run.after);
             return;
-        }
-        case 'release_stock': {
-            const items = await tx<{ variant_id: number; quantity: number }[]>`
-                SELECT variant_id, quantity FROM order_items WHERE order_id = ${orderId} AND variant_id IS NOT NULL
-            `;
-            const note = run.event.type === 'expired' ? 'Unpaid order expired' : 'Order cancelled';
-            for (const item of items) await adjustStock(tx, item.variant_id, item.quantity, 'ORDER_CANCELLED', orderId, note, staffId(run.actor));
+        case 'release_stock':
+            await inventory.release(tx, await orderStockLines(tx, orderId), {
+                referenceId: orderId,
+                note: run.event.type === 'expired' ? 'Unpaid order expired' : 'Order cancelled',
+                by: staffId(run.actor),
+            }, run.after);
             return;
-        }
         case 'claim_discount':
             await claimOrderDiscount(tx, order as any, effect.allowOverLimit);
             return;
@@ -231,7 +240,7 @@ async function applyEffect(run: Run, effect: Effect): Promise<void> {
         case 'record_capture': {
             await paymentsQueries.createLedgerEntry({
                 order_id: orderId,
-                payment_transaction_id: effect.transactionId ?? null,
+                payment_transaction_id: effect.transactionId ?? run.options.paymentTransactionId ?? null,
                 entry_type: LEDGER_ENTRY.PAYMENT_CAPTURED,
                 direction: 'CREDIT',
                 amount: effect.amount,
@@ -278,27 +287,38 @@ async function applyEffect(run: Run, effect: Effect): Promise<void> {
                 ? await orderConfirmationJob(order, await ordersQueries.findItemsByOrderId(orderId))
                 : await paymentFailedJob(order, run.event.type === 'payment_failed' ? run.event.reason : null);
             if (!job) return;
-            if (await enqueueEmail(job, { tx, dedupeKey: effect.dedupeKey })) run.after.wakeOutbox = true;
+            if (await enqueueEmail(job, { tx, dedupeKey: effect.dedupeKey })) run.after.wakeOutbox();
             return;
         }
         case 'email_staff_order_confirmed': {
             const items = await ordersQueries.findItemsByOrderId(orderId);
             const itemCount = items.reduce((sum, item) => sum + Number(item.quantity), 0);
-            for (const { job, dedupeKey } of await staffOrderConfirmedJobs(order, itemCount)) {
-                if (await enqueueEmail(job, { tx, dedupeKey })) run.after.wakeOutbox = true;
-            }
-            const staff = await recipients(run);
-            await notifyStaff(run, staff, {
+            const staffIds = await alertStaff({
+                audience: 'orders',
                 type: 'NEW_ORDER',
                 title: `New order ${order.order_number ?? `#${orderId}`}`,
                 body: `Paid — KES ${run.captured.toFixed(2)}`,
-            });
-            run.after.pushes.push({ userIds: staff.map((u) => Number(u.id)), event: 'order_paid', data: { order_id: orderId } });
+                link: '/orders',
+                data: { order_id: String(orderId) },
+                dedupeKey: `admin-order-confirmed:${orderId}`,
+                email: staffOrderConfirmedEmail(order, itemCount),
+            }, { tx, after: run.after });
+            run.after.push(staffIds, 'order_paid', { order_id: orderId });
             return;
         }
-        case 'alert_staff':
-            await notifyStaff(run, await recipients(run), staffAlert(effect.kind, order, run.event, { captured: run.captured }));
+        case 'alert_staff': {
+            const message = staffAlert(effect.kind, order, run.event, { captured: run.captured });
+            // A repeat payment can happen more than once on an order; the others are once per order.
+            const occurrence = effect.kind === 'duplicate_payment' && run.event.type === 'payment_captured' ? `:${run.event.reference}` : '';
+            await alertStaff({
+                audience: 'money',
+                ...message,
+                link: '/orders',
+                data: { order_id: String(orderId) },
+                dedupeKey: `staff-alert:${message.type}:${orderId}${occurrence}`,
+            }, { tx, after: run.after });
             return;
+        }
 
         case 'audit':
             await createAuditLog({
@@ -306,7 +326,7 @@ async function applyEffect(run: Run, effect: Effect): Promise<void> {
                 action: effect.action,
                 entityType: 'order',
                 entityId: orderId,
-                before: { status: run.before.status, payment_status: run.before.payment },
+                before: run.before ? { status: run.before.status, payment_status: run.before.payment } : null,
                 after: { status: run.next.status, payment_status: run.next.payment },
                 metadata: {
                     event: describeEvent(run.event),
@@ -317,22 +337,6 @@ async function applyEffect(run: Run, effect: Effect): Promise<void> {
             }, tx);
             return;
     }
-}
-
-async function recipients(run: Run) {
-    run.staff ??= await orderAlertRecipients();
-    return run.staff;
-}
-
-async function notifyStaff(run: Run, staff: { id: number | string }[], message: { type: string; title: string; body: string }) {
-    if (staff.length === 0) return;
-    const userIds = staff.map((u) => Number(u.id));
-    const created = await notificationsQueries.create(userIds.map((id) => ({
-        recipient_id: id,
-        ...message,
-        data: { link: '/orders', order_id: String(run.order.id) },
-    })), run.tx);
-    run.after.pushes.push({ userIds, event: 'notification', data: { notifications: created } });
 }
 
 /** One ledger reference per refund form submission, so a double submit records one refund. */

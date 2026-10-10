@@ -454,7 +454,7 @@ function DashboardPage() {
     refetchInterval: 60_000,
   });
 
-  const overview = dashboardQuery.data?.data;
+  const overview = dashboardQuery.data;
 
   if (dashboardQuery.isLoading) return <DashboardSkeleton />;
 

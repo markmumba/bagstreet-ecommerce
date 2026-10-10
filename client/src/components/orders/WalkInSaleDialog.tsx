@@ -136,7 +136,7 @@ export function WalkInSaleDialog({ open, onOpenChange, onCreated }: WalkInSaleDi
         customer_email: customerEmail.trim() || undefined,
         notes: notes.trim() || undefined,
       });
-      if (res.data) onCreated?.(res.data);
+      onCreated?.(res);
       reset();
       onOpenChange(false);
     } catch (err: any) {

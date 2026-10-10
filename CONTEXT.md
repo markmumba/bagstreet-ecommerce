@@ -24,6 +24,13 @@ _Avoid_: Action, update, status change
 The rules for which **Order events** are allowed in each **Order state**, what state follows, and what else must happen with it (stock, discount use, money, notifications).
 _Avoid_: Order flow, workflow
 
+**Order quote**:
+The price of a bag worked out in one place: each item at its current price, any discount code, delivery, and the total. The bag page, checkout, placing the order and walk-in sales all use it, so what the customer is shown is what they pay.
+_Avoid_: Cart total, checkout total (as separate calculations)
+
+**Free delivery threshold**:
+The bag subtotal at which delivery becomes free, judged before any discount code.
+
 ## Payments
 
 **Held payment**:
@@ -45,3 +52,15 @@ Reviving a cancelled **Order** because of a **Late payment**, when its items are
 
 **Refund owed**:
 Money held for an **Order** that will not be fulfilled, for example a **Late payment** when the stock is gone.
+
+## Stock
+
+**Stock movement**:
+A logged change to a variant's stock, with its reason (order placed, order cancelled, admin adjustment, restock) and who or what caused it. Every unit a variant holds is accounted for by its movements.
+_Avoid_: Stock edit, inventory update
+
+**Opening stock**:
+The units a variant starts with, recorded as its first restock movement rather than set directly.
+
+**Low-stock alert**:
+A message to staff when a change takes a variant's stock across its low-stock threshold, or to zero. It is raised once per crossing, not again while the variant stays low.

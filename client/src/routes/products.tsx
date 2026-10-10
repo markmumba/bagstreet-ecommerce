@@ -137,8 +137,8 @@ function ProductsPage() {
     limit: LIMIT,
   });
 
-  const products: Product[] = (res?.data as Product[]) ?? [];
-  const total = (res as any)?.pagination?.total ?? 0;
+  const products: Product[] = res?.items ?? [];
+  const total = res?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / LIMIT));
 
   const { data: categories } = useCategoryOptions();
@@ -223,7 +223,7 @@ function ProductsPage() {
 
     try {
       const result = await deleteMutation.mutateAsync(removeProduct.id);
-      if (result.data?.action === 'deactivated') {
+      if (result.action === 'deactivated') {
         setRemoveResult({
           action: 'deactivated',
           message: `"${removeProduct.name}" has order history, so it was deactivated instead of permanently deleted.`,
@@ -533,8 +533,7 @@ function ProductsPage() {
         templateFilename="bagstreet-products-template.csv"
         templateCsv={'name,category,description,price,stock,image_urls,is_active,is_featured,sale_price,sale_ends_at\nAvery Mini Crossbody,Handbags,Compact crossbody bag,4990,12,https://example.com/avery-front.jpg;https://example.com/avery-side.jpg,true,false,,\n'}
         onImport={async (file) => {
-          const response = await importMutation.mutateAsync(file);
-          return response.data!;
+          return importMutation.mutateAsync(file);
         }}
       />
 

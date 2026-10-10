@@ -213,8 +213,8 @@ function OrdersPage() {
     payment_status: (paymentFilter || undefined) as PaymentStatus | undefined,
   });
 
-  const orders: OrderResponse[] = res?.data ?? [];
-  const total = (res as any)?.pagination?.total ?? 0;
+  const orders: OrderResponse[] = res?.items ?? [];
+  const total = res?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / LIMIT));
   const canCreateWalkInSale = user?.role === USER_ROLE.ADMIN || user?.role === USER_ROLE.MANAGER;
 
@@ -236,10 +236,10 @@ function OrdersPage() {
       }
 
       try {
-        const res = await ordersService.getById(search.order_id!);
-        if (!cancelled && res.data) {
+        const order = await ordersService.getById(search.order_id!);
+        if (!cancelled) {
           openedSearchOrderRef.current = search.order_id!;
-          openOrder(res.data);
+          openOrder(order);
         }
       } catch {
         if (!cancelled) openedSearchOrderRef.current = search.order_id!;
@@ -268,7 +268,7 @@ function OrdersPage() {
         status: statusFilter || undefined,
         payment_status: (paymentFilter || undefined) as PaymentStatus | undefined,
       });
-      const rows: OrderResponse[] = (res as any)?.data ?? [];
+      const rows: OrderResponse[] = res.items;
 
       const headers = ['Order ID', 'Source', 'Customer', 'Phone', 'Delivery Address', 'Status', 'Payment', 'Items', 'Shipping (KES)', 'Total (KES)', 'Date'];
       const lines = [
@@ -281,9 +281,9 @@ function OrdersPage() {
             o.shipping_address.phone ?? '',
             addressLine(o.shipping_address),
             o.status,
-            (o as any).payment_status ?? '',
+            o.payment_status ?? '',
             o.items.length,
-            ((o as any).shipping_cost ?? 0).toFixed(2),
+            (o.shipping_cost ?? 0).toFixed(2),
             o.total_amount.toFixed(2),
             new Date(o.created_at).toISOString().slice(0, 10),
           ];

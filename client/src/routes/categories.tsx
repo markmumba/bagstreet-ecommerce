@@ -6,7 +6,7 @@ import { CategoryDialog } from '@/components/categories/CategoryDialog';
 import { CategoriesDataTable } from '@/components/categories/CategoriesDataTable';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { CsvImportDialog } from '@/components/import/CsvImportDialog';
-import type { Category } from 'shared';
+import type { CategoryResponse } from 'shared';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -25,8 +25,8 @@ const LIMIT = 50;
 function CategoriesPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
-  const [editingCategory, setEditingCategory] = useState<Category | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<Category | null>(null);
+  const [editingCategory, setEditingCategory] = useState<CategoryResponse | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<CategoryResponse | null>(null);
 
   // Server-side filter state
   const [search, setSearch] = useState('');
@@ -44,8 +44,8 @@ function CategoriesPage() {
     search: debouncedSearch || undefined,
   });
 
-  const categories = (res?.data as any[]) ?? [];
-  const total = (res as any)?.pagination?.total ?? categories.length;
+  const categories = res?.items ?? [];
+  const total = res?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / LIMIT));
 
   const deleteMutation = useDeleteCategory();
@@ -56,12 +56,12 @@ function CategoriesPage() {
     setDialogOpen(true);
   };
 
-  const handleEdit = (category: Category) => {
+  const handleEdit = (category: CategoryResponse) => {
     setEditingCategory(category);
     setDialogOpen(true);
   };
 
-  const handleDelete = (category: Category) => {
+  const handleDelete = (category: CategoryResponse) => {
     setDeleteTarget(category);
   };
 
@@ -78,7 +78,7 @@ function CategoriesPage() {
   const formatDate = (dateString: string) =>
     new Date(dateString).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 
-  const columns: ColumnDef<Category>[] = [
+  const columns: ColumnDef<CategoryResponse>[] = [
     {
       accessorKey: 'name',
       header: ({ column }) => (
@@ -104,7 +104,7 @@ function CategoriesPage() {
       id: 'parent',
       header: 'Parent',
       cell: ({ row }) => {
-        const cat = row.original as any;
+        const cat = row.original;
         return (
           <div className="text-sm text-muted-foreground">
             {cat.parent_name ?? <span className="italic text-muted-foreground/60">—</span>}
@@ -116,7 +116,7 @@ function CategoriesPage() {
       id: 'children_count',
       header: 'Subcategories',
       cell: ({ row }) => {
-        const cat = row.original as any;
+        const cat = row.original;
         return (
           <div className="text-sm text-muted-foreground">
             {cat.children_count ?? 0}
@@ -215,8 +215,7 @@ function CategoriesPage() {
         templateFilename="bagstreet-categories-template.csv"
         templateCsv={'name,description,parent_name\nHandbags,All handbag products,\nCrossbody Bags,Small crossbody bags,Handbags\n'}
         onImport={async (file) => {
-          const response = await importMutation.mutateAsync(file);
-          return response.data!;
+          return importMutation.mutateAsync(file);
         }}
       />
       <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>

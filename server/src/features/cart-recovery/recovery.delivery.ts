@@ -3,7 +3,7 @@ import { sql } from '../../lib/db';
 import { env } from '../../config/env';
 import { readJsonColumn } from '../../lib/json-column';
 import { sendCartRecoveryEmail } from '../../lib/email';
-import { getCartQuote } from '../storefront/cart-quote.queries';
+import { quoteOrder } from '../quote/quote.queries';
 import { recoveryState, type RecoveryPreference, type RecoverySnapshot } from './recovery.queries';
 import { dueRecoveryStage, withinRecoveryBudget } from './recovery-policy';
 import { recoveryToken, unsubscribeToken } from './recovery-token';
@@ -36,7 +36,7 @@ export async function deliverRecoveryWithExecutor(job: {
             windowStart: preference.reminder_window_start ? new Date(preference.reminder_window_start).getTime() : null,
             count: preference.reminder_count, lastSent: preference.last_reminder_at ? new Date(preference.last_reminder_at).getTime() : null,
         })) return false;
-        const quote = await getCartQuote(readJsonColumn<CartQuoteRequestItem[]>(snapshot.items) ?? [], tx);
+        const quote = await quoteOrder({ items: readJsonColumn<CartQuoteRequestItem[]>(snapshot.items) ?? [] }, { db: tx });
         if (quote.item_count === 0) {
             await tx`UPDATE cart_recovery_snapshots SET state = 'STOPPED' WHERE id = ${snapshot.id}`;
             return false;

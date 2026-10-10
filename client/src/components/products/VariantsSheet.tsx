@@ -270,7 +270,7 @@ export function VariantsSheet({ open, onOpenChange, product }: VariantsSheetProp
               </thead>
               <tbody>
                 {variants.map((v) => {
-                  const threshold = (v as any).low_stock_threshold ?? 5;
+                  const threshold = v.low_stock_threshold ?? 5;
                   const isLow = v.stock <= threshold && v.stock > 0;
                   const isOut = v.stock === 0;
                   return (

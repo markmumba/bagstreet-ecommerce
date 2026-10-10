@@ -218,13 +218,6 @@ export interface DiscountCodeResponse {
     updated_at: string;
 }
 
-export interface DiscountValidationResponse {
-    valid: boolean;
-    code: string;
-    discount_amount: number;
-    message: string;
-}
-
 /** How a refund was paid back to the customer. Refunds are recorded after staff send the money. */
 export const REFUND_METHOD = {
     MPESA: 'MPESA',

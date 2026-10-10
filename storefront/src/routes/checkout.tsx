@@ -8,7 +8,7 @@ import { useCart, useCartQuote, useClearCart } from '@/hooks/useCart';
 import { useCompleteDevPayment, useInitiatePesapalPayment, usePaymentStatus, usePlaceOrder } from '@/hooks/useOrders';
 import { useAuth } from '@/context/AuthContext';
 import { useActiveShippingLocations } from '@/hooks/useShipping';
-import { useValidateDiscountCode } from '@/hooks/usePromotions';
+import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { useSeo } from '@/hooks/useSeo';
 import { formatPrice } from '@/lib/format';
 import { SHOP_INFO } from '@/lib/shop-info';
@@ -268,7 +268,6 @@ function CheckoutForm() {
   const clearCart = useClearCart();
   const placeOrder = usePlaceOrder();
   const { data: locationsRes } = useActiveShippingLocations();
-  const validateDiscount = useValidateDiscountCode();
   const recoveryPreferences = useRecoveryPreferences();
   const [guestReminders, setGuestReminders] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
@@ -287,26 +286,30 @@ function CheckoutForm() {
   });
   const [shippingLocationId, setShippingLocationId] = useState('');
   const [discountCode, setDiscountCode] = useState('');
-  const [discountPreview, setDiscountPreview] = useState<{ code: string; discount_amount: number; message: string; subtotal: number; phone: string } | null>(null);
-  const [discountMessage, setDiscountMessage] = useState('');
+  // The code the customer pressed Apply on; the quote says whether it's valid and what it's worth.
+  const [appliedCode, setAppliedCode] = useState('');
   const [orderError, setOrderError] = useState('');
 
   const items = cartRes?.data.items ?? [];
-  // Live prices and stock from the server — the same pricing order creation uses.
-  const quoteQuery = useCartQuote(items);
+  // The server's quote is the order summary: the same lines, discount, delivery and total that
+  // placing the order will charge. Nothing is added up here.
+  const quotedPhone = useDebouncedValue(form.phone.trim(), 400);
+  const quoteQuery = useCartQuote(items, {
+    discount_code: appliedCode || undefined,
+    phone: appliedCode ? quotedPhone || undefined : undefined,
+    shipping_location_id: shippingLocationId ? Number(shippingLocationId) : undefined,
+  });
   const quote = quoteQuery.data?.data;
   const quoteLines = new Map(quote?.lines.map((line) => [line.variant_id, line]));
   const itemsTotal = quote?.subtotal ?? cartRes?.data.total ?? 0;
   const cartNeedsReview = quote ? !quote.can_checkout : false;
 
   const locations: ShippingLocationResponse[] = (locationsRes?.data as ShippingLocationResponse[]) ?? [];
-  const selectedLocation = locations.find((l) => String(l.id) === shippingLocationId);
-  const freeDeliveryThreshold = quote?.free_delivery_threshold ?? 0;
-  const discountAmount = discountPreview?.discount_amount ?? 0;
-  const subtotalAfterDiscount = Math.max(0, itemsTotal - discountAmount);
-  const qualifiesForFreeDelivery = freeDeliveryThreshold > 0 && subtotalAfterDiscount >= freeDeliveryThreshold;
-  const deliveryCost = selectedLocation ? (qualifiesForFreeDelivery ? 0 : Number(selectedLocation.price)) : 0;
-  const grandTotal = subtotalAfterDiscount + deliveryCost;
+  const qualifiesForFreeDelivery = quote?.qualifies_for_free_delivery ?? false;
+  // While a new quote loads, the previous one is still shown; only trust it for the area it was for.
+  const delivery = quote?.delivery && quote.delivery.location_id === shippingLocationId ? quote.delivery : null;
+  const discount = appliedCode ? quote?.discount ?? null : null;
+  const discountProblem = appliedCode ? quote?.discount_problem ?? null : null;
 
   const set = (k: keyof FormState, v: string) => setForm((f) => ({ ...f, [k]: v }));
   const remindersEnabled = user ? recoveryPreferences.data?.data?.recovery_opt_in ?? false : guestReminders;
@@ -333,15 +336,6 @@ function CheckoutForm() {
     }));
   }, [user]);
 
-  // A discount is validated against a subtotal and phone number; if either changes, it must be re-applied.
-  useEffect(() => {
-    if (!discountPreview) return;
-    if (discountPreview.subtotal !== itemsTotal || discountPreview.phone !== form.phone.trim()) {
-      setDiscountPreview(null);
-      setDiscountMessage('Your bag or phone number changed — please apply the code again.');
-    }
-  }, [discountPreview, itemsTotal, form.phone]);
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setOrderError('');
@@ -366,7 +360,7 @@ function CheckoutForm() {
         shipping_location_id: parseInt(shippingLocationId, 10),
         phone: form.phone,
         email: form.email,
-        discount_code: discountPreview?.code || undefined,
+        discount_code: discount?.code,
         notes: notes || undefined,
         policy_acceptance: { accepted: true, version: POLICY_VERSION },
       });
@@ -392,38 +386,6 @@ function CheckoutForm() {
     }
   };
 
-  const handleValidateDiscount = async () => {
-    setDiscountMessage('');
-    setDiscountPreview(null);
-    if (!discountCode.trim()) return;
-    if (!form.phone.trim()) {
-      setDiscountMessage('Enter your phone number first — codes are limited to one use per phone.');
-      return;
-    }
-
-    try {
-      const res = await validateDiscount.mutateAsync({
-        code: discountCode.trim(),
-        subtotal: itemsTotal,
-        phone: form.phone,
-      });
-      if (res.data?.valid) {
-        setDiscountPreview({
-          code: res.data.code,
-          discount_amount: res.data.discount_amount,
-          message: res.data.message,
-          subtotal: itemsTotal,
-          phone: form.phone.trim(),
-        });
-        setDiscountCode(res.data.code);
-      } else {
-        setDiscountMessage(res.data?.message || 'Discount code is invalid.');
-      }
-    } catch (err: any) {
-      setDiscountMessage(err?.message || 'Discount code is invalid.');
-    }
-  };
-
   // ── Empty ────────────────────────────────────────────────────────────────
   if (!cartLoading && items.length === 0) {
     return (
@@ -442,7 +404,8 @@ function CheckoutForm() {
   }
 
   // ── Form ─────────────────────────────────────────────────────────────────
-  const canPlaceOrder = termsAccepted && Boolean(shippingLocationId) && !cartNeedsReview && !placeOrder.isPending && !quoteQuery.isLoading;
+  // Placeable only once the current quote (for this code, phone and area) has no problems.
+  const canPlaceOrder = termsAccepted && quote != null && quote.problems.length === 0 && !quoteQuery.isFetching && !placeOrder.isPending;
 
   return (
     <div className="max-w-[1440px] mx-auto px-4 pt-[104px] pb-24 sm:px-8 lg:px-20 lg:pt-32">
@@ -620,23 +583,22 @@ function CheckoutForm() {
                   value={discountCode}
                   onChange={(e) => {
                     setDiscountCode(e.target.value.toUpperCase());
-                    setDiscountPreview(null);
-                    setDiscountMessage('');
+                    setAppliedCode('');
                   }}
                   placeholder="Enter code"
                   className={`${inputClass} flex-1 uppercase`}
                 />
                 <button
                   type="button"
-                  onClick={handleValidateDiscount}
-                  disabled={validateDiscount.isPending || !discountCode.trim()}
+                  onClick={() => setAppliedCode(discountCode.trim())}
+                  disabled={!discountCode.trim() || appliedCode === discountCode.trim()}
                   className="ui-press h-10 border border-espresso px-5 text-label-caps hover:bg-background disabled:cursor-not-allowed disabled:opacity-40"
                 >
-                  {validateDiscount.isPending ? 'Checking…' : 'Apply'}
+                  {appliedCode && quoteQuery.isFetching ? 'Checking…' : 'Apply'}
                 </button>
               </div>
-              {discountPreview && <p className="mt-2 text-[12px] text-olive">{discountPreview.message}</p>}
-              {discountMessage && <p className="mt-2 text-[12px] text-destructive">{discountMessage}</p>}
+              {discount && <p className="mt-2 text-[12px] text-olive">Discount applied</p>}
+              {discountProblem && !quoteQuery.isFetching && <p className="mt-2 text-[12px] text-destructive">{discountProblem}</p>}
             </div>
 
             <dl className="mt-6 space-y-3 border-t border-border pt-6 text-[14px]">
@@ -644,28 +606,30 @@ function CheckoutForm() {
                 <dt className="text-foreground-muted">Subtotal</dt>
                 <dd className="tabular-nums">{formatPrice(itemsTotal)}</dd>
               </div>
-              {discountPreview && (
+              {discount && (
                 <div className="flex justify-between gap-6">
-                  <dt className="text-foreground-muted">Discount ({discountPreview.code})</dt>
-                  <dd className="tabular-nums text-olive">−{formatPrice(discountPreview.discount_amount)}</dd>
+                  <dt className="text-foreground-muted">Discount ({discount.code})</dt>
+                  <dd className="tabular-nums text-olive">−{formatPrice(discount.amount)}</dd>
                 </div>
               )}
               <div className="flex justify-between gap-6">
                 <dt className="text-foreground-muted">Delivery</dt>
                 <dd className="text-right tabular-nums">
-                  {!selectedLocation ? <span className="text-foreground-muted">Select an area</span> : deliveryCost === 0 ? 'Free' : formatPrice(deliveryCost)}
+                  {!shippingLocationId ? <span className="text-foreground-muted">Select an area</span>
+                    : !delivery ? <span className="text-foreground-muted">…</span>
+                    : delivery.cost === 0 ? 'Free' : formatPrice(delivery.cost)}
                 </dd>
               </div>
             </dl>
-            {freeDeliveryThreshold > 0 && !qualifiesForFreeDelivery && (
+            {quote && quote.amount_to_free_delivery > 0 && (
               <p className="mt-3 text-[12px] text-foreground-muted">
-                {formatPrice(Math.max(0, freeDeliveryThreshold - subtotalAfterDiscount))} away from free delivery.
+                {formatPrice(quote.amount_to_free_delivery)} away from free delivery.
               </p>
             )}
 
             <div className="mt-6 flex items-baseline justify-between gap-4 border-t border-border pt-6">
               <span className="text-label-caps">Total</span>
-              <span className="text-[28px] tabular-nums" style={{ fontFamily: 'var(--font-display)' }}>{formatPrice(grandTotal)}</span>
+              <span className="text-[28px] tabular-nums" style={{ fontFamily: 'var(--font-display)' }}>{quote ? formatPrice(quote.total) : '…'}</span>
             </div>
 
             <div className="mt-6 text-sm leading-6">

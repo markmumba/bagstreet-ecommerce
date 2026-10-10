@@ -9,13 +9,16 @@
  */
 import 'dotenv/config';
 import { sql } from '../lib/db';
-import { ordersQueries } from '../features/orders/orders.queries';
 import { paymentsQueries } from '../features/payments/payments.queries';
 import { expireUnpaidOrders } from '../services/unpaid-order-expiry';
 import { summariseOrderPayments } from '../features/payments/order-balance';
 import { enqueueEmail, processEmailOutboxBatch } from '../services/email-outbox';
 import type { EmailJob } from '../services/email-jobs';
-import { applyOrderEvent } from '../features/orders/lifecycle/order-lifecycle';
+import { applyOrderEvent, createOrder } from '../features/orders/lifecycle/order-lifecycle';
+import { inventory, InsufficientStockError } from '../features/inventory/inventory';
+import { AfterCommit } from '../lib/after-commit';
+import { quoteOrder } from '../features/quote/quote.queries';
+import { staffFor } from '../features/staff-alerts/staff-alerts';
 import type { Actor } from '../features/orders/lifecycle/transitions';
 
 const results: [string, boolean, string?][] = [];
@@ -29,37 +32,64 @@ const [variant] = await sql`INSERT INTO product_variants(product_id, sku, stock,
 const [limited] = await sql`INSERT INTO discount_codes(code, value, min_order_amount, usage_limit, is_active) VALUES ('ZZLIMIT1', 10, 0, 1, true) RETURNING id`;
 const [open] = await sql`INSERT INTO discount_codes(code, value, min_order_amount, is_active) VALUES ('ZZOPEN', 10, 0, true) RETURNING id`;
 const V = Number(variant.id), PRODUCT = Number(prod.id);
+// Taking stock can raise low-stock alerts. Reserve their email dedupe keys (today and tomorrow, in
+// case the run spans midnight UTC) so no real low-stock email reaches staff; notifications are removed at the end.
+// Staff emails can never go out from this script: for every order it creates, and for the test
+// variant's low-stock alerts, the email dedupe keys are reserved first as already-skipped ZZ_TEST rows,
+// so the real emails are dropped as duplicates. (Notifications are removed at the end.)
+const staffIds: number[] = (await sql`SELECT id FROM users`).map((r: any) => Number(r.id));
+const reserveEmailKeys = async (keys: string[]) => {
+  for (const key of keys) {
+    await sql`
+      INSERT INTO email_outbox (job_type, recipient, payload, dedupe_key, status, sent_at)
+      VALUES ('ZZ_TEST', 'zz-outbox-guard@example.invalid', '{}'::jsonb, ${key}, 'SKIPPED', now())
+      ON CONFLICT DO NOTHING`;
+  }
+};
+const MONEY_ALERTS = ['PAYMENT_MISMATCH', 'REFUND_REQUIRED', 'PAYMENT_REVERSED', 'PAYMENT_INIT_FAILED'];
+const guardEmails = async (orderId: number) => reserveEmailKeys([
+  `order-confirmation:${orderId}`,
+  ...staffIds.flatMap((id) => [
+    `admin-order-confirmed:${orderId}:${id}`,
+    ...MONEY_ALERTS.map((type) => `staff-alert:${type}:${orderId}:${id}`),
+  ]),
+]);
+await reserveEmailKeys([0, 1].flatMap((offset) => {
+  const day = new Date(Date.now() + offset * 86_400_000).toISOString().slice(0, 10);
+  return ['low', 'out'].flatMap((level) => staffIds.map((id) => `low-stock:${V}:${day}:${level}:${id}`));
+}));
 
-const place = (phone: string, discountUsage?: { codeId: number; phone: string; amount: number }) =>
-  ordersQueries.create(null,
-    [{ variant_id: V, product_id: PRODUCT, quantity: 1, unit_price: 1000, variant_sku: 'ZZ-TEST-VAR', variant_size: null, variant_color: null }],
-    1000, { full_name: 'ZZ Test', phone, address_line1: 'x', city: 'x', state: 'x', postal_code: '', country: 'Kenya' } as any,
-    null, 0, undefined, discountUsage ? 'ZZ' : null, discountUsage ? 100 : 0, 'ZZ Test', phone, null,
-    discountUsage ? { discountUsage } : undefined);
+// Orders are created the way the app creates them: through the Order lifecycle.
+const CHECKOUT: Actor = { kind: 'customer', isOwner: true, via: 'checkout' };
+const codeNames = new Map([[Number(limited.id), 'ZZLIMIT1'], [Number(open.id), 'ZZOPEN']]);
+const draft = (phone: string, quantity: number, email: string | null = null) => ({
+  userId: null,
+  items: [{ variant_id: V, product_id: PRODUCT, quantity, unit_price: 1000, variant_sku: 'ZZ-TEST-VAR', variant_size: null, variant_color: null }],
+  totalAmount: 1000 * quantity,
+  shippingAddress: { full_name: 'ZZ Test', phone, address_line1: 'x', city: 'x', state: 'x', postal_code: '', country: 'Kenya' } as any,
+  shippingLocationId: null, shippingCost: 0, discountCode: null as string | null, discountAmount: 0,
+  customerName: 'ZZ Test', customerPhone: phone, customerEmail: email,
+});
+const guarded = async (created: Promise<Awaited<ReturnType<typeof createOrder>>>) => {
+  const order = await created;
+  await guardEmails(Number(order.id));
+  return order;
+};
+const place = (phone: string, discount?: { codeId: number; phone: string; amount: number }, quantity = 1) =>
+  guarded(createOrder({
+    ...draft(phone, quantity),
+    ...(discount ? { discountCode: codeNames.get(discount.codeId)!, discountAmount: discount.amount } : {}),
+  }, { type: 'placed_online' }, CHECKOUT));
 
 // Online checkout path with per-customer limits on (as the order handler does).
 const placeLimited = (phone: string, email: string) =>
-  ordersQueries.create(null,
-    [{ variant_id: V, product_id: PRODUCT, quantity: 1, unit_price: 1000, variant_sku: 'ZZ-TEST-VAR', variant_size: null, variant_color: null }],
-    1000, { full_name: 'ZZ Test', phone, address_line1: 'x', city: 'x', state: 'x', postal_code: '', country: 'Kenya' } as any,
-    null, 0, undefined, null, 0, 'ZZ Test', phone, email,
-    { customerLimits: { phone, email } });
+  guarded(createOrder({ ...draft(phone, 1, email), customerLimits: { phone, email } }, { type: 'placed_online' }, CHECKOUT));
 const reason = (r: PromiseSettledResult<unknown>) => (r.status === 'rejected' ? (r.reason as Error).message : '');
 
 try {
   // Every order change goes through the Order lifecycle, as the app does.
   const PROVIDER: Actor = { kind: 'payment_provider' };
   const SYSTEM: Actor = { kind: 'system' };
-  const staffIds: number[] = (await sql`SELECT id FROM users`).map((r: any) => Number(r.id));
-  const guardEmails = async (orderId: number) => {
-    const keys = [`order-confirmation:${orderId}`, ...staffIds.map((id) => `admin-order-confirmed:${orderId}:${id}`)];
-    for (const key of keys) {
-      await sql`
-        INSERT INTO email_outbox (job_type, recipient, payload, dedupe_key, status, sent_at)
-        VALUES ('ZZ_TEST', 'zz-outbox-guard@example.invalid', '{}'::jsonb, ${key}, 'SKIPPED', now())
-        ON CONFLICT DO NOTHING`;
-    }
-  };
   const stateOf = async (id: number) => {
     const [o] = await sql`SELECT status, payment_status FROM orders WHERE id = ${id}`;
     return `${o.status}/${o.payment_status}`;
@@ -241,6 +271,9 @@ try {
   check('lifecycle: wrong currency is held, not confirmed', (await stateOf(LFX)) === 'PENDING/HELD', await stateOf(LFX));
   const heldAlerts = (await sql`SELECT count(*)::int AS n FROM in_app_notifications WHERE type = 'PAYMENT_MISMATCH' AND data->>'order_id' IN (${String(L2)}, ${String(LFX)})`)[0].n;
   check('lifecycle: staff alerted about held payments', staffIds.length === 0 || heldAlerts >= 2, `alerts=${heldAlerts}`);
+  const [moneyStaff] = await sql`SELECT count(DISTINCT recipient_id)::int AS n FROM in_app_notifications WHERE type = 'PAYMENT_MISMATCH' AND data->>'order_id' = ${String(L2)}`;
+  const expectedMoneyStaff = (await staffFor('money')).length;
+  check('staff alerts: money problems go to admins only', moneyStaff.n === expectedMoneyStaff, `got=${moneyStaff.n} expected=${expectedMoneyStaff}`);
 
   // Late payment with stock: expiry gives back stock and the discount; the payment takes both again.
   const L3 = Number((await place('254755000003', { codeId: Number(open.id), phone: '254755000003', amount: 100 })).id);
@@ -381,6 +414,61 @@ try {
   const onlyObjects = (types: string[] | null) => !types || types.every((t) => t === 'object');
   check('jsonb columns store objects', ['shipping', 'ledger', 'notifications', 'audit'].every((k) => onlyObjects(jsonTypes[k])), JSON.stringify(jsonTypes));
   check('shipping_address readable with ->>', (await sql`SELECT shipping_address->>'full_name' AS n FROM orders WHERE id = ${L2}`)[0].n === 'ZZ Test');
+
+  // Inventory: locks, the zero floor, the movement log and threshold-crossing alerts.
+  const adjust = (delta: number) => sql.begin(async (tx: typeof sql) => {
+    const after = new AfterCommit();
+    await inventory.adjust(tx, V, delta, 'ADMIN_ADJUSTMENT', { note: 'zz test' }, after);
+  });
+  await sql`UPDATE product_variants SET stock = 2, low_stock_threshold = 5 WHERE id = ${V}`;
+  const race = await Promise.allSettled([adjust(-2), adjust(-2)]);
+  const raceErrors = race.filter((r) => r.status === 'rejected').map((r) => (r as PromiseRejectedResult).reason);
+  check('inventory: two adjustments racing → one wins, the other gets a clear 400, stock 0',
+    raceErrors.length === 1 && raceErrors[0] instanceof InsufficientStockError && raceErrors[0].message.includes('out of stock') && (await stock(V)) === 0,
+    `errors=${raceErrors.map((e) => `${e?.constructor?.name}: ${e?.message}`)} stock=${await stock(V)}`);
+
+  const lowAlerts = async () => (await sql`SELECT count(*)::int AS n FROM in_app_notifications WHERE type = 'LOW_STOCK' AND data->>'variant_id' = ${String(V)}`)[0].n as number;
+  await adjust(6);
+  const lowBefore = await lowAlerts();
+  const I1 = Number((await place('254788000001')).id);
+  const lowAfterCrossing = await lowAlerts();
+  await place('254788000002');
+  const lowAfterSecond = await lowAlerts();
+  check('inventory: low-stock alert only when the threshold is crossed (6 → 5), not again at 4',
+    staffIds.length === 0 || (lowAfterCrossing > lowBefore && lowAfterSecond === lowAfterCrossing),
+    `before=${lowBefore} crossing=${lowAfterCrossing} again=${lowAfterSecond}`);
+
+  const short = await Promise.allSettled([place('254788000003', undefined, 9)]);
+  check('inventory: an order larger than the stock is refused with a readable message, nothing taken',
+    short[0]!.status === 'rejected' && reason(short[0]!).includes('Only 4 left') && (await stock(V)) === 4, `${reason(short[0]!)} stock=${await stock(V)}`);
+
+  const [movementSum] = await sql`SELECT COALESCE(SUM(delta), 0)::int AS n FROM inventory_movements WHERE reference_id = ${I1} AND variant_id = ${V}`;
+  check('inventory: the order\'s stock movement is logged against it', movementSum.n === -1, `sum=${movementSum.n}`);
+  check('inventory: no real low-stock email queued', (await sql`SELECT count(*)::int AS n FROM email_outbox WHERE dedupe_key LIKE ${`low-stock:${V}:%`} AND recipient NOT LIKE 'zz-outbox-%'`)[0].n === 0);
+  const [stockStaff] = await sql`SELECT count(DISTINCT recipient_id)::int AS n FROM in_app_notifications WHERE type = 'LOW_STOCK' AND data->>'variant_id' = ${String(V)}`;
+  const expectedStockStaff = (await staffFor('stock')).length;
+  check('staff alerts: stock alerts reach the stock audience (admins + duty manager)', stockStaff.n === expectedStockStaff, `got=${stockStaff.n} expected=${expectedStockStaff}`);
+
+  // Order quote: one calculation for checkout, order creation and walk-ins.
+  await sql`UPDATE product_variants SET stock = 10, low_stock_threshold = 0 WHERE id = ${V}`;
+  const [zzArea] = await sql`INSERT INTO shipping_locations (name, price, is_active) VALUES ('ZZ Test Area', 250, true) RETURNING id`;
+  const ZZ_AREA = Number(zzArea.id);
+  const q1 = await quoteOrder({ items: [{ variant_id: V, quantity: 2 }], discount_code: 'zzopen', phone: '254799000001', shipping_location_id: ZZ_AREA });
+  check('quote: 2 × 1000, 10% code (rounded down), delivery 250 → 2050, nothing blocking',
+    q1.subtotal === 2000 && q1.discount?.amount === 200 && q1.delivery?.cost === (q1.qualifies_for_free_delivery ? 0 : 250)
+      && q1.total === 1800 + (q1.qualifies_for_free_delivery ? 0 : 250) && q1.problems.length === 0,
+    JSON.stringify({ subtotal: q1.subtotal, discount: q1.discount, delivery: q1.delivery, total: q1.total, problems: q1.problems }));
+  const q2 = await quoteOrder({ items: [{ variant_id: V, quantity: 1 }], discount_code: 'NOPE-ZZ', phone: '254799000001', shipping_location_id: ZZ_AREA });
+  check('quote: unknown code → no discount, a reason, order blocked', q2.discount === null && q2.discount_problem === 'Discount code was not found' && q2.problems.includes('Discount code was not found'));
+  const q3 = await quoteOrder({ items: [{ variant_id: V, quantity: 1 }], discount_code: 'ZZOPEN', phone: '254799000001' }, { mode: 'walk_in' });
+  check('quote: walk-ins refuse codes and need no delivery', q3.discount === null && q3.problems.length === 1 && q3.total === 1000, JSON.stringify(q3.problems));
+
+  // The code expires between the quote and the order: the locked re-check refuses it.
+  await sql`UPDATE discount_codes SET expires_at = now() - interval '1 minute' WHERE id = ${open.id}`;
+  const expiredAtLock = await Promise.allSettled([place('254799000002', { codeId: Number(open.id), phone: '254799000002', amount: 100 })]);
+  check('quote: a code that expired after the quote is refused when the order is created', expiredAtLock[0]!.status === 'rejected' && reason(expiredAtLock[0]!).includes('expired'), reason(expiredAtLock[0]!));
+  await sql`UPDATE discount_codes SET expires_at = NULL WHERE id = ${open.id}`;
+  await sql`DELETE FROM shipping_locations WHERE id = ${ZZ_AREA}`;
 } catch (err) {
   check('script error', false, String(err));
 } finally {
@@ -395,7 +483,9 @@ try {
     await sql`DELETE FROM orders WHERE id IN ${sql(orderIds)}`;
   }
   await sql`DELETE FROM inventory_movements WHERE variant_id = ${V}`;
+  await sql`DELETE FROM in_app_notifications WHERE data->>'variant_id' = ${String(V)}`;
   await sql`DELETE FROM discount_codes WHERE code IN ('ZZLIMIT1', 'ZZOPEN')`;
+  await sql`DELETE FROM shipping_locations WHERE name = 'ZZ Test Area'`;
   const outboxIds = (await sql`SELECT id FROM email_outbox WHERE recipient LIKE 'zz-outbox-%@example.invalid'`).map((r: any) => String(r.id));
   if (outboxIds.length) await sql`DELETE FROM in_app_notifications WHERE type = 'EMAIL_FAILED' AND data->>'outbox_id' IN ${sql(outboxIds)}`;
   await sql`DELETE FROM email_outbox WHERE recipient LIKE 'zz-outbox-%@example.invalid' OR dedupe_key = 'zz-dedupe-key'`;

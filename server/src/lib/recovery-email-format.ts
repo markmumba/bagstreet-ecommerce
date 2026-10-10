@@ -2,7 +2,7 @@ import type { CartQuoteResponse } from 'shared/dist';
 import { escapeHtml } from './template';
 import { formatEmailMoney } from './email-format';
 
-export function renderRecoveryItems(quote: CartQuoteResponse) {
+export function renderRecoveryItems(quote: Pick<CartQuoteResponse, 'lines'>) {
     return quote.lines.map(line => {
         const image = line.image_url && /^https?:\/\//i.test(line.image_url)
             ? `<img src="${escapeHtml(line.image_url)}" alt="${escapeHtml(line.product_name)}" width="72" height="88" style="display:block;width:72px;height:88px;object-fit:cover;border-radius:4px;" />` : '';

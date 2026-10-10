@@ -10,7 +10,7 @@ export interface CategoryListParams {
 
 export const categoriesService = {
   getAll: async (params?: CategoryListParams) => {
-    return apiClient.get<CategoryResponse[]>('/api/categories', params as Record<string, unknown>);
+    return apiClient.getPage<CategoryResponse>('/api/categories', params as Record<string, unknown>);
   },
 
   getById: async (id: string) => {
