@@ -9,6 +9,7 @@ export interface DiscountCodeRow {
     used_count: number;
     expires_at: string | null;
     is_active: boolean;
+    requires_account: boolean;
     created_at: string;
     updated_at: string;
 }
@@ -41,16 +42,18 @@ export const discountsQueries = {
         usage_limit?: number | null;
         expires_at?: string | null;
         is_active?: boolean;
+        requires_account?: boolean;
     }): Promise<DiscountCodeRow> => {
         const [row] = await sql<DiscountCodeRow[]>`
-            INSERT INTO discount_codes (code, value, min_order_amount, usage_limit, expires_at, is_active)
+            INSERT INTO discount_codes (code, value, min_order_amount, usage_limit, expires_at, is_active, requires_account)
             VALUES (
                 ${data.code.toUpperCase()},
                 ${data.value},
                 ${data.min_order_amount},
                 ${data.usage_limit ?? null},
                 ${data.expires_at ?? null},
-                ${data.is_active ?? true}
+                ${data.is_active ?? true},
+                ${data.requires_account ?? true}
             )
             RETURNING *
         `;
@@ -66,6 +69,7 @@ export const discountsQueries = {
             usage_limit: number | null;
             expires_at: string | null;
             is_active: boolean;
+            requires_account: boolean;
         }>
     ): Promise<DiscountCodeRow | undefined> => {
         const fields: Record<string, unknown> = {};
@@ -75,6 +79,7 @@ export const discountsQueries = {
         if ('usage_limit' in data) fields.usage_limit = data.usage_limit ?? null;
         if ('expires_at' in data) fields.expires_at = data.expires_at ?? null;
         if (data.is_active !== undefined) fields.is_active = data.is_active;
+        if (data.requires_account !== undefined) fields.requires_account = data.requires_account;
 
         const [row] = await sql<DiscountCodeRow[]>`
             UPDATE discount_codes SET ${sql(fields)}

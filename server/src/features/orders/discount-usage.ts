@@ -13,7 +13,7 @@ type Executor = typeof sql;
 export async function recordDiscountUsage(
     tx: Executor,
     orderId: number,
-    usage: { codeId: number; phone: string; amount: number; subtotal: number },
+    usage: { codeId: number; phone: string; amount: number; subtotal: number; userId: number | null },
 ) {
     const [code] = await tx<(DiscountRuleCode & { id: number })[]>`
         SELECT * FROM discount_codes WHERE id = ${usage.codeId} FOR UPDATE
@@ -21,13 +21,21 @@ export async function recordDiscountUsage(
     const [alreadyUsed] = await tx`
         SELECT 1 FROM discount_code_usages WHERE code_id = ${usage.codeId} AND phone = ${usage.phone} LIMIT 1
     `;
-    const verdict = evaluateDiscount(code, { subtotal: usage.subtotal, phoneAlreadyUsed: Boolean(alreadyUsed) });
+    const [accountUsed] = usage.userId != null
+        ? await tx`SELECT 1 FROM discount_code_usages WHERE code_id = ${usage.codeId} AND user_id = ${usage.userId} LIMIT 1`
+        : [];
+    const verdict = evaluateDiscount(code, {
+        subtotal: usage.subtotal,
+        phoneAlreadyUsed: Boolean(alreadyUsed),
+        signedIn: usage.userId != null,
+        accountAlreadyUsed: Boolean(accountUsed),
+    });
     if (!verdict.ok) throw new BadRequestError(verdict.reason);
     if (verdict.amount !== usage.amount) throw new BadRequestError('This discount has changed. Please review your order.');
 
     await tx`
-        INSERT INTO discount_code_usages (code_id, order_id, phone, discount_amount)
-        VALUES (${usage.codeId}, ${orderId}, ${usage.phone}, ${usage.amount})
+        INSERT INTO discount_code_usages (code_id, order_id, phone, discount_amount, user_id)
+        VALUES (${usage.codeId}, ${orderId}, ${usage.phone}, ${usage.amount}, ${usage.userId})
     `;
     await tx`UPDATE discount_codes SET used_count = used_count + 1 WHERE id = ${usage.codeId}`;
 }
@@ -50,7 +58,7 @@ export async function releaseDiscountUsage(tx: Executor, orderId: number) {
  */
 export async function claimOrderDiscount(
     tx: Executor,
-    order: { id: number; discount_code?: string | null; discount_amount?: string | number | null; customer_phone?: string | null },
+    order: { id: number; user_id?: number | null; discount_code?: string | null; discount_amount?: string | number | null; customer_phone?: string | null },
     allowOverLimit: boolean,
 ) {
     const amount = Number(order.discount_amount ?? 0);
@@ -67,13 +75,15 @@ export async function claimOrderDiscount(
 
     if (!allowOverLimit) {
         const [items] = await tx<{ subtotal: string }[]>`SELECT COALESCE(SUM(subtotal), 0) AS subtotal FROM order_items WHERE order_id = ${order.id}`;
-        await recordDiscountUsage(tx, order.id, { codeId: code.id, phone, amount, subtotal: Number(items?.subtotal ?? 0) });
+        await recordDiscountUsage(tx, order.id, {
+            codeId: code.id, phone, amount, subtotal: Number(items?.subtotal ?? 0), userId: order.user_id != null ? Number(order.user_id) : null,
+        });
         return;
     }
     const inserted = await tx`
-        INSERT INTO discount_code_usages (code_id, order_id, phone, discount_amount)
-        VALUES (${code.id}, ${order.id}, ${phone}, ${amount})
-        ON CONFLICT (code_id, phone) DO NOTHING
+        INSERT INTO discount_code_usages (code_id, order_id, phone, discount_amount, user_id)
+        VALUES (${code.id}, ${order.id}, ${phone}, ${amount}, ${order.user_id ?? null})
+        ON CONFLICT DO NOTHING
         RETURNING id
     `;
     if (inserted.length > 0) {

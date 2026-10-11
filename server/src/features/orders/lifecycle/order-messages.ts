@@ -88,6 +88,12 @@ export async function paymentFailedJob(order: any, reason?: string | null): Prom
     };
 }
 
+export async function orderExpiredJob(order: any): Promise<EmailJob | null> {
+    const customer = await customerOf(order);
+    if (!customer.email) return null;
+    return { type: 'ORDER_EXPIRED', to: customer.email, name: customer.name, orderRef: order.order_number ?? `#${order.id}` };
+}
+
 /** In-app notification type and wording for each staff alert the lifecycle raises. */
 export function staffAlert(
     kind: StaffAlertKind,

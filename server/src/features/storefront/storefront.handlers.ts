@@ -3,6 +3,7 @@ import { success } from '@server/lib/response';
 import { NotFoundError, ValidationError } from '@server/lib/errors';
 import { cartQuoteSchema } from '../quote/quote';
 import { quoteOrder } from '../quote/quote.queries';
+import { getOptionalUser } from '@server/lib/hono';
 import { categoriesQueries } from '../categories/categories.queries';
 import { productsQueries } from '../products/products.queries';
 import { catalogPagination, catalogQuerySchema } from './catalog.schema';
@@ -169,6 +170,7 @@ export const storefrontHandlers = {
             throw new ValidationError('Invalid cart', validated.error.errors);
         }
 
-        return success(c, await quoteOrder(validated.data));
+        const user = getOptionalUser(c);
+        return success(c, await quoteOrder({ ...validated.data, userId: user ? Number(user.sub) : null }));
     },
 };

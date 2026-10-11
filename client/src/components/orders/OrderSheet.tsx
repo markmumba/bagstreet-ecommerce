@@ -23,7 +23,7 @@ const STATUS_LABELS: Record<OrderStatus, string> = {
   [ORDER_STATUS.PENDING]: 'Pending',
   [ORDER_STATUS.CONFIRMED]: 'Confirmed',
   [ORDER_STATUS.PROCESSING]: 'Processing',
-  [ORDER_STATUS.SHIPPED]: 'Shipped',
+  [ORDER_STATUS.SHIPPED]: 'Out for delivery',
   [ORDER_STATUS.DELIVERED]: 'Received',
   [ORDER_STATUS.CANCELLED]: 'Cancelled',
   [ORDER_STATUS.REFUNDED]: 'Refunded',
@@ -43,6 +43,8 @@ function actionLabel(action: OrderAction, order: OrderResponse) {
   switch (action) {
     case ORDER_ACTION.MARK_PAID:
       return order.payment_status === PAYMENT_STATUS.HELD ? 'Accept payment' : 'Mark as paid';
+    case ORDER_ACTION.MARK_DISPATCHED:
+      return 'Out for delivery';
     case ORDER_ACTION.MARK_DELIVERED:
       return 'Mark received';
     case ORDER_ACTION.CANCEL:
@@ -156,7 +158,8 @@ export function OrderSheet({ order, open, onOpenChange }: OrderSheetProps) {
     if (action === ORDER_ACTION.MARK_PAID) {
       return run(() => confirmPayment.mutateAsync({ id: current.id }), 'Failed to mark as paid');
     }
-    return run(() => updateStatus.mutateAsync({ id: current.id, status: ORDER_STATUS.DELIVERED }), 'Failed to update order');
+    const status = action === ORDER_ACTION.MARK_DISPATCHED ? ORDER_STATUS.SHIPPED : ORDER_STATUS.DELIVERED;
+    return run(() => updateStatus.mutateAsync({ id: current.id, status }), 'Failed to update order');
   };
 
   if (!current) return null;

@@ -13,6 +13,8 @@ const discountSchema = z.object({
     usage_limit: z.coerce.number().int().positive().nullable().optional(),
     expires_at: z.string().datetime().nullable().optional(),
     is_active: z.boolean().optional(),
+    /** Only signed-in customers may use it, once per account. */
+    requires_account: z.boolean().optional(),
 });
 
 const updateDiscountSchema = discountSchema.partial();
@@ -27,6 +29,7 @@ function toResponse(row: DiscountCodeRow): DiscountCodeResponse {
         used_count: row.used_count,
         expires_at: row.expires_at ?? undefined,
         is_active: row.is_active,
+        requires_account: row.requires_account,
         created_at: row.created_at,
         updated_at: row.updated_at,
     };

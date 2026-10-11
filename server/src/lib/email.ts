@@ -274,6 +274,27 @@ export async function sendLowStockEmail(
 }
 
 
+/** The unpaid order expired and its items were released. */
+export async function sendOrderExpiredEmail(to: string, name: string, orderRef: string) {
+    if (!emailDeliveryConfigured()) {
+        console.log(`[DEV] Order expired email for ${name} <${to}> - ${orderRef}`);
+        return;
+    }
+    const shopUrl = new URL('/shop', env.STOREFRONT_URL).toString();
+    const supportUrl = new URL('https://wa.me/254748096887');
+    supportUrl.searchParams.set('text', `Hi BagStreet, I have a question about order ${orderRef}.`);
+    const html = await renderEmail('order-expired', {
+        title: `Your order ${orderRef} has expired`,
+        preheader: `We didn't receive payment in time, so ${orderRef} was cancelled. You haven't been charged.`,
+        name,
+        orderRef,
+        shopUrl,
+        supportUrl: supportUrl.toString(),
+    });
+    const text = `Hi ${name},\n\nWe didn't receive payment for order ${orderRef} in time, so it has been cancelled and its items were released. You haven't been charged.\n\nStill want them? Place a new order whenever you're ready:\n${shopUrl}\n\nIf money did leave your account for this order, don't pay again: contact us with your order number.\n${supportUrl.toString()}`;
+    await send(to, `Your Bagstreet order ${orderRef} has expired`, html, text);
+}
+
 /** A staff alert that needs someone to act (a held or reversed payment, a refund owed). */
 export async function sendStaffAlertEmail(to: string, name: string, eyebrow: string, heading: string, message: string, linkPath: string) {
     const actionUrl = buildAdminUrl(linkPath);

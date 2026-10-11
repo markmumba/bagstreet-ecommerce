@@ -26,6 +26,7 @@ import { env } from '../../config/env';
 import { verifyOrderReceivedToken } from '../../lib/order-received-token';
 import { normalizeShippingAddress } from '../../lib/shipping-address';
 import { auditFromContext } from '@server/lib/audit';
+import { getClientIp } from '@server/lib/client-ip';
 import { randomUUID } from 'node:crypto';
 import { resolveUnitPrice, saleIsActive } from '@server/lib/pricing';
 import { createOrderAccessToken, orderTokenRef } from '../../lib/order-received-token';
@@ -95,6 +96,11 @@ function toOrderResponse(order: any, items: any[]): OrderResponse {
         created_at: order.created_at,
         updated_at: order.updated_at,
     };
+}
+
+/** Where the request came from, recorded on the audit entries the lifecycle writes. */
+function requestOf(c: AppContext) {
+    return { ip: getClientIp(c), userAgent: c.req.header('user-agent') ?? null };
 }
 
 function staffActor(c: AppContext): Actor {
@@ -240,7 +246,7 @@ export const ordersHandlers = {
             reason: validated.data.reason,
             externalReference: validated.data.external_reference,
             idempotencyKey: validated.data.idempotency_key,
-        }, staffActor(c)));
+        }, staffActor(c), { request: requestOf(c) }));
         // A repeat of the same form submission changes nothing.
         const recorded = !(result.outcome === 'unchanged' && result.noop);
 
@@ -442,7 +448,7 @@ export const ordersHandlers = {
             },
             { type: 'walk_in_sale', amount: totalAmount, currency: env.PESAPAL_CURRENCY, reference: paymentReference },
             staffActor(c),
-            { paymentMetadata: { source: ORDER_SOURCE.WALK_IN, payment_method: validated.data.payment_method, recorded_by: actor.email } });
+            { paymentMetadata: { source: ORDER_SOURCE.WALK_IN, payment_method: validated.data.payment_method, recorded_by: actor.email }, request: requestOf(c) });
         } catch (err: any) {
             // Stock shortfalls and missing variants arrive as typed errors from Inventory.
             if (err instanceof AppError) throw err;
@@ -483,6 +489,7 @@ export const ordersHandlers = {
             discount_code: validated.data.discount_code,
             phone: normalizedPhone,
             shipping_location_id: validated.data.shipping_location_id,
+            userId: authUser ? Number(authUser.sub) : null,
         });
         if (quote.problems.length > 0) throw new BadRequestError(quote.problems[0]!);
         const itemsWithPrice = orderItemsFromQuote(quote);
@@ -510,7 +517,7 @@ export const ordersHandlers = {
                 policyAcceptance: validated.data.policy_acceptance,
                 recoverySessionHash: recoverySessionHash(c) ?? undefined,
                 recoverySourceOrderId: recoverySourceOrderId(c) ?? undefined,
-            }, { type: 'placed_online' }, { kind: 'customer', isOwner: true, via: 'checkout' });
+            }, { type: 'placed_online' }, { kind: 'customer', isOwner: true, via: 'checkout' }, { request: requestOf(c) });
         } catch (err: any) {
             // Discount and order-limit errors are thrown inside the transaction — nothing was saved.
             if (err instanceof AppError) throw err;
@@ -579,7 +586,7 @@ export const ordersHandlers = {
         );
     },
 
-    /** Admin status changes, as Order events: cancel or mark received. Everything else follows payments and refunds. */
+    /** Admin status changes, as Order events: cancel, out for delivery, or mark received. Everything else follows payments and refunds. */
     updateStatus: async (c: AppContext) => {
         const id = parseInt(c.req.param('id')!);
         const body = await c.req.json();
@@ -598,8 +605,11 @@ export const ordersHandlers = {
 
         requireAllowed(await applyOrderEvent(
             id,
-            target === ORDER_STATUS.CANCELLED ? { type: 'cancelled', reason: validated.data.reason } : { type: 'delivered' },
+            target === ORDER_STATUS.CANCELLED ? { type: 'cancelled', reason: validated.data.reason }
+                : target === ORDER_STATUS.SHIPPED ? { type: 'dispatched' }
+                : { type: 'delivered' },
             staffActor(c),
+            { request: requestOf(c) },
         ));
         return success(c, await orderResponse(id), 'Order status updated');
     },
@@ -619,14 +629,14 @@ export const ordersHandlers = {
             kind: 'customer',
             isOwner: order.user_id != null && String(order.user_id) === sub,
             via: 'account',
-        }));
+        }, { request: requestOf(c) }));
         return success(c, await orderResponse(id), 'Order cancelled');
     },
 
     /** Admin "Mark as paid": the customer paid some other way, or staff accept a held payment. */
     confirmPayment: async (c: AppContext) => {
         const id = parseInt(c.req.param('id')!);
-        const result = requireAllowed(await applyOrderEvent(id, { type: 'marked_paid' }, staffActor(c)));
+        const result = requireAllowed(await applyOrderEvent(id, { type: 'marked_paid' }, staffActor(c), { request: requestOf(c) }));
         return success(c, await orderResponse(id), result.outcome === 'changed' ? 'Payment marked as paid' : 'Order payment is already confirmed');
     },
 
@@ -637,7 +647,7 @@ export const ordersHandlers = {
         const validated = writeOffSchema.safeParse(body);
         if (!validated.success) throw new ValidationError('Say why it is being written off', validated.error.errors);
 
-        requireAllowed(await applyOrderEvent(id, { type: 'written_off', note: validated.data.note }, staffActor(c)));
+        requireAllowed(await applyOrderEvent(id, { type: 'written_off', note: validated.data.note }, staffActor(c), { request: requestOf(c) }));
         return success(c, await orderResponse(id), 'Reversal written off');
     },
 
@@ -653,7 +663,7 @@ export const ordersHandlers = {
 
         const order = await findOrderByParam(ref);
         const id = Number(order.id);
-        requireAllowed(await applyOrderEvent(id, { type: 'delivered' }, { kind: 'customer', isOwner: true, via: 'received_link' }));
+        requireAllowed(await applyOrderEvent(id, { type: 'delivered' }, { kind: 'customer', isOwner: true, via: 'received_link' }, { request: requestOf(c) }));
         return success(c, await orderResponse(id), 'Thanks — your order has been marked as received');
     },
 };

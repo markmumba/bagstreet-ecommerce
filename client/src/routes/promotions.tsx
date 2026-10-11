@@ -57,6 +57,7 @@ function PromotionsPage() {
     min_order_amount: '0',
     usage_limit: '',
     expires_at: '',
+    requires_account: true,
   });
   const [thresholdInput, setThresholdInput] = useState('');
   const [error, setError] = useState('');
@@ -76,8 +77,9 @@ function PromotionsPage() {
         usage_limit: form.usage_limit ? Number(form.usage_limit) : null,
         expires_at: form.expires_at ? new Date(form.expires_at).toISOString() : null,
         is_active: true,
+        requires_account: form.requires_account,
       });
-      setForm({ code: '', value: '', min_order_amount: '0', usage_limit: '', expires_at: '' });
+      setForm({ code: '', value: '', min_order_amount: '0', usage_limit: '', expires_at: '', requires_account: true });
     } catch (err: any) {
       setError(err?.message || 'Failed to create discount code');
     }
@@ -163,6 +165,20 @@ function PromotionsPage() {
                     className="h-10 rounded-md border bg-background px-3 text-sm"
                   />
                 </div>
+                <label className="flex items-start gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={form.requires_account}
+                    onChange={(e) => setForm((f) => ({ ...f, requires_account: e.target.checked }))}
+                    className="mt-0.5 h-4 w-4"
+                  />
+                  <span>
+                    Customers must be signed in
+                    <span className="block text-xs text-muted-foreground">
+                      Each account can use the code once. Turn off for a code you send to one person.
+                    </span>
+                  </span>
+                </label>
                 <Button type="submit" disabled={createDiscount.isPending}>
                   {createDiscount.isPending ? 'Creating...' : 'Create Code'}
                 </Button>
@@ -211,6 +227,7 @@ function PromotionsPage() {
                         <Badge variant={discount.is_active ? 'success' : 'neutral'}>
                           {discount.is_active ? 'active' : 'inactive'}
                         </Badge>
+                        <Badge variant="neutral">{discount.requires_account ? 'signed-in only' : 'anyone'}</Badge>
                       </div>
                       <p className="mt-1 text-sm text-muted-foreground">
                         {discount.value}% off · min {formatPrice(discount.min_order_amount)} · used {discount.used_count}

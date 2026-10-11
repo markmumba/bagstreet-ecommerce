@@ -84,6 +84,70 @@ interface DashboardOverview {
   payment_issues: DashboardOrderItem[];
   stock_risks: DashboardStockRisk[];
   top_products: DashboardTopProduct[];
+  launch_metrics: LaunchMetrics;
+}
+
+interface LaunchMetrics {
+  payment_success: { placed: number; paid: number; rate: number | null; window_days: number; target: number };
+  checkout_completion: { started: number; placed: number; rate: number | null; window_days: number; target: number };
+  dispatch_minutes: { median: number | null; dispatched: number; window_days: number; target: number };
+}
+
+/** The PRD's 90-day success metrics that the data can measure, each against its target. */
+function LaunchMetricsCard({ metrics }: { metrics: LaunchMetrics }) {
+  const { payment_success: pay, checkout_completion: checkout, dispatch_minutes: dispatch } = metrics;
+  const percent = (rate: number | null) => (rate == null ? '—' : `${Math.round(rate * 100)}%`);
+  const tiles = [
+    {
+      label: 'Payment success',
+      value: percent(pay.rate),
+      met: pay.rate == null ? null : pay.rate >= pay.target,
+      target: `Target ${Math.round(pay.target * 100)}%`,
+      detail: `${numberFormatter.format(pay.paid)} of ${numberFormatter.format(pay.placed)} online orders paid · last ${pay.window_days} days`,
+    },
+    {
+      label: 'Checkout completion',
+      value: percent(checkout.rate),
+      met: checkout.rate == null ? null : checkout.rate >= checkout.target,
+      target: `Target ${Math.round(checkout.target * 100)}%`,
+      detail: `${numberFormatter.format(checkout.placed)} orders from ${numberFormatter.format(checkout.started)} bags saved at checkout · last ${checkout.window_days} days`,
+    },
+    {
+      label: 'Payment to dispatch',
+      value: dispatch.median == null ? '—' : `${numberFormatter.format(dispatch.median)} min`,
+      met: dispatch.median == null ? null : dispatch.median <= dispatch.target,
+      target: `Target ≤ ${dispatch.target} min (median)`,
+      detail: dispatch.dispatched > 0
+        ? `${numberFormatter.format(dispatch.dispatched)} orders marked "Out for delivery" · last ${dispatch.window_days} days`
+        : 'Press "Out for delivery" on an order when the rider leaves',
+    },
+  ];
+  return (
+    <Card>
+      <CardHeader className="pb-0">
+        <CardTitle className="text-base">Launch metrics</CardTitle>
+        <p className="text-sm text-muted-foreground">The PRD's success targets for the first 90 days. Platform share of all orders is tracked by hand.</p>
+      </CardHeader>
+      <CardContent>
+        <div className="grid gap-3 md:grid-cols-3">
+          {tiles.map((tile) => (
+            <div key={tile.label} className="rounded-lg border border-border px-4 py-3">
+              <p className="text-xs text-muted-foreground">{tile.label}</p>
+              <p className={cn(
+                'mt-1 text-2xl font-semibold tabular-nums',
+                tile.met === true && 'text-[var(--color-success-text)]',
+                tile.met === false && 'text-[var(--color-warning-text)]',
+              )}>
+                {tile.value}
+              </p>
+              <p className="mt-1 text-xs font-medium">{tile.target}</p>
+              <p className="mt-1 text-xs text-muted-foreground">{tile.detail}</p>
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  );
 }
 
 const currencyFormatter = new Intl.NumberFormat('en-KE', {
@@ -528,6 +592,8 @@ function DashboardPage() {
                 tone={overview.summary.out_of_stock_variants > 0 ? 'danger' : overview.summary.low_stock_variants > 0 ? 'warning' : 'success'}
               />
             </div>
+
+            <LaunchMetricsCard metrics={overview.launch_metrics} />
 
             <div className="grid gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(340px,1fr)]">
               <RevenueChart data={overview.revenue_trend} />

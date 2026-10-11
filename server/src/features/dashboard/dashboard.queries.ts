@@ -1,5 +1,6 @@
 import { sql } from '@server/lib/db';
 import { ORDER_STATUS, PAYMENT_STATUS } from 'shared/dist';
+import { env } from '@server/config/env';
 
 type Numeric = number | string | null | undefined;
 
@@ -23,6 +24,17 @@ export interface DashboardOverview {
     payment_issues: DashboardOrderItem[];
     stock_risks: DashboardStockRisk[];
     top_products: DashboardTopProduct[];
+    launch_metrics: LaunchMetrics;
+}
+
+/** The PRD's MVP success metrics that the data can measure (see docs/roadmap.md). */
+export interface LaunchMetrics {
+    /** Online orders past their payment window, last 30 days: how many were paid. Target 80%. */
+    payment_success: { placed: number; paid: number; rate: number | null; window_days: number; target: number };
+    /** Orders placed vs bags saved at checkout, last 7 days (saved bags are kept 7 days). Target 60%. */
+    checkout_completion: { started: number; placed: number; rate: number | null; window_days: number; target: number };
+    /** Median minutes from payment to "Out for delivery", last 30 days. Target 15. */
+    dispatch_minutes: { median: number | null; dispatched: number; window_days: number; target: number };
 }
 
 export interface DashboardOrderItem {
@@ -267,8 +279,36 @@ export const dashboardQueries = {
             LIMIT 5
         `;
 
+        const [metrics] = await sql<{ placed: string; paid: string; started: string; placed_7d: string; dispatched: string; median_dispatch: string | null }[]>`
+            SELECT
+                (SELECT count(*) FROM orders WHERE order_source = 'ONLINE'
+                    AND created_at >= now() - interval '30 days'
+                    AND created_at < now() - (${env.UNPAID_ORDER_TTL_MINUTES} * interval '1 minute')) AS placed,
+                (SELECT count(*) FROM orders WHERE order_source = 'ONLINE' AND paid_at IS NOT NULL
+                    AND created_at >= now() - interval '30 days'
+                    AND created_at < now() - (${env.UNPAID_ORDER_TTL_MINUTES} * interval '1 minute')) AS paid,
+                (SELECT count(*) FROM cart_recovery_snapshots WHERE created_at >= now() - interval '7 days') AS started,
+                (SELECT count(*) FROM orders WHERE order_source = 'ONLINE' AND created_at >= now() - interval '7 days') AS placed_7d,
+                (SELECT count(*) FROM orders WHERE dispatched_at >= now() - interval '30 days' AND paid_at IS NOT NULL) AS dispatched,
+                (SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM dispatched_at - paid_at) / 60)
+                    FROM orders WHERE dispatched_at >= now() - interval '30 days' AND paid_at IS NOT NULL) AS median_dispatch
+        `;
+        const rate = (part: number, whole: number) => (whole > 0 ? Math.min(1, part / whole) : null);
+        const placed = toInt(metrics?.placed), paid = toInt(metrics?.paid);
+        const started = toInt(metrics?.started), placed7d = toInt(metrics?.placed_7d);
+
         return {
             generated_at: new Date().toISOString(),
+            launch_metrics: {
+                payment_success: { placed, paid, rate: rate(paid, placed), window_days: 30, target: 0.8 },
+                checkout_completion: { started, placed: placed7d, rate: rate(placed7d, started), window_days: 7, target: 0.6 },
+                dispatch_minutes: {
+                    median: metrics?.median_dispatch != null ? Math.round(Number(metrics.median_dispatch)) : null,
+                    dispatched: toInt(metrics?.dispatched),
+                    window_days: 30,
+                    target: 15,
+                },
+            },
             summary: {
                 paid_revenue_today: toNumber(summary?.paid_revenue_today),
                 paid_revenue_7d: toNumber(summary?.paid_revenue_7d),

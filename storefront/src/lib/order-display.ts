@@ -35,7 +35,7 @@ export const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
   [ORDER_STATUS.PENDING]: 'Pending',
   [ORDER_STATUS.CONFIRMED]: 'Confirmed',
   [ORDER_STATUS.PROCESSING]: 'Processing',
-  [ORDER_STATUS.SHIPPED]: 'Shipped',
+  [ORDER_STATUS.SHIPPED]: 'On its way',
   [ORDER_STATUS.DELIVERED]: 'Received',
   [ORDER_STATUS.CANCELLED]: 'Cancelled',
   [ORDER_STATUS.REFUNDED]: 'Refunded',

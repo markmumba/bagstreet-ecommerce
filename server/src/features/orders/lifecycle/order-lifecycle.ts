@@ -26,7 +26,7 @@ import {
     ALL_STATES, adminActions, decide, decideCreation,
     type Actor, type AdminAction, type DecisionContext, type Effect, type NotAllowedReason, type OrderEvent, type OrderState,
 } from './transitions';
-import { orderConfirmationJob, paymentFailedJob, staffAlert, staffOrderConfirmedEmail } from './order-messages';
+import { orderConfirmationJob, orderExpiredJob, paymentFailedJob, staffAlert, staffOrderConfirmedEmail } from './order-messages';
 import { alertStaff } from '../../staff-alerts/staff-alerts';
 
 type Executor = typeof sql;
@@ -36,6 +36,8 @@ export interface ApplyOptions {
     paymentTransactionId?: number | null;
     /** Extra provider details stored on a recorded capture (tracking ids, payment method…). */
     paymentMetadata?: Record<string, unknown>;
+    /** Where an action from the dashboard or storefront came from, for the audit log. */
+    request?: { ip: string | null; userAgent: string | null };
     /** Extra details for the audit log entry (e.g. why the expiry job acted). */
     auditMetadata?: Record<string, unknown>;
 }
@@ -112,6 +114,7 @@ export async function applyOrderEvent(orderId: number, event: OrderEvent, actor:
             SET status = ${next.status},
                 payment_status = ${next.payment},
                 paid_at = CASE WHEN ${next.payment === PAYMENT_STATUS.PAID} THEN COALESCE(paid_at, CURRENT_TIMESTAMP) ELSE paid_at END,
+                dispatched_at = CASE WHEN ${next.status === 'SHIPPED'} THEN COALESCE(dispatched_at, CURRENT_TIMESTAMP) ELSE dispatched_at END,
                 updated_at = CURRENT_TIMESTAMP
             WHERE id = ${order.id}
             RETURNING *
@@ -134,7 +137,7 @@ export async function createOrder(
     draft: OrderDraft,
     event: CreationEvent,
     actor: Actor,
-    options: Pick<ApplyOptions, 'paymentMetadata'> = {},
+    options: Pick<ApplyOptions, 'paymentMetadata' | 'request'> = {},
 ): Promise<OrderRow> {
     const decision = decideCreation(event, actor, 'new');
     if (decision.kind === 'not_allowed') throw new ForbiddenError(decision.message);
@@ -285,7 +288,9 @@ async function applyEffect(run: Run, effect: Effect): Promise<void> {
         case 'email_customer': {
             const job = effect.kind === 'order_confirmation'
                 ? await orderConfirmationJob(order, await ordersQueries.findItemsByOrderId(orderId))
-                : await paymentFailedJob(order, run.event.type === 'payment_failed' ? run.event.reason : null);
+                : effect.kind === 'order_expired'
+                    ? await orderExpiredJob(order)
+                    : await paymentFailedJob(order, run.event.type === 'payment_failed' ? run.event.reason : null);
             if (!job) return;
             if (await enqueueEmail(job, { tx, dedupeKey: effect.dedupeKey })) run.after.wakeOutbox();
             return;
@@ -334,6 +339,8 @@ async function applyEffect(run: Run, effect: Effect): Promise<void> {
                     ...(effect.note ? { note: effect.note } : {}),
                     ...run.options.auditMetadata,
                 },
+                ipAddress: run.options.request?.ip ?? null,
+                userAgent: run.options.request?.userAgent ?? null,
             }, tx);
             return;
     }

@@ -8,6 +8,7 @@ export interface DiscountCodeInput {
   usage_limit?: number | null;
   expires_at?: string | null;
   is_active?: boolean;
+  requires_account?: boolean;
 }
 
 export const promotionsService = {

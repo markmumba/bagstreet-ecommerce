@@ -52,13 +52,13 @@ real customers; sections 2–4 can follow launch.
 
 ---
 
-## 3. Decisions to make
+## 3. Decisions (made 10 Oct 2026)
 
-- [ ] Email customers when an unpaid order expires? (easy to add on the expiry path)
-- [ ] Percentage discount codes require an account? ("one use per phone" is easy to get around)
-- [ ] Refunds are recorded after staff send the money; call Pesapal's refund API instead?
-- [ ] Keep the staff IP address and browser in audit entries for order actions? (dropped when refunds moved to the lifecycle)
-- [ ] How to measure the PRD success metrics (checkout completion, payment success rate, time to dispatch). Nothing collects these yet
+- [x] Email customers when an unpaid order expires: **yes**, a short service email from the expiry transaction
+- [x] Discount codes require an account: **per-code setting, on by default**, one use per account on top of one per phone
+- [x] Pesapal refund API: **not for launch**. Its API refunds mobile money only in full, once per payment, after approval in Pesapal, so refunds stay recorded by hand. Revisit after launch if full refunds are common (a "Refund via Pesapal" button for full refunds of Pesapal payments)
+- [x] Staff IP address and browser on order audit entries: **yes**, restored
+- [x] PRD success metrics: **Launch metrics card** on the dashboard (payment success, checkout completion, payment-to-dispatch) and an **"Out for delivery"** step that records dispatch time; platform share of all orders tracked by hand
 
 ---
 

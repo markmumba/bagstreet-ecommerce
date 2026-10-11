@@ -8,6 +8,7 @@ import {
     sendPasswordResetEmail,
     sendOrderAgreementEmail,
     sendStaffAlertEmail,
+    sendOrderExpiredEmail,
 } from '../lib/email';
 import { deliverRecoveryReminder } from '../features/cart-recovery/recovery.delivery';
 import { archivedAgreement } from '../features/compliance/order-agreement';
@@ -57,6 +58,7 @@ export type EmailJob =
         itemCount: number;
     }
     | { type: 'PAYMENT_FAILED'; to: string; name: string; orderId: number; orderRef?: string; reason?: string | null }
+    | { type: 'ORDER_EXPIRED'; to: string; name: string; orderRef: string }
     | { type: 'PASSWORD_RESET'; to: string; name: string; resetUrl: string }
     | { type: 'STAFF_ALERT'; to: string; name: string; eyebrow: string; heading: string; message: string; linkPath: string };
 
@@ -87,6 +89,9 @@ export async function sendEmailJob(job: EmailJob): Promise<void | boolean> {
                 job.confirmReceivedUrl,
                 job.orderRef,
             );
+            break;
+        case 'ORDER_EXPIRED':
+            await sendOrderExpiredEmail(job.to, job.name, job.orderRef);
             break;
         case 'STAFF_ALERT':
             await sendStaffAlertEmail(job.to, job.name, job.eyebrow, job.heading, job.message, job.linkPath);

@@ -221,7 +221,7 @@ For the edge case where Pesapal shows payment success but the automated callback
 | A1 | Secure login (JWT, invite-only) | Must |
 | A2 | Dashboard: KPI cards, revenue chart, order status chart, low-stock table | Must |
 | A3 | Orders: list, filter by status, view detail sheet, update status | Must |
-| A3a | Order lifecycle: unpaid `PENDING`, paid `CONFIRMED`, customer/admin-confirmed `RECEIVED`, plus `CANCELLED` and `REFUNDED` | Must |
+| A3a | Order lifecycle: unpaid `PENDING`, paid `CONFIRMED`, "Out for delivery" (`SHIPPED`, records dispatch time), customer/admin-confirmed `RECEIVED`, plus `CANCELLED` and `REFUNDED` | Must |
 | A3a | Orders: "Mark as Paid" action for PENDING/UNPAID orders (admin/manager) | Must |
 | A4 | Orders: export to CSV | Must |
 | A5 | Products: CRUD, image upload, category assignment | Must |

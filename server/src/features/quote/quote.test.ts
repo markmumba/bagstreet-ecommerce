@@ -166,7 +166,7 @@ describe('buildQuote: discount, delivery and total', () => {
 
     test('online total: subtotal − discount (rounded down) + delivery', () => {
         const quote = buildCartQuote(bag, [row()], 0, NOW, {
-            discount: { requested: 'welcome10', code: code(), phone: '254700000001', phoneAlreadyUsed: false },
+            discount: { requested: 'welcome10', code: code(), phone: '254700000001', phoneAlreadyUsed: false, signedIn: true, accountAlreadyUsed: false },
             delivery: { requestedId: 3, location: nairobi },
         });
         expect(quote.discount).toEqual({ code: 'WELCOME10', amount: 390 });
@@ -178,7 +178,7 @@ describe('buildQuote: discount, delivery and total', () => {
     test('free delivery is judged before the discount, so the bag page promise holds', () => {
         // Threshold 3,800: the 3,900 bag qualifies, even though 10% off brings it to 3,510.
         const quote = buildCartQuote(bag, [row()], 3800, NOW, {
-            discount: { requested: 'WELCOME10', code: code(), phone: '254700000001', phoneAlreadyUsed: false },
+            discount: { requested: 'WELCOME10', code: code(), phone: '254700000001', phoneAlreadyUsed: false, signedIn: true, accountAlreadyUsed: false },
             delivery: { requestedId: 3, location: nairobi },
         });
         expect(quote.qualifies_for_free_delivery).toBe(true);
@@ -187,7 +187,7 @@ describe('buildQuote: discount, delivery and total', () => {
     });
 
     test('a code needs the phone number (one use per phone)', () => {
-        const quote = buildCartQuote(bag, [row()], 0, NOW, { discount: { requested: 'WELCOME10', code: code(), phone: null, phoneAlreadyUsed: false } });
+        const quote = buildCartQuote(bag, [row()], 0, NOW, { discount: { requested: 'WELCOME10', code: code(), phone: null, phoneAlreadyUsed: false, signedIn: true, accountAlreadyUsed: false } });
         expect(quote.discount).toBeNull();
         expect(quote.discount_problem).toContain('phone number');
         expect(quote.problems).toContain(quote.discount_problem!);
@@ -211,6 +211,24 @@ describe('buildQuote: discount, delivery and total', () => {
         expect(quote.problems).toHaveLength(1);
     });
 
+    test('a signed-in-only code needs an account, once per account', () => {
+        const withAccount = (signedIn: boolean, accountAlreadyUsed = false) => buildCartQuote(bag, [row()], 0, NOW, {
+            discount: { requested: 'WELCOME10', code: code({ requires_account: true }), phone: '254700000001', phoneAlreadyUsed: false, signedIn, accountAlreadyUsed },
+            delivery: { requestedId: 3, location: nairobi },
+        });
+        expect(withAccount(false).discount_problem).toBe('Sign in to use this code');
+        expect(withAccount(true).discount).toEqual({ code: 'WELCOME10', amount: 390 });
+        expect(withAccount(true, true).discount_problem).toBe('Your account has already used this code');
+    });
+
+    test('an open code works without an account', () => {
+        const quote = buildCartQuote(bag, [row()], 0, NOW, {
+            discount: { requested: 'GIFT', code: code({ requires_account: false }), phone: '254700000001', phoneAlreadyUsed: false, signedIn: false, accountAlreadyUsed: false },
+            delivery: { requestedId: 3, location: nairobi },
+        });
+        expect(quote.discount?.amount).toBe(390);
+    });
+
     test('no delivery area chosen yet → total without delivery, order blocked', () => {
         const quote = buildCartQuote(bag, [row()], 0, NOW);
         expect(quote.delivery).toBeNull();
@@ -231,7 +249,7 @@ describe('buildQuote: discount, delivery and total', () => {
         expect(quote.problems).toEqual([]);
         const withCode = buildQuote({
             items: bag, rows: [row()], freeDeliveryThreshold: 0, mode: 'walk_in', now: NOW,
-            discount: { requested: 'WELCOME10', code: code(), phone: '254700000001', phoneAlreadyUsed: false },
+            discount: { requested: 'WELCOME10', code: code(), phone: '254700000001', phoneAlreadyUsed: false, signedIn: true, accountAlreadyUsed: false },
         });
         expect(withCode.discount).toBeNull();
         expect(withCode.problems).toEqual(["Discount codes can't be used on walk-in sales"]);

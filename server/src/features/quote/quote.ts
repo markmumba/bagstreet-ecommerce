@@ -60,7 +60,7 @@ export interface QuoteInputs {
     freeDeliveryThreshold: number;
     /** Walk-in sales have no delivery and take no discount codes. */
     mode: 'online' | 'walk_in';
-    discount?: { requested: string; code?: DiscountRuleCode; phone: string | null; phoneAlreadyUsed: boolean };
+    discount?: { requested: string; code?: DiscountRuleCode; phone: string | null; phoneAlreadyUsed: boolean; signedIn: boolean; accountAlreadyUsed: boolean };
     delivery?: { requestedId: number; location?: QuoteLocation };
     now?: number;
 }
@@ -127,7 +127,8 @@ export function buildQuote(input: QuoteInputs): Quote {
         } else if (!input.discount.phone) {
             discountProblem = 'Add your phone number to use a code: each code is one use per phone';
         } else {
-            const verdict = evaluateDiscount(input.discount.code, { subtotal, phoneAlreadyUsed: input.discount.phoneAlreadyUsed, now });
+            const { phoneAlreadyUsed, signedIn, accountAlreadyUsed } = input.discount;
+            const verdict = evaluateDiscount(input.discount.code, { subtotal, phoneAlreadyUsed, signedIn, accountAlreadyUsed, now });
             if (verdict.ok) {
                 discount = { code: input.discount.code!.code, amount: Math.min(verdict.amount, subtotal) };
             } else {

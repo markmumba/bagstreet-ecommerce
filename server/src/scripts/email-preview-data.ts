@@ -150,6 +150,19 @@ export const emailPreviews: EmailPreview[] = [
         },
     },
     {
+        filename: 'order-expired',
+        template: 'order-expired',
+        label: 'Order expired (unpaid)',
+        vars: {
+            title: 'Your order BS-EXAMPLE has expired',
+            preheader: "We didn't receive payment in time, so BS-EXAMPLE was cancelled. You haven't been charged.",
+            name: 'Amani',
+            orderRef: 'BS-EXAMPLE',
+            shopUrl: 'https://example.com/shop',
+            supportUrl: 'https://wa.me/254748096887?text=Question%20about%20BS-EXAMPLE',
+        },
+    },
+    {
         filename: 'payment-failed',
         template: 'payment-failed',
         label: 'Payment not confirmed',
