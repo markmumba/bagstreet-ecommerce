@@ -72,7 +72,7 @@ A message to staff when a change takes a variant's stock across its low-stock th
 ## Gift vouchers
 
 **Gift voucher**:
-Money paid in advance that its holder spends on **Orders**, identified by a code. It is a way to pay, not a discount: the **Order** total doesn't change, the voucher pays part or all of it. It can be spent across several **Orders** until its balance runs out, is valid for 12 months, and is never paid out as cash.
+Money paid in advance that its holder spends on **Orders**, identified by a code. It is a way to pay, not a discount: the **Order** total doesn't change, the voucher pays part or all of it. It can be spent across several **Orders** until its balance runs out, is valid for one year, and is never paid out as cash. A free promotional code is never a gift voucher.
 _Avoid_: Gift card, coupon, credit (and never "discount code", which lowers the price)
 
 **Voucher balance**:

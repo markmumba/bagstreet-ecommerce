@@ -65,17 +65,19 @@ real customers; sections 2–4 can follow launch.
 ## 4. After launch (features)
 
 ### Gift vouchers (agreed 14 Oct 2026)
-Decisions: valid **12 months**; the balance carries over across orders; fixed amounts online (KES 2,000 / 5,000 / 10,000 / 20,000), any amount when issued in the shop; can be combined with a discount code (discount first, then the voucher pays); sold **in the shop first**, online in phase 2. A voucher is a way to pay, not a discount, and never paid out as cash.
+Decisions: valid **1 year**, disclosed in the terms of sale and on the voucher (a 3-year minimum was considered on 14 Oct 2026 but it is South African law, not Kenyan; counsel to confirm); free promotions stay discount codes; the balance carries over across orders; fixed amounts online (KES 2,000 / 5,000 / 10,000 / 20,000), any amount when issued in the shop; can be combined with a discount code (discount first, then the voucher pays); sold **in the shop first**, online in phase 2. A voucher is a way to pay, not a discount, and never paid out as cash.
 
-- [ ] Accountant confirms how voucher sales and unspent balances are recorded, and whether Kenyan rules limit the 12-month expiry (no VAT for now)
-- [ ] **Phase 1, in the shop:**
-  - [ ] `gift_vouchers` (hashed code + last 4, amount, balance, expiry, status, recipient) and `gift_voucher_movements`; every balance change locks the voucher row
-  - [ ] Admin: issue a voucher after a till payment (cash or M-Pesa), list, balance and history, void (admin only, reason audited), adjust
-  - [ ] Checkout: voucher field; the Order quote shows the voucher line and the amount to pay
-  - [ ] Order lifecycle: hold on order creation, redeem on payment, release on expiry or cancellation, refund back onto the voucher; a fully covered order is paid by voucher without Pesapal; Pesapal charges only the remainder
-  - [ ] Payment ledger `VOUCHER_REDEEMED`; order balance and reconciliation show the split
-  - [ ] Dashboard revenue excludes voucher sales and counts redemptions; voucher liability report
-  - [ ] Rate limits on applying codes; codes of 16 random characters in groups (`BGST-XXXX-XXXX-XXXX`)
+- [ ] Counsel confirms the voucher terms (terms of sale › Gift vouchers) and the 1-year validity under Kenyan consumer law
+- [ ] Accountant confirms voucher sales are a liability and expired balances are recognised as breakage income (income tax, no VAT for now)
+- [ ] Owner decides on an unused-voucher refund for buyers (not offered: vouchers are never paid out as cash)
+- [x] **Phase 1, in the shop** (done 14 Oct 2026; `bun run test:vouchers`):
+  - [x] `gift_vouchers` (hashed code + last 4, amount, balance, expiry, recipient) and `gift_voucher_movements` (migration 016); every balance change locks the voucher row
+  - [x] Admin **Gift vouchers** page (admins and managers): sell a voucher after a till payment, code shown once with a printable card, check a balance, list and history; cancel and correct a balance (admin only, audited); liability figures (admin only)
+  - [x] Checkout and walk-in sales: voucher field; the Order quote shows the voucher line and the amount to pay
+  - [x] Order lifecycle: hold on order creation, spend on payment, release on expiry or cancellation, refund back onto the voucher; a fully covered order is paid without Pesapal; Pesapal charges only the remainder; Late payments re-hold the voucher or become a refund owed
+  - [x] Payment ledger `VOUCHER_REDEEMED`; order balance, reconciliation and dashboard revenue count it; cash refunds can never include the voucher part
+  - [x] Wrong codes limited to 10 an hour per user or network; codes are BGST + 16 random characters (`BGST-XXXX-XXXX-XXXX-XXXX`)
+  - Choices made while building: one voucher per order; shop vouchers KES 100 to 200,000; money given back onto a voucher keeps it usable for at least 30 more days (a released hold does not extend it); a voucher can't be cancelled while an unpaid order holds part of it
 - [ ] **Phase 2, online:** gift voucher page (fixed amounts, recipient name, email, message), paid through Pesapal, issued on payment confirmation, recipient email through the outbox; "check my balance" page
 - [ ] **Phase 3, extras:** delivery on a chosen date, printable PDF card, physical cards with QR codes, reminder before expiry
 
