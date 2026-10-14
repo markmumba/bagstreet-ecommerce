@@ -16,7 +16,8 @@
     "test:recovery": "bun run src/scripts/test-cart-recovery.ts",
     "test:compliance": "bun run src/scripts/test-compliance.ts",
     "test:integration": "bun run src/scripts/test-order-integrity.ts",
-    "test:sessions": "bun run src/scripts/test-sessions.ts"
+    "test:sessions": "bun run src/scripts/test-sessions.ts",
+    "test:vouchers": "bun run src/scripts/test-gift-vouchers.ts"
   },
   "dependencies": {
     "@hono/zod-openapi": "^1.2.0",

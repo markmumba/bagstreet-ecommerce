@@ -352,6 +352,18 @@ export function OrderSheet({ order, open, onOpenChange }: OrderSheetProps) {
               <span>Total</span>
               <span>KES {current.total_amount.toFixed(2)}</span>
             </div>
+            {current.voucher_amount > 0 && (
+              <>
+                <div className="flex justify-between text-sm text-muted-foreground">
+                  <span>Gift voucher{current.voucher_last4 ? ` ····${current.voucher_last4}` : ''}</span>
+                  <span>-KES {current.voucher_amount.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between text-sm font-medium">
+                  <span>Paid by card, M-Pesa or cash</span>
+                  <span>KES {current.amount_due.toFixed(2)}</span>
+                </div>
+              </>
+            )}
             {current.payment_status === PAYMENT_STATUS.PAID && (
               <div className="flex justify-end">
                 <Button size="sm" variant="outline" onClick={() => setReceiptOpen(true)}>

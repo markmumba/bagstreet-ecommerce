@@ -1,4 +1,4 @@
-import { ordersQueries } from './orders.queries';
+import { ordersQueries, type OrderDraft } from './orders.queries';
 import { createOrderSchema, createWalkInSaleSchema, updateOrderStatusSchema, writeOffSchema } from './orders.schema';
 import { sql } from '../../lib/db';
 import { success, paginated } from '@server/lib/response';
@@ -15,6 +15,8 @@ import { ORDER_SOURCE, ORDER_STATUS, PAYMENT_STATUS, USER_ROLE } from 'shared/di
 import { normalisePhone } from '../../lib/phone';
 import { paymentsQueries } from '../payments/payments.queries';
 import { quoteOrder } from '../quote/quote.queries';
+import { assertCanTryVoucherCode, recordVoucherCodeResult } from '../gift-vouchers/voucher-guard';
+import { giftVouchersQueries } from '../gift-vouchers/gift-vouchers.queries';
 import type { Quote } from '../quote/quote';
 import { adminActionsFor, applyOrderEvent, createOrder, requireAllowed } from './lifecycle/order-lifecycle';
 import { alertStaff } from '../staff-alerts/staff-alerts';
@@ -30,7 +32,7 @@ import { getClientIp } from '@server/lib/client-ip';
 import { randomUUID } from 'node:crypto';
 import { resolveUnitPrice, saleIsActive } from '@server/lib/pricing';
 import { createOrderAccessToken, orderTokenRef } from '../../lib/order-received-token';
-import { summariseOrderPayments } from '../payments/order-balance';
+import { orderAmountDue, summariseOrderPayments } from '../payments/order-balance';
 import { readJsonColumn } from '../../lib/json-column';
 import { REFUND_METHOD } from 'shared/dist';
 import type { OrderPaymentsResponse } from 'shared/dist';
@@ -57,6 +59,14 @@ function getOptionalAuthUser(c: AppContext): AuthUser | null {
     return getOptionalUser(c);
 }
 
+/** The gift voucher an order is created with, as priced by its quote (re-checked under lock when held). */
+async function voucherForOrder(code: string | undefined, quote: Quote): Promise<OrderDraft['voucher']> {
+    if (!code?.trim() || !quote.voucher || quote.voucher.amount <= 0) return null;
+    const voucher = await giftVouchersQueries.findByCode(code);
+    if (!voucher) throw new BadRequestError('Gift voucher not found');
+    return { id: Number(voucher.id), amount: quote.voucher.amount, last4: voucher.code_last4 };
+}
+
 function toOrderResponse(order: any, items: any[]): OrderResponse {
     const shippingAddress = normalizeShippingAddress(order.shipping_address, {
         fullName: order.customer_name,
@@ -75,6 +85,9 @@ function toOrderResponse(order: any, items: any[]): OrderResponse {
         shipping_cost: parseFloat(order.shipping_cost ?? '0'),
         discount_code: order.discount_code ?? undefined,
         discount_amount: parseFloat(order.discount_amount ?? '0'),
+        voucher_amount: parseFloat(order.voucher_amount ?? '0'),
+        voucher_last4: order.voucher_last4 ?? null,
+        amount_due: orderAmountDue(order),
         payment_status: order.payment_status ?? PAYMENT_STATUS.UNPAID,
         shipping_location_id: order.shipping_location_id != null ? String(order.shipping_location_id) : undefined,
         shipping_address: shippingAddress,
@@ -300,6 +313,8 @@ export const ordersHandlers = {
             shipping_cost: parseFloat((order as any).shipping_cost ?? '0'),
             discount_amount: parseFloat((order as any).discount_amount ?? '0'),
             total_amount: parseFloat(order.total_amount as any),
+            voucher_amount: parseFloat((order as any).voucher_amount ?? '0'),
+            voucher_last4: (order as any).voucher_last4 ?? null,
             items: toOrderResponse(order, items).items,
         };
 
@@ -395,11 +410,16 @@ export const ordersHandlers = {
             throw new ValidationError('Invalid walk-in sale data', validated.error.errors);
         }
 
-        // Same pricing as online orders, without delivery or discount codes.
-        const quote = await quoteOrder({ items: validated.data.items }, { mode: 'walk_in' });
+        // Same pricing as online orders, without delivery or discount codes. A gift voucher pays
+        // what it can; the counter takes the rest.
+        await assertCanTryVoucherCode(c, validated.data.voucher_code);
+        const quote = await quoteOrder({ items: validated.data.items, voucher_code: validated.data.voucher_code }, { mode: 'walk_in' });
+        await recordVoucherCodeResult(c, quote.voucher_problem);
         if (quote.problems.length > 0) throw new BadRequestError(quote.problems[0]!);
         const itemsWithPrice = orderItemsFromQuote(quote);
         const totalAmount = quote.total;
+        const paidAtCounter = quote.amount_to_pay;
+        const voucher = await voucherForOrder(validated.data.voucher_code, quote);
         const customerName = validated.data.customer_name?.trim() || 'Walk-in customer';
         const customerPhone = validated.data.customer_phone?.trim()
             ? normalisePhone(validated.data.customer_phone)
@@ -432,21 +452,23 @@ export const ordersHandlers = {
                 notes: validated.data.notes,
                 discountCode: null,
                 discountAmount: 0,
+                voucher,
                 customerName,
                 customerPhone,
                 customerEmail,
                 orderSource: ORDER_SOURCE.WALK_IN,
-                payment: {
+                // Nothing taken at the counter when a gift voucher covers the whole sale.
+                payment: paidAtCounter > 0 ? {
                     provider: 'walk_in',
                     providerReference: paymentReference,
                     merchantReference: paymentReference,
                     paymentMethod: validated.data.payment_method,
-                    amount: totalAmount,
+                    amount: paidAtCounter,
                     currency: env.PESAPAL_CURRENCY,
                     rawPayload: { source: ORDER_SOURCE.WALK_IN, payment_method: validated.data.payment_method },
-                },
+                } : undefined,
             },
-            { type: 'walk_in_sale', amount: totalAmount, currency: env.PESAPAL_CURRENCY, reference: paymentReference },
+            { type: 'walk_in_sale', amount: paidAtCounter, currency: env.PESAPAL_CURRENCY, reference: paymentReference },
             staffActor(c),
             { paymentMetadata: { source: ORDER_SOURCE.WALK_IN, payment_method: validated.data.payment_method, recorded_by: actor.email }, request: requestOf(c) });
         } catch (err: any) {
@@ -484,18 +506,24 @@ export const ordersHandlers = {
         // The order charges exactly what the quote says: the lines, discount, delivery and total the
         // checkout showed. Stock and the discount limit are re-checked under lock when it's created.
         const normalizedPhone = normalisePhone(validated.data.phone);
+        await assertCanTryVoucherCode(c, validated.data.voucher_code);
         const quote = await quoteOrder({
             items: validated.data.items,
             discount_code: validated.data.discount_code,
             phone: normalizedPhone,
             shipping_location_id: validated.data.shipping_location_id,
+            voucher_code: validated.data.voucher_code,
             userId: authUser ? Number(authUser.sub) : null,
         });
+        await recordVoucherCodeResult(c, quote.voucher_problem);
         if (quote.problems.length > 0) throw new BadRequestError(quote.problems[0]!);
         const itemsWithPrice = orderItemsFromQuote(quote);
         const shippingCost = quote.delivery!.cost;
         const discountAmount = quote.discount?.amount ?? 0;
         const totalAmount = quote.total;
+        // A gift voucher pays what it can; Pesapal collects the rest (nothing, if it covers it all).
+        const amountDue = quote.amount_to_pay;
+        const voucher = await voucherForOrder(validated.data.voucher_code, quote);
 
         let order;
         try {
@@ -510,6 +538,7 @@ export const ordersHandlers = {
                 notes: validated.data.notes,
                 discountCode: quote.discount?.code ?? null,
                 discountAmount,
+                voucher,
                 customerName: shippingAddress.full_name,
                 customerPhone: normalizedPhone,
                 customerEmail,
@@ -517,7 +546,7 @@ export const ordersHandlers = {
                 policyAcceptance: validated.data.policy_acceptance,
                 recoverySessionHash: recoverySessionHash(c) ?? undefined,
                 recoverySourceOrderId: recoverySourceOrderId(c) ?? undefined,
-            }, { type: 'placed_online' }, { kind: 'customer', isOwner: true, via: 'checkout' }, { request: requestOf(c) });
+            }, { type: 'placed_online', paidByVoucher: voucher != null && amountDue <= 0 }, { kind: 'customer', isOwner: true, via: 'checkout' }, { request: requestOf(c) });
         } catch (err: any) {
             // Discount and order-limit errors are thrown inside the transaction — nothing was saved.
             if (err instanceof AppError) throw err;
@@ -538,11 +567,12 @@ export const ordersHandlers = {
 
         let paymentRedirectUrl: string | null = null;
         let paymentReference: string | null = null;
-        try {
+        // Fully paid by gift voucher: the order is already confirmed, there's nothing to collect.
+        if (amountDue > 0) try {
             const payment = await submitPesapalOrder({
                 orderId: order.id,
                 orderNumber: (order as any).order_number,
-                amount: totalAmount,
+                amount: amountDue,
                 phone: validated.data.phone,
                 email: customerEmail,
                 fullName: shippingAddress.full_name,
@@ -559,14 +589,14 @@ export const ordersHandlers = {
                 provider_reference: payment.orderTrackingId,
                 merchant_reference: payment.merchantReference,
                 checkout_url: payment.redirectUrl,
-                amount: totalAmount,
+                amount: amountDue,
                 currency: env.PESAPAL_CURRENCY,
                 status: payment.redirectUrl ? 'PENDING' : 'INITIATED',
                 raw_payload: payment.raw,
             });
         } catch (err) {
             console.error('[pesapal] payment initialization failed:', err);
-            await notifyPaymentInitFailed(order, totalAmount, err);
+            await notifyPaymentInitFailed(order, amountDue, err);
         }
 
         const orderResponse = toOrderResponse(order, items);
@@ -579,9 +609,11 @@ export const ordersHandlers = {
                 payment_reference: paymentReference,
                 // Lets a guest check or retry payment for this order without an account.
                 access_token: createOrderAccessToken(orderTokenRef(order as any)),
-                message: paymentRedirectUrl ? 'Continue to secure payment' : 'Order placed — payment is pending',
+                message: amountDue <= 0 ? 'Order placed — paid by gift voucher'
+                    : paymentRedirectUrl ? 'Continue to secure payment' : 'Order placed — payment is pending',
             },
-            paymentRedirectUrl ? 'Order placed — continue to secure payment' : 'Order placed — payment is pending',
+            amountDue <= 0 ? 'Order placed — paid by gift voucher'
+                : paymentRedirectUrl ? 'Order placed — continue to secure payment' : 'Order placed — payment is pending',
             201
         );
     },

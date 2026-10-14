@@ -70,6 +70,7 @@ export async function orderConfirmationJob(order: any, items: any[]): Promise<Em
             subtotal: parseFloat(item.subtotal),
         })),
         totalAmount: parseFloat(order.total_amount),
+        voucherAmount: parseFloat(order.voucher_amount ?? '0'),
         shippingAddress: shippingAddressOf(order),
         confirmReceivedUrl: confirmReceivedUrl.toString(),
     };

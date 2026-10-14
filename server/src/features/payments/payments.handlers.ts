@@ -7,7 +7,7 @@ import { BadRequestError, ForbiddenError, NotFoundError } from '@server/lib/erro
 import { ORDER_STATUS, PAYMENT_STATUS, USER_ROLE } from "shared/dist";
 import { env } from '../../config/env';
 import { applyOrderEvent, orderStateOf } from '../orders/lifecycle/order-lifecycle';
-import { summariseOrderPayments } from './order-balance';
+import { orderAmountDue, summariseOrderPayments } from './order-balance';
 import { customerView, type Actor, type OrderEvent } from '../orders/lifecycle/transitions';
 import type { AuthUser } from '@server/lib/hono';
 import { getOptionalUser } from '@server/lib/hono';
@@ -48,6 +48,7 @@ function orderPaymentSummary(order: any) {
         order_ref: orderTokenRef(order),
         order_number: order.order_number ?? null,
         total_amount: parseFloat(order.total_amount),
+        amount_due: orderAmountDue(order),
         order_status: order.status,
         payment_status: order.payment_status,
     };
@@ -210,7 +211,7 @@ export const paymentsHandlers = {
         const payment = await submitPesapalOrder({
             orderId: order.id,
             orderNumber: (order as any).order_number,
-            amount: parseFloat(order.total_amount as any),
+            amount: orderAmountDue(order as any),
             phone: String((order as any).customer_phone ?? phone ?? ''),
             email: customerEmail,
             fullName: String((order as any).customer_name ?? shippingAddress?.full_name ?? 'Customer'),
@@ -226,7 +227,7 @@ export const paymentsHandlers = {
             provider_reference: payment.orderTrackingId,
             merchant_reference: payment.merchantReference,
             checkout_url: payment.redirectUrl,
-            amount: parseFloat(order.total_amount as any),
+            amount: orderAmountDue(order as any),
             currency: env.PESAPAL_CURRENCY,
             status: payment.redirectUrl ? 'PENDING' : 'INITIATED',
             raw_payload: payment.raw,
@@ -368,7 +369,7 @@ export const paymentsHandlers = {
 
         const result = await applyOrderEvent(Number(order.id), {
             type: 'payment_captured',
-            amount: parseFloat(order.total_amount as any),
+            amount: orderAmountDue(order as any),
             currency: env.PESAPAL_CURRENCY,
             reference: `dev:${order.id}`,
         }, { kind: 'system' });

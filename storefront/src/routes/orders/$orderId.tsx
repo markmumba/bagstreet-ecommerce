@@ -177,6 +177,12 @@ function OrderDetailPage() {
                 <span className="font-semibold">Total</span>
                 <span className="font-semibold text-primary tabular-nums">{formatOrderPrice(order.total_amount)}</span>
               </div>
+              {order.voucher_amount > 0 && (
+                <div className="flex justify-between gap-4">
+                  <span className="text-muted-foreground">Paid by gift voucher{order.voucher_last4 ? ` ····${order.voucher_last4}` : ''}</span>
+                  <span className="font-medium tabular-nums">{formatOrderPrice(order.voucher_amount)}</span>
+                </div>
+              )}
             </div>
             {order.payment_reference && (
               <p className="mt-4 break-all text-xs text-muted-foreground">

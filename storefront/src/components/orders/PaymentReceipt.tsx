@@ -93,6 +93,9 @@ function ReceiptPreview({ receipt }: { receipt: OrderReceiptResponse }) {
                   {receipt.discount_amount > 0 && (
                     <p>Discount: -{formatMoney(receipt.discount_amount, receipt.currency)}</p>
                   )}
+                  {receipt.voucher_amount > 0 && (
+                    <p>Of which by gift voucher{receipt.voucher_last4 ? ` ····${receipt.voucher_last4}` : ''}: {formatMoney(receipt.voucher_amount, receipt.currency)}</p>
+                  )}
                 </div>
               </div>
               <p className="text-xl font-semibold tabular-nums">

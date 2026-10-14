@@ -32,6 +32,7 @@ const METHOD_LABELS: Record<RefundMethod, string> = {
   CASH: 'Cash',
   BANK_TRANSFER: 'Bank transfer',
   OTHER: 'Other',
+  GIFT_VOUCHER: 'Back onto the gift voucher',
 };
 
 const kes = (amount: number) => `KES ${amount.toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -40,6 +41,10 @@ function entryLabel(entry: LedgerEntryResponse) {
   if (entry.entry_type === 'PAYMENT_CAPTURED') {
     const method = entry.metadata?.payment_method ?? entry.metadata?.provider;
     return method ? `Payment received · ${String(method)}` : 'Payment received';
+  }
+  if (entry.entry_type === 'VOUCHER_REDEEMED') {
+    const last4 = entry.metadata?.voucher_last4;
+    return `Paid by gift voucher${last4 ? ` ····${String(last4)}` : ''}`;
   }
   if (entry.entry_type === 'PROVIDER_FEE') return 'Pesapal fee';
   if (entry.entry_type === 'PAYMENT_REVERSED') return 'Taken back by the payment provider';
@@ -144,18 +149,39 @@ export function OrderPaymentsPanel({ orderId, canRefund }: { orderId: string; ca
         </Button>
       )}
       {canRefund && formOpen && (
-        <RefundForm orderId={orderId} refundable={summary.refundable} onDone={() => setFormOpen(false)} />
+        <RefundForm
+          orderId={orderId}
+          cashRefundable={summary.cash_refundable}
+          voucherRefundable={summary.voucher_refundable}
+          onDone={() => setFormOpen(false)}
+        />
       )}
     </div>
   );
 }
 
-function RefundForm({ orderId, refundable, onDone }: { orderId: string; refundable: number; onDone: () => void }) {
+function RefundForm({ orderId, cashRefundable, voucherRefundable, onDone }: {
+  orderId: string;
+  /** What can go back to the customer as money. */
+  cashRefundable: number;
+  /** What can go back onto the order's gift voucher: a voucher is never paid out as money. */
+  voucherRefundable: number;
+  onDone: () => void;
+}) {
   const recordRefund = useRecordRefund();
   // One key per form: a double click or retry after a timeout records the refund once.
   const [idempotencyKey] = useState(() => crypto.randomUUID());
-  const [amount, setAmount] = useState(String(refundable));
-  const [method, setMethod] = useState<RefundMethod>(REFUND_METHOD.MPESA);
+  const startWithVoucher = cashRefundable <= 0 && voucherRefundable > 0;
+  const [method, setMethod] = useState<RefundMethod>(startWithVoucher ? REFUND_METHOD.GIFT_VOUCHER : REFUND_METHOD.MPESA);
+  const toVoucher = method === REFUND_METHOD.GIFT_VOUCHER;
+  const refundable = toVoucher ? voucherRefundable : cashRefundable;
+  const [amount, setAmount] = useState(String(startWithVoucher ? voucherRefundable : cashRefundable));
+  const methods = Object.values(REFUND_METHOD).filter((m) =>
+    m === REFUND_METHOD.GIFT_VOUCHER ? voucherRefundable > 0 : cashRefundable > 0);
+  const changeMethod = (next: RefundMethod) => {
+    setMethod(next);
+    setAmount(String(next === REFUND_METHOD.GIFT_VOUCHER ? voucherRefundable : cashRefundable));
+  };
   const [externalReference, setExternalReference] = useState('');
   const [reason, setReason] = useState('');
   const [error, setError] = useState('');
@@ -187,8 +213,13 @@ function RefundForm({ orderId, refundable, onDone }: { orderId: string; refundab
   return (
     <form onSubmit={submit} className="flex flex-col gap-3 rounded-xl border bg-muted/20 p-3">
       <p className="text-xs text-muted-foreground">
-        Record money you have <span className="font-medium text-foreground">already sent back</span> to the customer.
-        Up to {kes(refundable)} can be refunded.
+        {toVoucher
+          ? <>The amount goes straight back onto the customer's gift voucher. Up to {kes(refundable)} can go back.</>
+          : <>Record money you have <span className="font-medium text-foreground">already sent back</span> to the customer.
+            Up to {kes(refundable)} can be refunded.</>}
+        {voucherRefundable > 0 && !toVoucher && (
+          <> The {kes(voucherRefundable)} paid by gift voucher can only go back onto the voucher.</>
+        )}
       </p>
 
       <div className="grid grid-cols-2 gap-2">
@@ -207,10 +238,10 @@ function RefundForm({ orderId, refundable, onDone }: { orderId: string; refundab
         </label>
         <label className="flex flex-col gap-1 text-xs font-medium">
           Method
-          <Select value={method} onValueChange={(v) => setMethod(v as RefundMethod)}>
+          <Select value={method} onValueChange={(v) => changeMethod(v as RefundMethod)}>
             <SelectTrigger><SelectValue /></SelectTrigger>
             <SelectContent>
-              {Object.values(REFUND_METHOD).map((m) => (
+              {methods.map((m) => (
                 <SelectItem key={m} value={m}>{METHOD_LABELS[m]}</SelectItem>
               ))}
             </SelectContent>
@@ -221,7 +252,7 @@ function RefundForm({ orderId, refundable, onDone }: { orderId: string; refundab
         <Button type="button" variant="ghost" size="sm" onClick={() => setAmount(String(refundable))}>Full amount</Button>
       </div>
 
-      <label className="flex flex-col gap-1 text-xs font-medium">
+      {!toVoucher && <label className="flex flex-col gap-1 text-xs font-medium">
         Transaction code (optional)
         <Input
           value={externalReference}
@@ -229,7 +260,7 @@ function RefundForm({ orderId, refundable, onDone }: { orderId: string; refundab
           placeholder="e.g. M-Pesa code SJK3XXXXXX"
           maxLength={100}
         />
-      </label>
+      </label>}
       <label className="flex flex-col gap-1 text-xs font-medium">
         Reason
         <Textarea

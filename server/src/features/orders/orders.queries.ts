@@ -16,6 +16,10 @@ export interface OrderRow extends Omit<Order, 'id' | 'created_at' | 'updated_at'
     user_id: number | null;
     order_source: OrderSource;
     payment_status: PaymentStatus;
+    /** The gift voucher paying part or all of the total, and how much it pays (0 when none). */
+    voucher_id: number | null;
+    voucher_amount: string;
+    voucher_last4: string | null;
     created_at: string;
     updated_at: string;
 }
@@ -96,6 +100,8 @@ export interface OrderDraft {
     notes?: string;
     discountCode: string | null;
     discountAmount: number;
+    /** A gift voucher paying part or all of the total (held by the Order lifecycle when created). */
+    voucher?: { id: number; amount: number; last4: string } | null;
     customerName: string;
     customerPhone: string;
     customerEmail: string | null;
@@ -234,13 +240,14 @@ export const ordersQueries = {
                 INSERT INTO orders(
                     user_id, order_number, total_amount, shipping_address, shipping_location_id, shipping_cost,
                     notes, discount_code, discount_amount, customer_name, customer_phone, customer_email,
-                    status, payment_status, order_source, paid_at
+                    status, payment_status, order_source, paid_at, voucher_id, voucher_amount, voucher_last4
                 )
                 VALUES (
                     ${userId}, ${orderNumber}, ${draft.totalAmount}, ${toJsonbParam(shippingAddress)}::jsonb,
                     ${draft.shippingLocationId}, ${draft.shippingCost}, ${draft.notes ?? null},
                     ${draft.discountCode}, ${draft.discountAmount}, ${draft.customerName}, ${draft.customerPhone}, ${customerEmail},
-                    ${start.status}, ${start.payment}, ${draft.orderSource ?? ORDER_SOURCE.ONLINE}, ${paidAt}
+                    ${start.status}, ${start.payment}, ${draft.orderSource ?? ORDER_SOURCE.ONLINE}, ${paidAt},
+                    ${draft.voucher?.id ?? null}, ${draft.voucher?.amount ?? 0}, ${draft.voucher?.last4 ?? null}
                 )
                 RETURNING *
             `;

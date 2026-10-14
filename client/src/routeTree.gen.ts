@@ -18,6 +18,7 @@ import { Route as PromotionsRouteImport } from './routes/promotions'
 import { Route as ProductsRouteImport } from './routes/products'
 import { Route as OrdersRouteImport } from './routes/orders'
 import { Route as LoginRouteImport } from './routes/login'
+import { Route as GiftVouchersRouteImport } from './routes/gift-vouchers'
 import { Route as ForgotPasswordRouteImport } from './routes/forgot-password'
 import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as ComplianceRouteImport } from './routes/compliance'
@@ -70,6 +71,11 @@ const LoginRoute = LoginRouteImport.update({
   path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
+const GiftVouchersRoute = GiftVouchersRouteImport.update({
+  id: '/gift-vouchers',
+  path: '/gift-vouchers',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ForgotPasswordRoute = ForgotPasswordRouteImport.update({
   id: '/forgot-password',
   path: '/forgot-password',
@@ -108,6 +114,7 @@ export interface FileRoutesByFullPath {
   '/compliance': typeof ComplianceRoute
   '/dashboard': typeof DashboardRoute
   '/forgot-password': typeof ForgotPasswordRoute
+  '/gift-vouchers': typeof GiftVouchersRoute
   '/login': typeof LoginRoute
   '/orders': typeof OrdersRoute
   '/products': typeof ProductsRoute
@@ -125,6 +132,7 @@ export interface FileRoutesByTo {
   '/compliance': typeof ComplianceRoute
   '/dashboard': typeof DashboardRoute
   '/forgot-password': typeof ForgotPasswordRoute
+  '/gift-vouchers': typeof GiftVouchersRoute
   '/login': typeof LoginRoute
   '/orders': typeof OrdersRoute
   '/products': typeof ProductsRoute
@@ -143,6 +151,7 @@ export interface FileRoutesById {
   '/compliance': typeof ComplianceRoute
   '/dashboard': typeof DashboardRoute
   '/forgot-password': typeof ForgotPasswordRoute
+  '/gift-vouchers': typeof GiftVouchersRoute
   '/login': typeof LoginRoute
   '/orders': typeof OrdersRoute
   '/products': typeof ProductsRoute
@@ -162,6 +171,7 @@ export interface FileRouteTypes {
     | '/compliance'
     | '/dashboard'
     | '/forgot-password'
+    | '/gift-vouchers'
     | '/login'
     | '/orders'
     | '/products'
@@ -179,6 +189,7 @@ export interface FileRouteTypes {
     | '/compliance'
     | '/dashboard'
     | '/forgot-password'
+    | '/gift-vouchers'
     | '/login'
     | '/orders'
     | '/products'
@@ -196,6 +207,7 @@ export interface FileRouteTypes {
     | '/compliance'
     | '/dashboard'
     | '/forgot-password'
+    | '/gift-vouchers'
     | '/login'
     | '/orders'
     | '/products'
@@ -214,6 +226,7 @@ export interface RootRouteChildren {
   ComplianceRoute: typeof ComplianceRoute
   DashboardRoute: typeof DashboardRoute
   ForgotPasswordRoute: typeof ForgotPasswordRoute
+  GiftVouchersRoute: typeof GiftVouchersRoute
   LoginRoute: typeof LoginRoute
   OrdersRoute: typeof OrdersRoute
   ProductsRoute: typeof ProductsRoute
@@ -290,6 +303,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/gift-vouchers': {
+      id: '/gift-vouchers'
+      path: '/gift-vouchers'
+      fullPath: '/gift-vouchers'
+      preLoaderRoute: typeof GiftVouchersRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/forgot-password': {
       id: '/forgot-password'
       path: '/forgot-password'
@@ -342,6 +362,7 @@ const rootRouteChildren: RootRouteChildren = {
   ComplianceRoute: ComplianceRoute,
   DashboardRoute: DashboardRoute,
   ForgotPasswordRoute: ForgotPasswordRoute,
+  GiftVouchersRoute: GiftVouchersRoute,
   LoginRoute: LoginRoute,
   OrdersRoute: OrdersRoute,
   ProductsRoute: ProductsRoute,
