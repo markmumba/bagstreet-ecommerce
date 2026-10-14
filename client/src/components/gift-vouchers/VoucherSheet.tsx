@@ -1,0 +1,163 @@
+import { useState } from 'react';
+import type { GiftVoucherMovementKind } from 'shared';
+import { useAdjustGiftVoucher, useGiftVoucher, useVoidGiftVoucher } from '@/hooks/useGiftVouchers';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { SALE_METHOD_LABELS, STATUS_LABELS, formatDate, kes } from './voucher-format';
+
+const MOVEMENT_LABELS: Record<GiftVoucherMovementKind, string> = {
+  ISSUED: 'Issued',
+  HELD: 'Held for an order',
+  REDEEMED: 'Spent on an order',
+  RELEASED: 'Hold released',
+  RETURNED: 'Given back',
+  VOIDED: 'Cancelled',
+  ADJUSTED: 'Balance corrected',
+};
+
+/** A voucher's details and every change to its balance; admins can cancel it or correct the balance. */
+export function VoucherSheet({ voucherId, isAdmin, onClose }: { voucherId: string | null; isAdmin: boolean; onClose: () => void }) {
+  const { data: voucher, isLoading } = useGiftVoucher(voucherId);
+  const [action, setAction] = useState<'void' | 'adjust' | null>(null);
+
+  return (
+    <Sheet open={Boolean(voucherId)} onOpenChange={(open) => { if (!open) { setAction(null); onClose(); } }}>
+      <SheetContent className="w-full overflow-y-auto sm:max-w-lg">
+        <SheetHeader className="pb-4">
+          <SheetTitle>Gift voucher ····{voucher?.code_last4 ?? ''}</SheetTitle>
+          <SheetDescription>{voucher ? `Issued ${formatDate(voucher.created_at)}` : 'Loading…'}</SheetDescription>
+        </SheetHeader>
+        {isLoading || !voucher ? (
+          <div className="mx-4 h-32 animate-pulse rounded-xl bg-muted/40" />
+        ) : (
+          <div className="flex flex-col gap-5 px-4 pb-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-2xl font-semibold tabular-nums">{kes(voucher.balance)}</p>
+                <p className="text-sm text-muted-foreground">left of {kes(voucher.initial_amount)}</p>
+              </div>
+              <Badge variant={STATUS_LABELS[voucher.status].variant}>{STATUS_LABELS[voucher.status].label}</Badge>
+            </div>
+            {voucher.held > 0 && (
+              <p className="rounded-xl bg-[var(--color-warning-bg)] px-3 py-2 text-sm text-[var(--color-warning-text)]">
+                {kes(voucher.held)} is held for an unpaid order. It is spent when the order is paid, or comes back if it expires.
+              </p>
+            )}
+            <dl className="grid grid-cols-2 gap-3 rounded-xl border p-3 text-sm">
+              <div><dt className="text-xs text-muted-foreground">Valid until</dt><dd>{formatDate(voucher.expires_at)}</dd></div>
+              <div><dt className="text-xs text-muted-foreground">Paid by</dt><dd>{SALE_METHOD_LABELS[voucher.sale_payment_method] ?? voucher.sale_payment_method}{voucher.sale_reference ? ` · ${voucher.sale_reference}` : ''}</dd></div>
+              <div><dt className="text-xs text-muted-foreground">Bought by</dt><dd>{voucher.purchaser_name || '—'}</dd></div>
+              <div><dt className="text-xs text-muted-foreground">For</dt><dd>{voucher.recipient_name || '—'}</dd></div>
+              {(voucher.recipient_phone || voucher.recipient_email) && (
+                <div className="col-span-2"><dt className="text-xs text-muted-foreground">Contact</dt>
+                  <dd className="break-all">{[voucher.recipient_phone, voucher.recipient_email].filter(Boolean).join(' · ')}</dd></div>
+              )}
+              {voucher.message && <div className="col-span-2"><dt className="text-xs text-muted-foreground">Message</dt><dd>“{voucher.message}”</dd></div>}
+              <div className="col-span-2"><dt className="text-xs text-muted-foreground">Issued by</dt><dd>{voucher.issued_by_email ?? '—'}</dd></div>
+              {voucher.voided_at && (
+                <div className="col-span-2"><dt className="text-xs text-muted-foreground">Cancelled</dt>
+                  <dd>{formatDate(voucher.voided_at)}{voucher.void_reason ? ` · ${voucher.void_reason}` : ''}</dd></div>
+              )}
+            </dl>
+
+            {isAdmin && !voucher.voided_at && !action && (
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" onClick={() => setAction('adjust')}>Correct balance</Button>
+                <Button variant="outline" size="sm" className="text-destructive" onClick={() => setAction('void')}>Cancel voucher</Button>
+              </div>
+            )}
+            {action === 'void' && <VoidForm id={voucher.id} balance={voucher.balance} onDone={() => setAction(null)} />}
+            {action === 'adjust' && <AdjustForm id={voucher.id} balance={voucher.balance} onDone={() => setAction(null)} />}
+
+            <div>
+              <h3 className="mb-2 text-sm font-semibold">History</h3>
+              <ol className="divide-y rounded-xl border text-sm">
+                {voucher.movements.map((m) => (
+                  <li key={m.id} className="flex items-start justify-between gap-3 px-3 py-2.5">
+                    <div className="min-w-0">
+                      <p className="font-medium">{MOVEMENT_LABELS[m.kind]}{m.order_number ? ` · ${m.order_number}` : ''}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {new Date(m.created_at).toLocaleString('en-KE', { dateStyle: 'medium', timeStyle: 'short' })}
+                        {m.created_by_email ? ` · ${m.created_by_email}` : ''}
+                      </p>
+                      {m.note && <p className="mt-0.5 text-xs text-muted-foreground">{m.note}</p>}
+                    </div>
+                    <div className="shrink-0 text-right tabular-nums">
+                      <p className={m.delta < 0 ? 'text-destructive' : m.delta > 0 ? 'text-[var(--color-success-text)]' : 'text-muted-foreground'}>
+                        {m.delta === 0 ? kes(m.amount) : `${m.delta > 0 ? '+' : '−'}${kes(Math.abs(m.delta))}`}
+                      </p>
+                      <p className="text-xs text-muted-foreground">{kes(m.balance_after)} left</p>
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          </div>
+        )}
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+function VoidForm({ id, balance, onDone }: { id: string; balance: number; onDone: () => void }) {
+  const voidVoucher = useVoidGiftVoucher();
+  const [reason, setReason] = useState('');
+  const [error, setError] = useState('');
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setError('');
+    try {
+      await voidVoucher.mutateAsync({ id, reason: reason.trim() });
+      onDone();
+    } catch (err: any) {
+      setError(err?.message || 'Could not cancel the voucher');
+    }
+  };
+  return (
+    <form onSubmit={submit} className="flex flex-col gap-2 rounded-xl border border-destructive/30 bg-destructive/5 p-3">
+      <p className="text-sm">Cancelling removes the {kes(balance)} balance for good. Use it for a lost or misused code.</p>
+      <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Why (required)" maxLength={300} />
+      {error && <p className="text-sm text-destructive">{error}</p>}
+      <div className="flex justify-end gap-2">
+        <Button type="button" variant="ghost" size="sm" onClick={onDone}>Keep it</Button>
+        <Button type="submit" variant="destructive" size="sm" disabled={reason.trim().length < 3 || voidVoucher.isPending}>Cancel voucher</Button>
+      </div>
+    </form>
+  );
+}
+
+function AdjustForm({ id, balance, onDone }: { id: string; balance: number; onDone: () => void }) {
+  const adjust = useAdjustGiftVoucher();
+  const [delta, setDelta] = useState('');
+  const [reason, setReason] = useState('');
+  const [error, setError] = useState('');
+  const amount = Number(delta);
+  const valid = Number.isFinite(amount) && amount !== 0 && balance + amount >= 0;
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setError('');
+    try {
+      await adjust.mutateAsync({ id, delta: amount, reason: reason.trim() });
+      onDone();
+    } catch (err: any) {
+      setError(err?.message || 'Could not change the balance');
+    }
+  };
+  return (
+    <form onSubmit={submit} className="flex flex-col gap-2 rounded-xl border bg-muted/20 p-3">
+      <p className="text-xs text-muted-foreground">Add (e.g. 500) or take off (e.g. −500). The reason goes in the history and the audit log.</p>
+      <div className="grid grid-cols-2 gap-2">
+        <Input type="number" value={delta} onChange={(e) => setDelta(e.target.value)} placeholder="Amount" />
+        <p className="self-center text-sm text-muted-foreground">New balance: {valid ? kes(balance + amount) : '—'}</p>
+      </div>
+      <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Why (required)" maxLength={300} />
+      {error && <p className="text-sm text-destructive">{error}</p>}
+      <div className="flex justify-end gap-2">
+        <Button type="button" variant="ghost" size="sm" onClick={onDone}>Cancel</Button>
+        <Button type="submit" size="sm" disabled={!valid || reason.trim().length < 3 || adjust.isPending}>Save</Button>
+      </div>
+    </form>
+  );
+}

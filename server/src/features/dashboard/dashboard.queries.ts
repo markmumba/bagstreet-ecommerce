@@ -113,19 +113,19 @@ export const dashboardQueries = {
                 (
                     SELECT COALESCE(SUM(CASE WHEN direction = 'CREDIT' THEN amount ELSE -amount END), 0)
                     FROM payment_ledger_entries
-                    WHERE entry_type IN ('PAYMENT_CAPTURED', 'REFUND_ISSUED', 'PAYMENT_REVERSED')
+                    WHERE entry_type IN ('PAYMENT_CAPTURED', 'VOUCHER_REDEEMED', 'REFUND_ISSUED', 'PAYMENT_REVERSED')
                       AND created_at >= CURRENT_DATE
                 ) AS paid_revenue_today,
                 (
                     SELECT COALESCE(SUM(CASE WHEN direction = 'CREDIT' THEN amount ELSE -amount END), 0)
                     FROM payment_ledger_entries
-                    WHERE entry_type IN ('PAYMENT_CAPTURED', 'REFUND_ISSUED', 'PAYMENT_REVERSED')
+                    WHERE entry_type IN ('PAYMENT_CAPTURED', 'VOUCHER_REDEEMED', 'REFUND_ISSUED', 'PAYMENT_REVERSED')
                       AND created_at >= NOW() - INTERVAL '7 days'
                 ) AS paid_revenue_7d,
                 (
                     SELECT COALESCE(SUM(CASE WHEN direction = 'CREDIT' THEN amount ELSE -amount END), 0)
                     FROM payment_ledger_entries
-                    WHERE entry_type IN ('PAYMENT_CAPTURED', 'REFUND_ISSUED', 'PAYMENT_REVERSED')
+                    WHERE entry_type IN ('PAYMENT_CAPTURED', 'VOUCHER_REDEEMED', 'REFUND_ISSUED', 'PAYMENT_REVERSED')
                       AND created_at >= NOW() - INTERVAL '30 days'
                 ) AS paid_revenue_30d,
                 COUNT(*) FILTER (
@@ -175,11 +175,11 @@ export const dashboardQueries = {
             SELECT
                 TO_CHAR(days.day, 'YYYY-MM-DD') AS date,
                 COALESCE(SUM(CASE WHEN ple.direction = 'CREDIT' THEN ple.amount ELSE -ple.amount END), 0) AS revenue,
-                COUNT(DISTINCT CASE WHEN ple.entry_type = 'PAYMENT_CAPTURED' THEN ple.order_id END) AS orders
+                COUNT(DISTINCT CASE WHEN ple.entry_type IN ('PAYMENT_CAPTURED', 'VOUCHER_REDEEMED') THEN ple.order_id END) AS orders
             FROM days
             LEFT JOIN payment_ledger_entries ple
               ON ple.created_at::date = days.day
-             AND ple.entry_type IN ('PAYMENT_CAPTURED', 'REFUND_ISSUED', 'PAYMENT_REVERSED')
+             AND ple.entry_type IN ('PAYMENT_CAPTURED', 'VOUCHER_REDEEMED', 'REFUND_ISSUED', 'PAYMENT_REVERSED')
             GROUP BY days.day
             ORDER BY days.day ASC
         `;

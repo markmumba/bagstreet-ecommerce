@@ -135,9 +135,13 @@ export async function sendOrderConfirmationEmail(
     totalAmount: number,
     shippingAddress: { full_name: string; address_line1: string; city: string; county?: string; state?: string },
     confirmReceivedUrl: string,
-    providedOrderRef?: string
+    providedOrderRef?: string,
+    voucherAmount = 0,
 ) {
     const orderRef = providedOrderRef ?? `#${String(orderId).padStart(6, '0').toUpperCase()}`;
+    const totalNote = voucherAmount > 0
+        ? `Includes delivery and any applied discounts. ${formatEmailMoney(voucherAmount)} of it was paid by gift voucher.`
+        : 'Includes delivery and any applied discounts.';
 
     const shippingRegion = shippingAddress.county ?? shippingAddress.state;
     const shippingCity = shippingAddress.city + (shippingRegion ? `, ${shippingRegion}` : '');
@@ -154,6 +158,7 @@ export async function sendOrderConfirmationEmail(
         name,
         orderRef,
         totalAmount: formatEmailMoney(totalAmount),
+        totalNote,
         shippingName: shippingAddress.full_name,
         shippingAddress: shippingAddress.address_line1,
         shippingCity,
@@ -164,7 +169,7 @@ export async function sendOrderConfirmationEmail(
         const variant = [item.variant_size, item.variant_color].filter(Boolean).join(' / ');
         return `${item.product_name}${variant ? ` (${variant})` : ''}\n${item.quantity} x ${formatEmailMoney(item.unit_price)} = ${formatEmailMoney(item.subtotal)}`;
     }).join('\n\n');
-    const text = `Hi ${name},\n\nPayment for order ${orderRef} is confirmed. Our team will be in touch to arrange delivery.\n\n${itemLines}\n\nTotal paid: ${formatEmailMoney(totalAmount)} (includes delivery and any applied discounts).\n\nDelivering to:\n${shippingAddress.full_name}\n${shippingAddress.address_line1}\n${shippingCity}\n\nOnly after your package arrives, confirm you've received it:\n${confirmReceivedUrl}`;
+    const text = `Hi ${name},\n\nPayment for order ${orderRef} is confirmed. Our team will be in touch to arrange delivery.\n\n${itemLines}\n\nTotal paid: ${formatEmailMoney(totalAmount)}. ${totalNote}\n\nDelivering to:\n${shippingAddress.full_name}\n${shippingAddress.address_line1}\n${shippingCity}\n\nOnly after your package arrives, confirm you've received it:\n${confirmReceivedUrl}`;
     await send(to, `Your Bagstreet order ${orderRef} is confirmed`, html, text);
 }
 

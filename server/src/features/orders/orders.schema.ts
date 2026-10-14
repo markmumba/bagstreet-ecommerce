@@ -32,6 +32,7 @@ export const createOrderSchema = z.object({
     phone: z.string().min(9).max(15),
     email: z.string().trim().email().optional(),
     discount_code: z.string().max(50).optional(),
+    voucher_code: z.string().trim().max(40).optional(),
     notes: z.string().max(500).optional(),
 });
 
@@ -73,4 +74,5 @@ export const createWalkInSaleSchema = z.object({
         .optional()
         .transform((value) => value || undefined),
     notes: z.string().trim().max(500).optional(),
+    voucher_code: z.string().trim().max(40).optional(),
 });

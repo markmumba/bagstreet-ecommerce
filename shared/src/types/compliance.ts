@@ -1,4 +1,6 @@
-export const POLICY_VERSION = '2026-10-08.1';
+export const POLICY_VERSION = '2026-10-14.1';
+/** When the current policy version took effect (shown on each policy page). */
+export const POLICY_EFFECTIVE_DATE = '14 October 2026';
 
 export const PRIVACY_REQUEST_KIND = ['ACCESS', 'CORRECTION', 'ERASURE', 'OBJECTION'] as const;
 export const PRIVACY_REQUEST_STATUS = ['OPEN', 'IN_PROGRESS', 'COMPLETED', 'REJECTED'] as const;
@@ -34,6 +36,7 @@ export const LEGAL_POLICIES = {
       ['Your order', 'You may buy without an account. Review and correct the items, variants, quantities, address and total before submitting. An unpaid order is pending; payment verification confirms the order. Unpaid stock reservations normally last 45 minutes. Contact us before paying again if a payment appears successful but your order is pending.'],
       ['Prices and payment', 'Prices are in Kenyan shillings. Checkout displays discounts, delivery fees and the total before payment. Pesapal processes online payments on its hosted payment page. BagStreet does not collect card numbers or CVV. Promotional codes are subject to their stated expiry, minimum spend and usage limits.'],
       ['Availability and product information', 'Product photos, descriptions and variant labels describe the item offered. If we cannot supply an item you have paid for, we will arrange a refund or an alternative you explicitly agree to. No substitution will be made without your agreement. Contact us about a pricing or description error before paying; statutory remedies remain available.'],
+      ['Gift vouchers', 'A gift voucher is prepaid credit for Bagstreet purchases, not a discount. It is valid for one year from the date it is issued, and the expiry date is shown on the voucher. The balance can be spent in the shop or online over one or several orders; if it does not cover an order, the rest is paid as usual. Vouchers cannot be exchanged for cash. If an order paid by voucher is cancelled or refunded, the voucher part goes back onto the voucher and stays usable for at least 30 days. Anyone with the code can spend the balance, so keep it private and contact us at once if it is lost so we can cancel it. Free promotional codes are not gift vouchers and follow their own stated terms.'],
       ['Delivery and returns', 'Our delivery and returns policies form part of these terms. Contact us promptly to request a change or cancellation. Our team will check dispatch and payment records and confirm the available resolution.'],
       ['Consumer rights', 'Kenyan law applies. These terms do not exclude or limit statutory rights concerning faulty, damaged, incorrect or misdescribed goods, or cancellation and refunds where the law provides for them. You may seek help from the relevant authority or pursue a legal remedy without first exhausting our support process.'],
     ],

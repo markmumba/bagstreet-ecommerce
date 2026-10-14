@@ -68,3 +68,19 @@ The units a variant starts with, recorded as its first restock movement rather t
 
 **Low-stock alert**:
 A message to staff when a change takes a variant's stock across its low-stock threshold, or to zero. It is raised once per crossing, not again while the variant stays low.
+
+## Gift vouchers
+
+**Gift voucher**:
+Money paid in advance that its holder spends on **Orders**, identified by a code. It is a way to pay, not a discount: the **Order** total doesn't change, the voucher pays part or all of it. It can be spent across several **Orders** until its balance runs out, is valid for one year, and is never paid out as cash. A free promotional code is never a gift voucher.
+_Avoid_: Gift card, coupon, credit (and never "discount code", which lowers the price)
+
+**Voucher balance**:
+What is left to spend on a **Gift voucher**. It changes only through logged voucher movements (issued, held, redeemed, released, refunded back, voided, adjusted).
+
+**Voucher hold**:
+Part of a **Voucher balance** set aside for an **Order** that hasn't been paid yet. It becomes a redemption when the **Order** is paid, and is released if the **Order** expires or is cancelled.
+_Avoid_: Reservation (used for stock)
+
+**Voucher liability**:
+The unspent value of all live **Gift vouchers**: money the shop has taken but still owes in goods. A voucher sale adds to it; it becomes revenue only when spent.

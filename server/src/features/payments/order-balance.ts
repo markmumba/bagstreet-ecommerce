@@ -1,5 +1,6 @@
 import type { OrderPaymentState, OrderPaymentSummary } from 'shared/dist';
 import { roundMoney } from '@server/lib/pricing';
+import { readJsonColumn } from '@server/lib/json-column';
 
 /** Ledger entry types that move money for an order. */
 export const LEDGER_ENTRY = {
@@ -9,6 +10,8 @@ export const LEDGER_ENTRY = {
     PROVIDER_FEE: 'PROVIDER_FEE',
     /** Captured money taken back by the provider (chargeback / reversal). Money out. */
     PAYMENT_REVERSED: 'PAYMENT_REVERSED',
+    /** Paid from a gift voucher's balance. Money in for the order; given back as REFUND_ISSUED. */
+    VOUCHER_REDEEMED: 'VOUCHER_REDEEMED',
 } as const;
 
 /** Differences smaller than this (KES) are rounding noise, not under/overpayment. */
@@ -18,7 +21,12 @@ export interface BalanceEntry {
     entry_type: string;
     direction: 'CREDIT' | 'DEBIT';
     amount: number | string;
+    /** A refund's `method` says whether it went back onto a gift voucher. */
+    metadata?: unknown;
 }
+
+/** Refunds with this method went back onto the order's gift voucher (see the Order lifecycle). */
+const GIFT_VOUCHER_REFUND = 'GIFT_VOUCHER';
 
 export interface BalanceOrder {
     total_amount: number | string;
@@ -38,8 +46,13 @@ export function summariseOrderPayments(order: BalanceOrder, entries: BalanceEntr
             .reduce((total, e) => total + Number(e.amount), 0),
     );
 
-    let captured = sum(LEDGER_ENTRY.PAYMENT_CAPTURED, 'CREDIT');
+    const paidByVoucher = sum(LEDGER_ENTRY.VOUCHER_REDEEMED, 'CREDIT');
+    let captured = roundMoney(sum(LEDGER_ENTRY.PAYMENT_CAPTURED, 'CREDIT') + paidByVoucher);
     const refunded = sum(LEDGER_ENTRY.REFUND_ISSUED, 'DEBIT');
+    const returnedToVoucher = roundMoney(entries
+        .filter((e) => e.entry_type === LEDGER_ENTRY.REFUND_ISSUED && e.direction === 'DEBIT'
+            && (readJsonColumn<{ method?: string }>(e.metadata) ?? {}).method === GIFT_VOUCHER_REFUND)
+        .reduce((total, e) => total + Number(e.amount), 0));
     const reversed = sum(LEDGER_ENTRY.PAYMENT_REVERSED, 'DEBIT');
     const fees = sum(LEDGER_ENTRY.PROVIDER_FEE, 'DEBIT');
 
@@ -57,6 +70,10 @@ export function summariseOrderPayments(order: BalanceOrder, entries: BalanceEntr
         fees,
         net_after_fees: roundMoney(net - fees),
         refundable: Math.max(0, net),
+        paid_by_voucher: paidByVoucher,
+        returned_to_voucher: returnedToVoucher,
+        voucher_refundable: roundMoney(Math.max(0, paidByVoucher - returnedToVoucher)),
+        cash_refundable: roundMoney(Math.max(0, net - Math.max(0, paidByVoucher - returnedToVoucher))),
         state: paymentState(order.status, orderTotal, captured, refunded, reversed, net),
         legacy_unrecorded_capture: legacyUnrecordedCapture,
     };
@@ -85,4 +102,12 @@ export function assessCapturedAmount(orderTotal: number, captured: number, curre
     if (captured < orderTotal - TOLERANCE) return 'underpaid';
     if (captured > orderTotal + TOLERANCE) return 'overpaid';
     return 'match';
+}
+
+/**
+ * What the customer still pays by card, M-Pesa or cash: the total less what a gift voucher pays.
+ * This is what the payment provider is asked to collect.
+ */
+export function orderAmountDue(order: { total_amount: number | string; voucher_amount?: number | string | null }): number {
+    return roundMoney(Math.max(0, Number(order.total_amount) - Number(order.voucher_amount ?? 0)));
 }

@@ -77,6 +77,8 @@ function PaymentView({ orderRef, urlToken, returnedFrom }: { orderRef: string; u
 
   const orderLabel = info?.order_number ?? stored?.orderNumber ?? orderRef;
   const total = info?.total_amount ?? stored?.total;
+  // What Pesapal collects: the total less any gift voucher.
+  const due = info?.amount_due ?? stored?.total;
 
   const startPayment = async () => {
     setActionMessage('');
@@ -151,7 +153,7 @@ function PaymentView({ orderRef, urlToken, returnedFrom }: { orderRef: string; u
                 ? "Your order is saved, but we didn't receive payment for it. You can try again — nothing has been charged."
                 : returnedFrom
                   ? 'Pesapal is still confirming your payment. This can take a minute for M-Pesa.'
-                  : <>Pay {total != null && <span className="text-foreground">{formatPrice(total)}</span>} securely with Pesapal by M-Pesa or card.</>}
+                  : <>Pay {due != null && <span className="text-foreground">{formatPrice(due)}</span>} securely with Pesapal by M-Pesa or card.</>}
             </p>
             <p className="mx-auto mt-3 max-w-sm text-[13px] text-foreground-faint">
               We hold your items for a short time. Unpaid orders are released after a while so others can buy them.
@@ -288,6 +290,10 @@ function CheckoutForm() {
   const [discountCode, setDiscountCode] = useState('');
   // The code the customer pressed Apply on; the quote says whether it's valid and what it's worth.
   const [appliedCode, setAppliedCode] = useState('');
+  // A gift voucher pays part or all of the total; it isn't a discount.
+  const [voucherCode, setVoucherCode] = useState('');
+  const [appliedVoucher, setAppliedVoucher] = useState('');
+  const [voucherError, setVoucherError] = useState('');
   const [orderError, setOrderError] = useState('');
 
   const items = cartRes?.data.items ?? [];
@@ -298,8 +304,18 @@ function CheckoutForm() {
     discount_code: appliedCode || undefined,
     phone: appliedCode ? quotedPhone || undefined : undefined,
     shipping_location_id: shippingLocationId ? Number(shippingLocationId) : undefined,
+    voucher_code: appliedVoucher || undefined,
   });
   const quote = quoteQuery.data?.data;
+  const voucher = appliedVoucher ? quote?.voucher ?? null : null;
+  const coveredByVoucher = voucher != null && quote?.amount_to_pay === 0;
+  // A refused voucher code is dropped from later quotes, so a typo isn't checked again on every change.
+  const refusedVoucher = appliedVoucher && !quoteQuery.isFetching ? quote?.voucher_problem ?? null : null;
+  useEffect(() => {
+    if (!refusedVoucher) return;
+    setVoucherError(refusedVoucher);
+    setAppliedVoucher('');
+  }, [refusedVoucher]);
   const quoteLines = new Map(quote?.lines.map((line) => [line.variant_id, line]));
   const itemsTotal = quote?.subtotal ?? cartRes?.data.total ?? 0;
   const cartNeedsReview = quote ? !quote.can_checkout : false;
@@ -361,6 +377,7 @@ function CheckoutForm() {
         phone: form.phone,
         email: form.email,
         discount_code: discount?.code,
+        voucher_code: voucher ? appliedVoucher : undefined,
         notes: notes || undefined,
         policy_acceptance: { accepted: true, version: POLICY_VERSION },
       });
@@ -368,7 +385,7 @@ function CheckoutForm() {
       if (!order) throw new Error('Your order could not be created. Please try again.');
       const ref = order.public_id ?? String(order.id);
       if (order.access_token) {
-        savePendingPayment({ ref, token: order.access_token, orderNumber: order.order_number, total: order.total_amount });
+        savePendingPayment({ ref, token: order.access_token, orderNumber: order.order_number, total: order.amount_due });
       }
       // The bag is now this order. Emptying it means backing out of Pesapal can't place it twice;
       // the customer resumes payment from the banner instead.
@@ -528,7 +545,9 @@ function CheckoutForm() {
 
           <FormSection number={3} title="Payment">
             <p className="text-[15px] leading-relaxed text-foreground-muted">
-              After placing your order you'll continue to <span className="text-foreground">Pesapal</span> to pay securely by M-Pesa or card.
+              {coveredByVoucher
+                ? "Your gift voucher covers this order: there's nothing more to pay."
+                : <>After placing your order you'll continue to <span className="text-foreground">Pesapal</span> to pay{voucher ? ' the rest' : ''} securely by M-Pesa or card.</>}
             </p>
           </FormSection>
         </div>
@@ -608,6 +627,41 @@ function CheckoutForm() {
               )}
             </div>
 
+            {/* Gift voucher */}
+            <div className="mt-6">
+              <label htmlFor="voucher-code" className="text-label-caps">Gift voucher</label>
+              <div className="mt-2 flex items-end gap-3">
+                <input
+                  id="voucher-code"
+                  value={voucherCode}
+                  onChange={(e) => {
+                    setVoucherCode(e.target.value.toUpperCase());
+                    setAppliedVoucher('');
+                    setVoucherError('');
+                  }}
+                  placeholder="BGST-XXXX-XXXX-XXXX-XXXX"
+                  autoComplete="off"
+                  spellCheck={false}
+                  className={`${inputClass} flex-1 font-mono uppercase`}
+                />
+                <button
+                  type="button"
+                  onClick={() => { setVoucherError(''); setAppliedVoucher(voucherCode.trim()); }}
+                  disabled={!voucherCode.trim() || appliedVoucher === voucherCode.trim()}
+                  className="ui-press h-10 border border-espresso px-5 text-label-caps hover:bg-background disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  {appliedVoucher && quoteQuery.isFetching ? 'Checking…' : 'Apply'}
+                </button>
+              </div>
+              {voucher && (
+                <p className="mt-2 text-[12px] text-olive">
+                  {formatPrice(voucher.balance)} on this voucher
+                  {voucher.balance > voucher.amount ? ` · ${formatPrice(voucher.balance - voucher.amount)} stays on it for next time` : ''}
+                </p>
+              )}
+              {voucherError && <p className="mt-2 text-[12px] text-destructive">{voucherError}</p>}
+            </div>
+
             <dl className="mt-6 space-y-3 border-t border-border pt-6 text-[14px]">
               <div className="flex justify-between gap-6">
                 <dt className="text-foreground-muted">Subtotal</dt>
@@ -638,6 +692,18 @@ function CheckoutForm() {
               <span className="text-label-caps">Total</span>
               <span className="text-[28px] tabular-nums" style={{ fontFamily: 'var(--font-display)' }}>{quote ? formatPrice(quote.total) : '…'}</span>
             </div>
+            {voucher && quote && (
+              <dl className="mt-3 space-y-2 text-[14px]">
+                <div className="flex justify-between gap-6">
+                  <dt className="text-foreground-muted">Gift voucher ····{voucher.last4}</dt>
+                  <dd className="tabular-nums text-olive">−{formatPrice(voucher.amount)}</dd>
+                </div>
+                <div className="flex justify-between gap-6 font-medium">
+                  <dt>To pay</dt>
+                  <dd className="tabular-nums">{formatPrice(quote.amount_to_pay)}</dd>
+                </div>
+              </dl>
+            )}
 
             <div className="mt-6 text-sm leading-6">
               <label className="flex items-start gap-3">
@@ -652,7 +718,7 @@ function CheckoutForm() {
               className="ui-press mt-8 h-[52px] w-full bg-espresso text-label-caps text-background
                          hover:bg-espresso-hover disabled:cursor-not-allowed disabled:bg-surface-oat disabled:text-foreground-faint"
             >
-              {placeOrder.isPending ? 'Placing order…' : 'Place order & pay'}
+              {placeOrder.isPending ? 'Placing order…' : coveredByVoucher ? 'Place order' : 'Place order & pay'}
             </button>
             {!shippingLocationId && !cartNeedsReview && (
               <p className="mt-3 text-center text-[12px] text-foreground-muted">Choose a delivery area to continue.</p>
@@ -664,10 +730,12 @@ function CheckoutForm() {
               </p>
             )}
 
-            <p className="mt-6 flex items-center justify-center gap-2 text-[12px] text-foreground-muted">
-              <Lock strokeWidth={1} className="h-3.5 w-3.5 text-brass" aria-hidden="true" />
-              Secure payment with Pesapal
-            </p>
+            {!coveredByVoucher && (
+              <p className="mt-6 flex items-center justify-center gap-2 text-[12px] text-foreground-muted">
+                <Lock strokeWidth={1} className="h-3.5 w-3.5 text-brass" aria-hidden="true" />
+                Secure payment with Pesapal
+              </p>
+            )}
 
           </div>
           <HelpLine />

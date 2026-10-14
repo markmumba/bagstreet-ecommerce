@@ -21,6 +21,7 @@ const customerOrder: EmailPreview = {
         name: 'Amani',
         orderRef: 'BS-EXAMPLE',
         totalAmount: formatEmailMoney(11500),
+        totalNote: `Includes delivery and any applied discounts. ${formatEmailMoney(3000)} of it was paid by gift voucher.`,
         shippingName: 'Amani Wanjiku',
         shippingAddress: 'Kenyatta Avenue, Apartment 4B',
         shippingCity: 'Nairobi, Kenya',

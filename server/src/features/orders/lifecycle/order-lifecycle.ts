@@ -28,6 +28,7 @@ import {
 } from './transitions';
 import { orderConfirmationJob, orderExpiredJob, paymentFailedJob, staffAlert, staffOrderConfirmedEmail } from './order-messages';
 import { alertStaff } from '../../staff-alerts/staff-alerts';
+import { orderVoucherMoney, voucherBalance, voucherReclaimable } from '../../gift-vouchers/voucher-balance';
 
 type Executor = typeof sql;
 
@@ -149,7 +150,9 @@ export async function createOrder(
             tx, order: created, before: null, next: decision.next, event, actor, after, captured: 0,
             options: { ...options, paymentTransactionId },
         };
-        for (const effect of decision.effects) await applyEffect(run, effect);
+        // Decided again now the order has its id, so email dedupe keys name the real order.
+        const effects = decideCreation(event, actor, String(created.id));
+        for (const effect of effects.kind === 'not_allowed' ? [] : effects.effects) await applyEffect(run, effect);
     });
     after.run();
     return order;
@@ -167,15 +170,21 @@ async function loadContext(tx: Executor, order: OrderRow, state: OrderState, eve
 
     const orderTotal = roundMoney(Number(order.total_amount));
     const captures = sum(LEDGER_ENTRY.PAYMENT_CAPTURED, 'CREDIT');
+    // A gift voucher's part counts as money towards the order from the moment it is held.
+    const voucher = order.voucher_id ? await orderVoucherMoney(tx, order.id) : { held: 0, redeemed: 0, returned: 0 };
+    const voucherMoney = roundMoney(voucher.held + voucher.redeemed);
     // Orders paid before the ledger existed have no capture entry; trust their PAID flag.
-    const legacyPaid = captures === 0 && state.payment === 'PAID';
-    const captured = roundMoney((legacyPaid ? orderTotal : captures) - sum(LEDGER_ENTRY.PAYMENT_REVERSED, 'DEBIT'));
+    const legacyPaid = captures === 0 && voucherMoney === 0 && state.payment === 'PAID';
+    const captured = roundMoney((legacyPaid ? orderTotal : captures) + voucherMoney - sum(LEDGER_ENTRY.PAYMENT_REVERSED, 'DEBIT'));
 
     const ctx: DecisionContext = {
         orderTotal,
         currency: env.PESAPAL_CURRENCY,
         captured,
         refunded: sum(LEDGER_ENTRY.REFUND_ISSUED, 'DEBIT'),
+        voucherHeld: voucher.held,
+        voucherRedeemed: voucher.redeemed,
+        voucherReturned: voucher.returned,
     };
 
     if (event.type === 'refund_recorded') {
@@ -198,6 +207,8 @@ async function loadContext(tx: Executor, order: OrderRow, state: OrderState, eve
         if (state.status === 'CANCELLED') {
             // Late payment: can the order be reinstated? Variants stay locked until commit.
             ctx.stockAvailable = await inventory.canReserve(tx, await orderStockLines(tx, order.id));
+            // ...and can its gift voucher still pay its part? (The voucher row stays locked too.)
+            ctx.voucherReclaimable = await voucherReclaimable(tx, order);
         }
     }
     return ctx;
@@ -238,6 +249,21 @@ async function applyEffect(run: Run, effect: Effect): Promise<void> {
             return;
         case 'release_discount':
             await releaseDiscountUsage(tx, orderId);
+            return;
+
+        case 'hold_voucher':
+            run.captured = roundMoney(run.captured + await voucherBalance.hold(tx, order, staffId(run.actor)));
+            return;
+        case 'redeem_voucher':
+            await voucherBalance.redeem(tx, order, env.PESAPAL_CURRENCY, staffId(run.actor));
+            return;
+        case 'release_voucher':
+            await voucherBalance.release(tx, order, env.PESAPAL_CURRENCY, staffId(run.actor),
+                run.event.type === 'expired' ? 'Unpaid order expired' : 'Order cancelled');
+            return;
+        case 'return_to_voucher':
+            await voucherBalance.returnTo(tx, order, effect.amount, staffId(run.actor),
+                run.event.type === 'refund_recorded' ? `Refund: ${run.event.reason}` : 'Refund');
             return;
 
         case 'record_capture': {

@@ -13,7 +13,7 @@ import {
   SidebarProvider,
   SidebarTrigger,
 } from '@/components/ui/sidebar';
-import { ChevronDown, LayoutDashboard, Tag, Package, ClipboardList, Users, LogOut, Settings, ShoppingBag, Truck, BadgePercent, Scale, ShieldCheck } from 'lucide-react';
+import { ChevronDown, LayoutDashboard, Tag, Package, ClipboardList, Users, LogOut, Settings, ShoppingBag, Truck, BadgePercent, Scale, ShieldCheck, Gift } from 'lucide-react';
 import { NotificationBell } from './NotificationBell';
 import { useNotificationStream } from '@/hooks/useNotifications';
 import { USER_ROLE } from 'shared';
@@ -21,7 +21,7 @@ import type { UserRole } from 'shared';
 
 type NavigationItem = {
   title: string;
-  href: '/dashboard' | '/categories' | '/products' | '/orders' | '/reconciliation' | '/promotions' | '/shipping' | '/users' | '/compliance';
+  href: '/dashboard' | '/categories' | '/products' | '/orders' | '/gift-vouchers' | '/reconciliation' | '/promotions' | '/shipping' | '/users' | '/compliance';
   icon: ComponentType<{ className?: string; strokeWidth?: number }>;
   roles: UserRole[];
 };
@@ -31,6 +31,7 @@ const navigation: NavigationItem[] = [
   { title: 'Categories', href: '/categories', icon: Tag, roles: [USER_ROLE.ADMIN] },
   { title: 'Products', href: '/products', icon: Package, roles: [USER_ROLE.ADMIN] },
   { title: 'Orders', href: '/orders', icon: ClipboardList, roles: [USER_ROLE.ADMIN, USER_ROLE.MANAGER] },
+  { title: 'Gift vouchers', href: '/gift-vouchers', icon: Gift, roles: [USER_ROLE.ADMIN, USER_ROLE.MANAGER] },
   { title: 'Reconciliation', href: '/reconciliation', icon: Scale, roles: [USER_ROLE.ADMIN] },
   { title: 'Promotions', href: '/promotions', icon: BadgePercent, roles: [USER_ROLE.ADMIN] },
   { title: 'Shipping', href: '/shipping', icon: Truck, roles: [USER_ROLE.ADMIN] },
@@ -70,7 +71,8 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   }, [isLoading, isAuthenticated, navigate]);
 
   const isManager = user?.role === USER_ROLE.MANAGER;
-  const isManagerAllowedPage = location.pathname === '/orders';
+  // Managers run the till: orders, walk-in sales and selling gift vouchers.
+  const isManagerAllowedPage = location.pathname === '/orders' || location.pathname === '/gift-vouchers';
   const visibleNavigation = navigation.filter((item) => user?.role && item.roles.includes(user.role));
 
   useEffect(() => {

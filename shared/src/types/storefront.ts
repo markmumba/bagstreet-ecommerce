@@ -47,6 +47,8 @@ export interface CartQuoteRequest {
     /** Needed with a discount code: each code is one use per phone. */
     phone?: string;
     shipping_location_id?: number;
+    /** A gift voucher code: pays what it can of the total (see `amount_to_pay`). */
+    voucher_code?: string;
 }
 
 /**
@@ -96,6 +98,12 @@ export interface CartQuoteResponse {
     delivery: { location_id: string; name: string; price: number; cost: number } | null;
     /** subtotal − discount + delivery: exactly what the order will charge. */
     total: number;
+    /** The gift voucher paying part or all of the total, when one was entered and can pay. */
+    voucher: { last4: string; amount: number; balance: number; expires_at: string } | null;
+    /** Why the entered gift voucher can't be used. */
+    voucher_problem: string | null;
+    /** total − voucher: what the customer still pays (0 when a voucher covers everything). */
+    amount_to_pay: number;
     /** Why an order can't be placed with this quote yet; empty when it can. */
     problems: string[];
 }

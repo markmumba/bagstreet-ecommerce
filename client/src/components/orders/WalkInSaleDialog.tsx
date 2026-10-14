@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react';
-import { Loader2, Minus, Plus, Search, ShoppingBag, Trash2, Wallet } from 'lucide-react';
+import { Gift, Loader2, Minus, Plus, Search, ShoppingBag, Trash2, Wallet, X } from 'lucide-react';
 import type { OrderResponse, WalkInCatalogItemResponse, WalkInPaymentMethod } from 'shared';
 import { WALK_IN_PAYMENT_METHOD } from 'shared';
 import { useCreateWalkInSale, useWalkInCatalog } from '@/hooks/useOrders';
+import { useLookupGiftVoucher } from '@/hooks/useGiftVouchers';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -58,6 +59,10 @@ export function WalkInSaleDialog({ open, onOpenChange, onCreated }: WalkInSaleDi
   const [customerEmail, setCustomerEmail] = useState('');
   const [notes, setNotes] = useState('');
   const [error, setError] = useState('');
+  // A gift voucher pays what it can; the payment method is for the rest.
+  const [voucherCode, setVoucherCode] = useState('');
+  const voucherLookup = useLookupGiftVoucher();
+  const voucher = voucherLookup.data?.status === 'active' ? voucherLookup.data : null;
 
   const catalogQuery = useWalkInCatalog(search, open);
   const createSale = useCreateWalkInSale();
@@ -66,6 +71,10 @@ export function WalkInSaleDialog({ open, onOpenChange, onCreated }: WalkInSaleDi
     () => cart.reduce((sum, item) => sum + item.unit_price * item.quantity, 0),
     [cart]
   );
+  // The server prices the sale again; this is what staff see while building it.
+  const voucherPays = voucher ? Math.min(voucher.balance, total) : 0;
+  const takeAtCounter = Math.max(0, total - voucherPays);
+
   const itemCount = useMemo(
     () => cart.reduce((sum, item) => sum + item.quantity, 0),
     [cart]
@@ -80,6 +89,8 @@ export function WalkInSaleDialog({ open, onOpenChange, onCreated }: WalkInSaleDi
     setCustomerEmail('');
     setNotes('');
     setError('');
+    setVoucherCode('');
+    voucherLookup.reset();
   };
 
   const close = (nextOpen: boolean) => {
@@ -135,6 +146,7 @@ export function WalkInSaleDialog({ open, onOpenChange, onCreated }: WalkInSaleDi
         customer_phone: customerPhone.trim() || undefined,
         customer_email: customerEmail.trim() || undefined,
         notes: notes.trim() || undefined,
+        voucher_code: voucher ? voucherCode.trim() : undefined,
       });
       onCreated?.(res);
       reset();
@@ -319,7 +331,48 @@ export function WalkInSaleDialog({ open, onOpenChange, onCreated }: WalkInSaleDi
 
             <div className="mt-6 space-y-4 border-t pt-5">
               <div className="space-y-2">
-                <Label htmlFor="walk-in-payment">Payment</Label>
+                <Label htmlFor="walk-in-voucher">Gift voucher</Label>
+                {voucher ? (
+                  <div className="flex items-center justify-between gap-2 rounded-lg border bg-muted/30 px-3 py-2 text-sm">
+                    <span className="flex min-w-0 items-start gap-2">
+                      <Gift className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={1.8} />
+                      <span className="min-w-0">
+                        <span className="block">····{voucher.code_last4} pays <span className="font-semibold tabular-nums">{formatMoney(voucherPays)}</span></span>
+                        <span className="block text-xs text-muted-foreground">{formatMoney(voucher.balance)} on the voucher</span>
+                      </span>
+                    </span>
+                    <button type="button" aria-label="Remove gift voucher" className="rounded-md p-1 text-muted-foreground hover:bg-muted"
+                      onClick={() => { setVoucherCode(''); voucherLookup.reset(); }}>
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex gap-2">
+                    <Input id="walk-in-voucher" value={voucherCode} onChange={(e) => setVoucherCode(e.target.value.toUpperCase())}
+                      placeholder="Optional: BGST-…" className="font-mono" maxLength={40} autoComplete="off" />
+                    <Button type="button" variant="outline" disabled={!voucherCode.trim() || voucherLookup.isPending}
+                      onClick={() => voucherLookup.mutate(voucherCode.trim())}>
+                      Apply
+                    </Button>
+                  </div>
+                )}
+                {voucherLookup.isError && <p className="text-xs text-destructive">No voucher has that code.</p>}
+                {voucherLookup.data && !voucher && (
+                  <p className="text-xs text-destructive">
+                    This voucher is {voucherLookup.data.status === 'used' ? 'used up' : voucherLookup.data.status === 'voided' ? 'cancelled' : 'expired'}.
+                  </p>
+                )}
+              </div>
+
+              {voucher && (
+                <div className="flex items-center justify-between rounded-lg bg-muted/40 px-3 py-2 text-sm">
+                  <span>Take at the counter</span>
+                  <span className="font-semibold tabular-nums">{formatMoney(takeAtCounter)}</span>
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <Label htmlFor="walk-in-payment">{voucher ? 'Payment for the rest' : 'Payment'}</Label>
                 <Select
                   value={paymentMethod}
                   onValueChange={(value) => setPaymentMethod(value as WalkInPaymentMethod)}

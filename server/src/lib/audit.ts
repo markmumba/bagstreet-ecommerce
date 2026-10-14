@@ -29,7 +29,11 @@ export type AuditAction =
     | 'SHIPPING_LOCATION_DELETED'
     | 'DISCOUNT_CREATED'
     | 'DISCOUNT_UPDATED'
-    | 'DISCOUNT_DEACTIVATED';
+    | 'DISCOUNT_DEACTIVATED'
+    | 'SESSION_TOKEN_REUSED'
+    | 'GIFT_VOUCHER_ISSUED'
+    | 'GIFT_VOUCHER_VOIDED'
+    | 'GIFT_VOUCHER_ADJUSTED';
 
 export async function createAuditLog(data: {
     actor?: AuthUser | null;

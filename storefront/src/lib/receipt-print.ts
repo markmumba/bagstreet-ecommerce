@@ -170,6 +170,7 @@ function buildReceiptPrintHtml(receipt: OrderReceiptResponse) {
               <div>Subtotal: ${escapeHtml(formatMoney(receipt.subtotal, receipt.currency))}</div>
               <div>Delivery: ${escapeHtml(formatMoney(receipt.shipping_cost, receipt.currency))}</div>
               ${receipt.discount_amount > 0 ? `<div>Discount: -${escapeHtml(formatMoney(receipt.discount_amount, receipt.currency))}</div>` : ''}
+              ${receipt.voucher_amount > 0 ? `<div>Of which by gift voucher${receipt.voucher_last4 ? ` ····${escapeHtml(receipt.voucher_last4)}` : ''}: ${escapeHtml(formatMoney(receipt.voucher_amount, receipt.currency))}</div>` : ''}
             </div>
           </div>
           <p class="total-paid">${escapeHtml(formatMoney(receipt.total_amount, receipt.currency))}</p>

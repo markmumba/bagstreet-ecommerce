@@ -4,12 +4,14 @@ import { settingsQueries } from '../settings/settings.queries';
 import type { CartQuoteRequestItem } from 'shared/dist';
 import { buildQuote, mergeQuoteItems, type Quote, type QuoteInputs, type QuoteLocation, type QuoteVariantRow } from './quote';
 import type { DiscountRuleCode } from './discount-rules';
+import { giftVouchersQueries } from '../gift-vouchers/gift-vouchers.queries';
 
 export interface QuoteRequest {
     items: CartQuoteRequestItem[];
     discount_code?: string;
     phone?: string;
     shipping_location_id?: number;
+    voucher_code?: string;
     /** The signed-in customer, from the auth token (never from the request body). */
     userId?: number | null;
 }
@@ -54,6 +56,11 @@ export async function quoteOrder(request: QuoteRequest, options: { mode?: QuoteI
         delivery = { requestedId: request.shipping_location_id, location: location ? { ...location, id: Number(location.id) } : undefined };
     }
 
+    const requestedVoucher = request.voucher_code?.trim();
+    const voucher: QuoteInputs['voucher'] = requestedVoucher
+        ? { requested: requestedVoucher, row: await giftVouchersQueries.findByCode(requestedVoucher, db) }
+        : undefined;
+
     return buildQuote({
         items: request.items,
         rows: rows.map((row) => ({ ...row, variant_id: Number(row.variant_id), product_id: Number(row.product_id) })),
@@ -61,5 +68,6 @@ export async function quoteOrder(request: QuoteRequest, options: { mode?: QuoteI
         mode: options.mode ?? 'online',
         discount,
         delivery,
+        voucher,
     });
 }

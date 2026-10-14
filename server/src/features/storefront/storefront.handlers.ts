@@ -3,6 +3,7 @@ import { success } from '@server/lib/response';
 import { NotFoundError, ValidationError } from '@server/lib/errors';
 import { cartQuoteSchema } from '../quote/quote';
 import { quoteOrder } from '../quote/quote.queries';
+import { assertCanTryVoucherCode, recordVoucherCodeResult } from '../gift-vouchers/voucher-guard';
 import { getOptionalUser } from '@server/lib/hono';
 import { categoriesQueries } from '../categories/categories.queries';
 import { productsQueries } from '../products/products.queries';
@@ -171,6 +172,9 @@ export const storefrontHandlers = {
         }
 
         const user = getOptionalUser(c);
-        return success(c, await quoteOrder({ ...validated.data, userId: user ? Number(user.sub) : null }));
+        await assertCanTryVoucherCode(c, validated.data.voucher_code);
+        const quote = await quoteOrder({ ...validated.data, userId: user ? Number(user.sub) : null });
+        await recordVoucherCodeResult(c, quote.voucher_problem);
+        return success(c, quote);
     },
 };

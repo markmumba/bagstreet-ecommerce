@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { notificationsService } from '@/services/notifications.service';
+import { apiClient } from '@/services/api';
 
 export const notificationKeys = {
     all: ['notifications'] as const,
@@ -39,23 +40,33 @@ export function useNotificationStream() {
     const queryClient = useQueryClient();
 
     useEffect(() => {
-        const token = localStorage.getItem('bagstreet_token');
-        if (!token) return;
-
         const baseUrl = import.meta.env.VITE_SERVER_URL || 'http://localhost:3000';
-        const es = new EventSource(`${baseUrl}/api/notifications/stream?token=${encodeURIComponent(token)}`);
+        let es: EventSource | null = null;
+        let retry: ReturnType<typeof setTimeout> | undefined;
+        let stopped = false;
 
         const onNotification = () => {
             queryClient.invalidateQueries({ queryKey: notificationKeys.all });
         };
 
-        es.addEventListener('notification', onNotification);
-        es.addEventListener('init', onNotification);
-
-        es.onerror = () => {
-            es.close();
+        // The server ends the stream when the access token expires, so reconnect with a fresh one.
+        const connect = (token: string | null) => {
+            if (stopped || !token) return;
+            es = new EventSource(`${baseUrl}/api/notifications/stream?token=${encodeURIComponent(token)}`);
+            es.addEventListener('notification', onNotification);
+            es.addEventListener('init', onNotification);
+            es.onerror = () => {
+                es?.close();
+                retry = setTimeout(() => apiClient.refreshSession().then(connect), 5000);
+            };
         };
 
-        return () => es.close();
+        connect(apiClient.getAuthToken());
+
+        return () => {
+            stopped = true;
+            clearTimeout(retry);
+            es?.close();
+        };
     }, [queryClient]);
 }

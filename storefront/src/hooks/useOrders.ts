@@ -43,6 +43,7 @@ export function usePlaceOrder() {
       phone: string;
       email?: string;
       discount_code?: string;
+      voucher_code?: string;
       notes?: string;
       policy_acceptance: { accepted: true; version: string };
     }) => apiClient.post<OrderResponse>('/api/orders', data),

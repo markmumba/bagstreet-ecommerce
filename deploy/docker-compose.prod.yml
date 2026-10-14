@@ -34,6 +34,8 @@ services:
       ADMIN_DOMAIN: ${ADMIN_DOMAIN}
       API_DOMAIN: ${API_DOMAIN}
       ACME_EMAIL: ${ACME_EMAIL}
+      # Product images origin, allowed by the Content-Security-Policy (see deploy/Caddyfile).
+      STORAGE_PUBLIC_URL: ${STORAGE_PUBLIC_URL}
     volumes:
       - caddy_data:/data
       - caddy_config:/config

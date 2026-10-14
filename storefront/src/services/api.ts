@@ -1,13 +1,41 @@
 import axios, { type AxiosError, type AxiosInstance } from 'axios';
 import type { ApiResponse } from 'shared';
 
-let authToken: string | null = localStorage.getItem('bagstreet_store_token');
-let isRefreshing = false;
-let refreshQueue: Array<(token: string | null) => void> = [];
+// The access token lives in memory only, so a script injected into the page can't read it from
+// storage. A page load gets a new one from the HttpOnly refresh cookie (refreshSession).
+let authToken: string | null = null;
+let refreshInFlight: Promise<string | null> | null = null;
+let pageLoadRestore: Promise<string | null> | null = null;
 
-function drainQueue(token: string | null) {
-  refreshQueue.forEach((cb) => cb(token));
-  refreshQueue = [];
+// Not a credential: just remembers that this browser signed in, so guests' page loads don't ask
+// for a session they can't have.
+const SESSION_HINT_KEY = 'bagstreet_store_session';
+
+function setSessionHint(signedIn: boolean) {
+  try {
+    if (signedIn) localStorage.setItem(SESSION_HINT_KEY, '1');
+    else localStorage.removeItem(SESSION_HINT_KEY);
+  } catch {
+    // Storage blocked: page loads just always try the refresh cookie.
+  }
+}
+
+// Earlier versions saved the access token itself: drop it, but remember the browser signed in.
+try {
+  if (localStorage.getItem('bagstreet_store_token')) {
+    localStorage.removeItem('bagstreet_store_token');
+    localStorage.setItem(SESSION_HINT_KEY, '1');
+  }
+} catch {
+  // Storage blocked: nothing to migrate.
+}
+
+export function hasSessionHint(): boolean {
+  try {
+    return localStorage.getItem(SESSION_HINT_KEY) === '1';
+  } catch {
+    return true;
+  }
 }
 
 class ApiClient {
@@ -28,10 +56,43 @@ class ApiClient {
 
   setAuthToken(token: string | null) {
     authToken = token;
+    setSessionHint(token !== null);
+  }
+
+  /**
+   * The session for this page load: one refresh if this browser signed in before, shared by every
+   * caller. Started as soon as this module loads, so the first API requests wait for it.
+   */
+  restoreSession(): Promise<string | null> {
+    pageLoadRestore ??= hasSessionHint() ? this.refreshSession() : Promise.resolve(null);
+    return pageLoadRestore;
+  }
+
+  /**
+   * Swaps the refresh cookie for a new access token. Concurrent callers share one request, because
+   * each refresh token works once. Resolves null when there is no session.
+   */
+  refreshSession(): Promise<string | null> {
+    if (!refreshInFlight) {
+      refreshInFlight = this.client
+        .post<ApiResponse<{ access_token: string }>>('/api/auth/refresh')
+        .then((res) => {
+          const token = res.data.data!.access_token;
+          this.setAuthToken(token);
+          return token;
+        })
+        .catch(() => null)
+        .finally(() => {
+          refreshInFlight = null;
+        });
+    }
+    return refreshInFlight;
   }
 
   private setupInterceptors() {
-    this.client.interceptors.request.use((config) => {
+    this.client.interceptors.request.use(async (config) => {
+      // While a page load is restoring the session, wait for it instead of failing with a 401.
+      if (refreshInFlight && !config.url?.includes('/api/auth/')) await refreshInFlight;
       if (authToken) config.headers.Authorization = `Bearer ${authToken}`;
       return config;
     });
@@ -40,35 +101,18 @@ class ApiClient {
       (res) => res,
       async (error: AxiosError<ApiResponse>) => {
         const original = error.config as any;
-        if (error.response?.status === 401 && !original._retry && authToken !== null) {
-          if (isRefreshing) {
-            return new Promise((resolve, reject) => {
-              refreshQueue.push((token) => {
-                if (token) { delete (original.headers as any).Authorization; resolve(this.client(original)); }
-                else reject(error);
-              });
-            });
-          }
+        const isAuthRequest = String(original?.url ?? '').includes('/api/auth/');
+        if (error.response?.status === 401 && original && !original._retry && authToken !== null && !isAuthRequest) {
           original._retry = true;
-          isRefreshing = true;
-          authToken = null;
-          try {
-            const res = await this.client.post<ApiResponse<{ access_token: string }>>('/api/auth/refresh');
-            const newToken = res.data.data!.access_token;
-            authToken = newToken;
-            localStorage.setItem('bagstreet_store_token', newToken);
-            drainQueue(newToken);
+          const token = await this.refreshSession();
+          if (token) {
             // Delete stale header; request interceptor re-adds it with fresh token
             delete (original.headers as any).Authorization;
             return this.client(original);
-          } catch {
-            drainQueue(null);
-            localStorage.removeItem('bagstreet_store_token');
-            if (window.location.pathname !== '/login') window.location.href = '/login';
-            return Promise.reject(error);
-          } finally {
-            isRefreshing = false;
           }
+          this.setAuthToken(null);
+          if (window.location.pathname !== '/login') window.location.href = '/login';
+          return Promise.reject(error);
         }
         return Promise.reject({
           message: error.response?.data?.message || 'An unexpected error occurred',
@@ -97,3 +141,4 @@ class ApiClient {
 }
 
 export const apiClient = new ApiClient();
+apiClient.restoreSession();

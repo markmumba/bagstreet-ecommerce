@@ -102,4 +102,19 @@ describe('assessCapturedAmount', () => {
         expect(assessCapturedAmount(8500, 8500, 'USD')).toBe('currency_mismatch'));
     test('currency comparison ignores case', () => expect(assessCapturedAmount(8500, 8500, 'kes')).toBe('match'));
     test('unknown currency is not treated as a mismatch', () => expect(assessCapturedAmount(8500, 8500, null)).toBe('match'));
+
+    test('a gift voucher part counts as paid, and only goes back onto the voucher', () => {
+        const voucher = { entry_type: 'VOUCHER_REDEEMED', direction: 'CREDIT' as const, amount: 3000 };
+        const s = summariseOrderPayments(order(), [capture(5500), voucher]);
+        expect(s.state).toBe('paid');
+        expect(s.paid_by_voucher).toBe(3000);
+        expect(s.voucher_refundable).toBe(3000);
+        expect(s.cash_refundable).toBe(5500);
+
+        const back = { entry_type: 'REFUND_ISSUED', direction: 'DEBIT' as const, amount: 1000, metadata: { method: 'GIFT_VOUCHER' } };
+        const after = summariseOrderPayments(order(), [capture(5500), voucher, back]);
+        expect(after.returned_to_voucher).toBe(1000);
+        expect(after.voucher_refundable).toBe(2000);
+        expect(after.cash_refundable).toBe(5500);
+    });
 });

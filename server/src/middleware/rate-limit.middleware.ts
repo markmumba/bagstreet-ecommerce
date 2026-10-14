@@ -94,6 +94,38 @@ async function increment(key: string, windowMs: number): Promise<RateLimitResult
     }
 }
 
+async function peek(key: string): Promise<number> {
+    const shouldUseRedis = env.RATE_LIMIT_STORE === 'redis' && env.REDIS_REST_URL && env.REDIS_REST_TOKEN;
+    if (shouldUseRedis) {
+        try {
+            return Number(await redisCommand<string | null>(['GET', key]) ?? 0);
+        } catch (error) {
+            console.error('[rate-limit] Redis unavailable, falling back to memory:', error);
+        }
+    }
+    const entry = memoryStore.get(key);
+    return entry && entry.resetAt >= Date.now() ? entry.count : 0;
+}
+
+/**
+ * Counts failures only, per signed-in user or IP (not per route), e.g. wrong gift voucher codes:
+ * customers retyping their own code are never slowed down, but guessing codes is.
+ */
+export function failureLimiter(options: { scope: string; limit: number; windowMs: number }) {
+    const key = (c: AppContext) => {
+        const user = c.get('user');
+        return `rl:${options.scope}:${user?.sub ? `user:${user.sub}` : `ip:${getClientIp(c)}`}`;
+    };
+    return {
+        /** True once the limit of failures has been reached in the window. */
+        blocked: async (c: AppContext) => (await peek(key(c))) >= options.limit,
+        record: async (c: AppContext) => { await increment(key(c), options.windowMs); },
+    };
+}
+
+/** Wrong gift voucher codes: 10 an hour is plenty for typos, useless for guessing 2^80 codes. */
+export const voucherCodeFailures = failureLimiter({ scope: 'voucher-code', limit: 10, windowMs: 60 * 60 * 1000 });
+
 export function rateLimit(options: {
     limit: number;
     windowMs: number;

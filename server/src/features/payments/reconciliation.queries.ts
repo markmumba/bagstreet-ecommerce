@@ -43,7 +43,8 @@ export const reconciliationQueries = {
             SELECT
                 o.id AS order_id, o.order_number, o.total_amount, o.status, o.payment_status, o.order_source,
                 COALESCE((SELECT SUM(amount) FROM payment_ledger_entries l
-                          WHERE l.order_id = o.id AND l.entry_type = ${LEDGER_ENTRY.PAYMENT_CAPTURED} AND l.direction = 'CREDIT'), 0) AS captured,
+                          WHERE l.order_id = o.id AND l.entry_type IN (${LEDGER_ENTRY.PAYMENT_CAPTURED}, ${LEDGER_ENTRY.VOUCHER_REDEEMED})
+                            AND l.direction = 'CREDIT'), 0) AS captured,
                 COALESCE((SELECT SUM(amount) FROM payment_ledger_entries l
                           WHERE l.order_id = o.id AND l.entry_type = ${LEDGER_ENTRY.REFUND_ISSUED} AND l.direction = 'DEBIT'), 0) AS refunded,
                 COALESCE((SELECT SUM(amount) FROM payment_ledger_entries l

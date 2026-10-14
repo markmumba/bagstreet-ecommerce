@@ -16,20 +16,47 @@ export interface Page<T> {
   limit: number;
 }
 
-let authToken: string | null = localStorage.getItem('bagstreet_token');
-let isRefreshing = false;
-let refreshQueue: Array<(token: string | null) => void> = [];
+// The access token lives in memory only, so a script injected into the page can't read it from
+// storage. A page load gets a new one from the HttpOnly refresh cookie (refreshSession).
+let authToken: string | null = null;
+let refreshInFlight: Promise<string | null> | null = null;
+let pageLoadRestore: Promise<string | null> | null = null;
 let authExpiredDispatched = false;
 
-function drainQueue(token: string | null) {
-  refreshQueue.forEach((cb) => cb(token));
-  refreshQueue = [];
+// Not a credential: just remembers that this browser signed in, so a page load only asks for a
+// session when there may be one.
+const SESSION_HINT_KEY = 'bagstreet_admin_session';
+
+function setSessionHint(signedIn: boolean) {
+  try {
+    if (signedIn) localStorage.setItem(SESSION_HINT_KEY, '1');
+    else localStorage.removeItem(SESSION_HINT_KEY);
+  } catch {
+    // Storage blocked: page loads just always try the refresh cookie.
+  }
+}
+
+// Earlier versions saved the access token itself: drop it, but remember the browser signed in.
+try {
+  if (localStorage.getItem('bagstreet_token')) {
+    localStorage.removeItem('bagstreet_token');
+    localStorage.setItem(SESSION_HINT_KEY, '1');
+  }
+} catch {
+  // Storage blocked: nothing to migrate.
+}
+
+export function hasSessionHint(): boolean {
+  try {
+    return localStorage.getItem(SESSION_HINT_KEY) === '1';
+  } catch {
+    return true;
+  }
 }
 
 function expireAuth() {
   authToken = null;
-  localStorage.removeItem('bagstreet_token');
-  drainQueue(null);
+  setSessionHint(false);
 
   if (!authExpiredDispatched) {
     authExpiredDispatched = true;
@@ -56,12 +83,49 @@ class ApiClient {
 
   setAuthToken(token: string | null) {
     authToken = token;
+    setSessionHint(token !== null);
     if (token) authExpiredDispatched = false;
+  }
+
+  getAuthToken(): string | null {
+    return authToken;
+  }
+
+  /**
+   * The session for this page load: one refresh if this browser signed in before, shared by every
+   * caller. Started as soon as this module loads, so the first API requests wait for it.
+   */
+  restoreSession(): Promise<string | null> {
+    pageLoadRestore ??= hasSessionHint() ? this.refreshSession() : Promise.resolve(null);
+    return pageLoadRestore;
+  }
+
+  /**
+   * Swaps the refresh cookie for a new access token. Concurrent callers share one request, because
+   * each refresh token works once. Resolves null when there is no session.
+   */
+  refreshSession(): Promise<string | null> {
+    if (!refreshInFlight) {
+      refreshInFlight = this.client
+        .post<ApiResponse<{ access_token: string }>>('/api/auth/refresh')
+        .then((res) => {
+          const token = res.data.data!.access_token;
+          this.setAuthToken(token);
+          return token;
+        })
+        .catch(() => null)
+        .finally(() => {
+          refreshInFlight = null;
+        });
+    }
+    return refreshInFlight;
   }
 
   private setupInterceptors() {
     this.client.interceptors.request.use(
-      (config) => {
+      async (config) => {
+        // While a page load is restoring the session, wait for it instead of failing with a 401.
+        if (refreshInFlight && !config.url?.includes('/api/auth/')) await refreshInFlight;
         if (authToken) {
           config.headers.Authorization = `Bearer ${authToken}`;
         }
@@ -89,40 +153,15 @@ class ApiClient {
           authToken !== null &&
           !isAuthRequest
         ) {
-          if (isRefreshing) {
-            return new Promise((resolve, reject) => {
-              refreshQueue.push((token) => {
-                if (token) {
-                  delete originalRequest.headers.Authorization;
-                  resolve(this.client(originalRequest));
-                } else {
-                  reject(error);
-                }
-              });
-            });
-          }
-
           originalRequest._retry = true;
-          isRefreshing = true;
-          authToken = null; // clear so the refresh call itself doesn't trigger retry
-
-          try {
-            const res = await this.client.post<ApiResponse<{ access_token: string }>>(
-              '/api/auth/refresh'
-            );
-            const newToken = res.data.data!.access_token;
-            authToken = newToken;
-            localStorage.setItem('bagstreet_token', newToken);
-            drainQueue(newToken);
-            // Delete stale header; request interceptor re-adds it with fresh token
-            delete originalRequest.headers.Authorization;
-            return this.client(originalRequest);
-          } catch {
+          const token = await this.refreshSession();
+          if (!token) {
             expireAuth();
             return Promise.reject(error);
-          } finally {
-            isRefreshing = false;
           }
+          // Delete stale header; request interceptor re-adds it with fresh token
+          delete originalRequest.headers.Authorization;
+          return this.client(originalRequest);
         }
 
         const apiError: ApiError = {
@@ -191,3 +230,4 @@ class ApiClient {
 }
 
 export const apiClient = new ApiClient();
+apiClient.restoreSession();

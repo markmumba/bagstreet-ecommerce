@@ -95,6 +95,8 @@ export interface OrderCreateRequest {
     phone: string;
     email?: string;
     discount_code?: string;
+    /** A gift voucher code: pays what it can of the total; Pesapal collects the rest. */
+    voucher_code?: string;
     notes?: string;
 }
 
@@ -105,6 +107,8 @@ export interface WalkInSaleRequest {
     customer_phone?: string;
     customer_email?: string;
     notes?: string;
+    /** A gift voucher code: pays what it can; `payment_method` is for the rest. */
+    voucher_code?: string;
 }
 
 export interface WalkInCatalogItemResponse {
@@ -147,6 +151,11 @@ export interface OrderResponse {
     shipping_cost: number;
     discount_code?: string;
     discount_amount: number;
+    /** Paid (or held) from a gift voucher; the rest of the total is paid as usual. */
+    voucher_amount: number;
+    voucher_last4?: string | null;
+    /** total − voucher: what the customer pays by card, M-Pesa or cash. */
+    amount_due: number;
     payment_status: PaymentStatus;
     shipping_location_id?: string;
     shipping_address: ShippingAddress;
@@ -180,6 +189,8 @@ export interface PaymentStatusResponse {
     order_ref?: string;
     order_number?: string | null;
     total_amount?: number;
+    /** What is paid by card or M-Pesa: the total less any gift voucher. */
+    amount_due?: number;
     order_status?: string;
     payment_status?: string;
     receipt_number?: string;
@@ -204,6 +215,9 @@ export interface OrderReceiptResponse {
     shipping_cost: number;
     discount_amount: number;
     total_amount: number;
+    /** Paid by gift voucher (last four characters of its code). */
+    voucher_amount: number;
+    voucher_last4?: string | null;
     items: OrderItemResponse[];
 }
 
@@ -229,6 +243,8 @@ export const REFUND_METHOD = {
     CASH: 'CASH',
     BANK_TRANSFER: 'BANK_TRANSFER',
     OTHER: 'OTHER',
+    /** Back onto the gift voucher that paid for the order (never paid out as money). */
+    GIFT_VOUCHER: 'GIFT_VOUCHER',
 } as const;
 export type RefundMethod = typeof REFUND_METHOD[keyof typeof REFUND_METHOD];
 
@@ -265,6 +281,14 @@ export interface OrderPaymentSummary {
     net_after_fees: number;
     /** Most that can still be refunded. */
     refundable: number;
+    /** Paid from a gift voucher (included in `captured`). */
+    paid_by_voucher: number;
+    /** Given back onto the gift voucher (included in `refunded`). */
+    returned_to_voucher: number;
+    /** What can still go back onto the gift voucher. */
+    voucher_refundable: number;
+    /** What can still be refunded as money: a gift voucher's part never is. */
+    cash_refundable: number;
     state: OrderPaymentState;
     /** Marked paid before the ledger existed, so `captured` is assumed to be the order total. */
     legacy_unrecorded_capture: boolean;

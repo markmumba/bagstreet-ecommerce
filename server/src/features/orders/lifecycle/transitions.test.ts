@@ -168,9 +168,10 @@ describe('staff resolving a reversal', () => {
         expect(has(d, 'release_stock')).toBe(true);
     });
     test('mark paid again (customer re-paid another way)', () => {
-        const d = decide(S('DELIVERED', 'REVERSED'), ev.markedPaid(), admin, paidCtx(), REF);
+        // After a reversal the ledger nets the capture out, so nothing counts as paid any more.
+        const d = decide(S('DELIVERED', 'REVERSED'), ev.markedPaid(), admin, ctx(), REF);
         expect(next(d)).toEqual(S('DELIVERED', 'PAID'));
-        expect(has(d, 'record_capture')).toBe(true);
+        expect(d.kind !== 'not_allowed' && d.effects).toContainEqual(expect.objectContaining({ type: 'record_capture', amount: 8500 }));
     });
     test('write off with a note: state unchanged, audit records why', () => {
         const d = decide(S('CONFIRMED', 'REVERSED'), ev.writtenOff('bag delivered, card charged back'), admin, paidCtx(), REF);
@@ -293,6 +294,104 @@ describe('refunds', () => {
     });
 });
 
+// ── Gift vouchers (CONTEXT.md › Gift vouchers) ─────────────────────────────
+
+describe('gift vouchers', () => {
+    // An 8,500 order where a voucher pays 3,000: the hold counts as money towards the order.
+    const held = (o: Partial<DecisionContext> = {}) => ctx({ captured: 3000, voucherHeld: 3000, ...o });
+    const spent = (o: Partial<DecisionContext> = {}) => ctx({ captured: 8500, voucherRedeemed: 3000, ...o });
+    const voucherRefund = (amount: number): OrderEvent => ({ type: 'refund_recorded', amount, method: 'GIFT_VOUCHER', reason: 'returned', idempotencyKey: 'v1' });
+    const capture = (d: Decision) => (d.kind === 'not_allowed' ? undefined : d.effects.find((e): e is Extract<Effect, { type: 'record_capture' }> => e.type === 'record_capture'));
+
+    test('an online order the voucher fully covers is paid at once, without the payment provider', () => {
+        const d = decideCreation({ type: 'placed_online', paidByVoucher: true }, owner, REF);
+        expect(next(d)).toEqual(S('CONFIRMED', 'PAID'));
+        expect(types(d)).toEqual(expect.arrayContaining(['reserve_stock', 'claim_discount', 'hold_voucher', 'redeem_voucher', 'email_customer', 'email_staff_order_confirmed']));
+        expect(has(d, 'record_capture')).toBe(false);
+    });
+    test('a voucher covering part of an online order is held while the rest is paid', () => {
+        const d = decideCreation({ type: 'placed_online' }, owner, REF);
+        expect(next(d)).toEqual(S('PENDING', 'UNPAID'));
+        expect(has(d, 'hold_voucher')).toBe(true);
+        expect(has(d, 'redeem_voucher')).toBe(false);
+    });
+    test('a walk-in sale paid entirely by voucher records no counter payment', () => {
+        const d = decideCreation({ type: 'walk_in_sale', amount: 0, currency: 'KES', reference: 'cash-1' }, manager, REF);
+        expect(next(d)).toEqual(S('DELIVERED', 'PAID'));
+        expect(types(d)).toEqual(expect.arrayContaining(['hold_voucher', 'redeem_voucher']));
+        expect(has(d, 'record_capture')).toBe(false);
+    });
+    test('a walk-in sale part paid by voucher records the cash part', () => {
+        const d = decideCreation({ type: 'walk_in_sale', amount: 1500, currency: 'KES', reference: 'cash-1' }, manager, REF);
+        expect(capture(d)?.amount).toBe(1500);
+        expect(has(d, 'redeem_voucher')).toBe(true);
+    });
+    test('paying the rest confirms the order and spends the voucher', () => {
+        const d = decide(S('PENDING', 'UNPAID'), ev.captured(5500), provider, held(), REF);
+        expect(next(d)).toEqual(S('CONFIRMED', 'PAID'));
+        expect(has(d, 'redeem_voucher')).toBe(true);
+        expect(alerts(d)).not.toContain('overpaid');
+    });
+    test('paying less than the rest holds the payment and keeps the voucher on hold', () => {
+        const d = decide(S('PENDING', 'UNPAID'), ev.captured(5000), provider, held(), REF);
+        expect(next(d)).toEqual(S('PENDING', 'HELD'));
+        expect(has(d, 'redeem_voucher')).toBe(false);
+    });
+    test('expiry and cancellation give the held voucher money back', () => {
+        expect(has(decide(S('PENDING', 'UNPAID'), ev.expired(), system, held(), REF), 'release_voucher')).toBe(true);
+        expect(has(decide(S('PENDING', 'UNPAID'), ev.cancelled(), owner, held(), REF), 'release_voucher')).toBe(true);
+        expect(has(decide(S('PENDING', 'HELD'), ev.cancelled(), admin, held({ captured: 8000 }), REF), 'release_voucher')).toBe(true);
+    });
+    test('a late payment reinstates the order when the voucher can still pay its part', () => {
+        const d = decide(S('CANCELLED', 'UNPAID'), ev.captured(5500), provider, ctx({ stockAvailable: true, voucherReclaimable: 3000 }), REF);
+        expect(next(d)).toEqual(S('CONFIRMED', 'PAID'));
+        expect(types(d)).toEqual(expect.arrayContaining(['reserve_stock', 'claim_discount', 'hold_voucher', 'redeem_voucher']));
+    });
+    test('a late payment when the voucher was spent elsewhere is held as a refund owed', () => {
+        const d = decide(S('CANCELLED', 'UNPAID'), ev.captured(5500), provider, ctx({ stockAvailable: true, voucherReclaimable: 0 }), REF);
+        expect(next(d)).toEqual(S('CANCELLED', 'HELD'));
+        expect(alerts(d)).toContain('refund_needed');
+        expect(has(d, 'hold_voucher')).toBe(false);
+    });
+    test('marking a voucher order paid records only what the voucher does not cover', () => {
+        const d = decide(S('PENDING', 'UNPAID'), ev.markedPaid(), admin, held(), REF);
+        expect(next(d)).toEqual(S('CONFIRMED', 'PAID'));
+        expect(capture(d)?.amount).toBe(5500);
+        expect(has(d, 'redeem_voucher')).toBe(true);
+    });
+    test('accepting a held payment spends the voucher', () => {
+        expect(has(decide(S('PENDING', 'HELD'), ev.markedPaid(), admin, held({ captured: 8000 }), REF), 'redeem_voucher')).toBe(true);
+    });
+    test('a refund back onto the voucher gives the money back to it', () => {
+        const d = decide(S('DELIVERED', 'PAID'), voucherRefund(3000), admin, spent(), REF);
+        expect(d.kind).toBe('unchanged');
+        expect(d.kind !== 'not_allowed' && d.effects).toEqual(expect.arrayContaining([
+            expect.objectContaining({ type: 'record_refund', amount: 3000, method: 'GIFT_VOUCHER' }),
+            { type: 'return_to_voucher', amount: 3000 },
+        ]));
+    });
+    test('no more goes back onto the voucher than it paid', () => {
+        const d = decide(S('DELIVERED', 'PAID'), voucherRefund(3500), admin, spent(), REF);
+        expect(d).toMatchObject({ kind: 'not_allowed', reason: 'exceeds_refundable' });
+        expect(d.kind === 'not_allowed' && d.message).toContain('3000.00');
+    });
+    test('vouchers are never paid out as cash: a cash refund is limited to the cash part', () => {
+        const d = decide(S('DELIVERED', 'PAID'), ev.refund(6000), admin, spent(), REF);
+        expect(d).toMatchObject({ kind: 'not_allowed', reason: 'exceeds_refundable' });
+        expect(d.kind === 'not_allowed' && d.message).toContain('5500.00');
+        expect(d.kind === 'not_allowed' && d.message).toContain('gift voucher');
+    });
+    test('refunding the cash part and the voucher part → REFUNDED', () => {
+        const afterCash = spent({ refunded: 5500 });
+        expect(next(decide(S('DELIVERED', 'PAID'), voucherRefund(3000), admin, afterCash, REF))).toEqual(S('REFUNDED', 'PAID'));
+    });
+    test('a reversal only takes back money the payment provider received', () => {
+        const d = decide(S('CONFIRMED', 'PAID'), ev.reversed(), provider, spent(), REF);
+        const reversal = d.kind !== 'not_allowed' ? d.effects.find((e) => e.type === 'record_reversal') : undefined;
+        expect(reversal).toMatchObject({ amount: 5500 });
+    });
+});
+
 describe('customer view', () => {
     test.each([
         [S('PENDING', 'UNPAID'), { status: 'PENDING' }],
@@ -337,8 +436,14 @@ const EVENTS: OrderEvent[] = [
     ev.failed(), ev.reversed(), ev.expired(), ev.cancelled(), ev.markedPaid(),
     { type: 'dispatched' }, ev.delivered(), ev.refund(100), ev.refund(8500), ev.writtenOff(),
     { type: 'placed_online' }, { type: 'walk_in_sale', amount: 1, currency: 'KES', reference: 'x' },
+    { type: 'refund_recorded', amount: 3000, method: 'GIFT_VOUCHER', reason: 'r', idempotencyKey: 'v' },
 ];
-const CONTEXTS = [ctx(), paidCtx(), ctx({ stockAvailable: true }), ctx({ stockAvailable: false }), paidCtx({ refunded: 8500 })];
+const CONTEXTS = [
+    ctx(), paidCtx(), ctx({ stockAvailable: true }), ctx({ stockAvailable: false }), paidCtx({ refunded: 8500 }),
+    // Gift voucher orders: part held, part spent, and a cancelled one whose voucher can pay again.
+    ctx({ captured: 3000, voucherHeld: 3000 }), paidCtx({ voucherRedeemed: 3000 }),
+    ctx({ stockAvailable: true, voucherReclaimable: 3000 }),
+];
 const key = (s: OrderState) => `${s.status}/${s.payment}`;
 const VALID = new Set(ALL_STATES.map(key));
 
@@ -361,21 +466,36 @@ describe(`invariants over ${ALL_STATES.length} states × ${EVENTS.length} events
         expect(bad).toEqual([]);
     });
 
-    test('an order only becomes paid with a recorded payment, or by staff accepting a held one', () => {
+    test('an order only becomes paid with a recorded payment, its gift voucher, or by staff accepting a held one', () => {
         const bad = cases.filter((c) => c.d.kind === 'transition' && c.d.next.payment === 'PAID' && c.state.payment !== 'PAID'
-            && !has(c.d, 'record_capture') && !(c.state.payment === 'HELD' && c.event.type === 'marked_paid')).map(describeCase);
+            && !has(c.d, 'record_capture') && !(c.context.captured >= c.context.orderTotal && has(c.d, 'redeem_voucher'))
+            && !(c.state.payment === 'HELD' && c.event.type === 'marked_paid')).map(describeCase);
         expect(bad).toEqual([]);
     });
 
-    test('entering CANCELLED always releases stock and discount use', () => {
+    test('an order that goes ahead once paid always spends its gift voucher hold', () => {
+        // (A Late payment on a cancelled order that can't be revived is money owed back, not a sale.)
+        const bad = cases.filter((c) => c.d.kind === 'transition' && c.d.next.payment === 'PAID' && c.state.payment !== 'PAID'
+            && c.d.next.status !== 'CANCELLED' && !has(c.d, 'redeem_voucher')).map(describeCase);
+        expect(bad).toEqual([]);
+    });
+
+    test('entering CANCELLED always releases stock, discount use and the gift voucher', () => {
         const bad = cases.filter((c) => c.d.kind === 'transition' && c.d.next.status === 'CANCELLED' && c.state.status !== 'CANCELLED'
-            && !(has(c.d, 'release_stock') && has(c.d, 'release_discount'))).map(describeCase);
+            && !(has(c.d, 'release_stock') && has(c.d, 'release_discount') && has(c.d, 'release_voucher'))).map(describeCase);
         expect(bad).toEqual([]);
     });
 
-    test('BUG CLASS: leaving CANCELLED always re-takes stock and re-claims the discount', () => {
+    test('BUG CLASS: leaving CANCELLED always re-takes stock, re-claims the discount and re-holds the voucher', () => {
         const bad = cases.filter((c) => c.d.kind === 'transition' && c.state.status === 'CANCELLED' && c.d.next.status !== 'CANCELLED'
-            && !(has(c.d, 'reserve_stock') && has(c.d, 'claim_discount'))).map(describeCase);
+            && !(has(c.d, 'reserve_stock') && has(c.d, 'claim_discount') && has(c.d, 'hold_voucher'))).map(describeCase);
+        expect(bad).toEqual([]);
+    });
+
+    test('vouchers are never paid out as cash: refunds beyond the cash part only go back onto the voucher', () => {
+        const bad = cases.filter((c) => c.event.type === 'refund_recorded' && c.event.method !== 'GIFT_VOUCHER' && c.d.kind !== 'not_allowed'
+            && has(c.d, 'record_refund') && c.event.amount > c.context.captured - c.context.refunded
+                - (c.context.voucherHeld ?? 0) - ((c.context.voucherRedeemed ?? 0) - (c.context.voucherReturned ?? 0)) + 0.005).map(describeCase);
         expect(bad).toEqual([]);
     });
 

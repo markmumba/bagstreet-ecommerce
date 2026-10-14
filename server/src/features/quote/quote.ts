@@ -7,12 +7,15 @@
  * - a discount code: percentage of the subtotal, rounded down (see discount-rules.ts);
  * - free delivery when the subtotal reaches the threshold, judged *before* any discount, so the
  *   bag page's promise holds at checkout;
- * - total = subtotal − discount + delivery.
+ * - total = subtotal − discount + delivery;
+ * - a gift voucher is a way to pay, not a discount: it doesn't change the total, it pays up to
+ *   its balance of it, leaving `amount_to_pay`.
  */
 import { z } from 'zod';
 import type { CartQuoteLine, CartQuoteRequestItem, CartQuoteResponse } from 'shared/dist';
 import { resolveCompareAtPrice, resolveUnitPrice, roundMoney } from '../../lib/pricing';
 import { evaluateDiscount, type DiscountRuleCode } from './discount-rules';
+import { evaluateVoucher, type VoucherRuleRow } from '../gift-vouchers/voucher-rules';
 
 const quoteItems = z.array(z.object({
     variant_id: z.number().int().positive(),
@@ -26,6 +29,7 @@ export const cartQuoteSchema = cartItemsSchema.extend({
     discount_code: z.string().trim().max(50).optional(),
     phone: z.string().trim().max(30).optional(),
     shipping_location_id: z.number().int().positive().optional(),
+    voucher_code: z.string().trim().max(40).optional(),
 });
 
 /** Variant joined with its product, as loaded for a quote. */
@@ -62,6 +66,7 @@ export interface QuoteInputs {
     mode: 'online' | 'walk_in';
     discount?: { requested: string; code?: DiscountRuleCode; phone: string | null; phoneAlreadyUsed: boolean; signedIn: boolean; accountAlreadyUsed: boolean };
     delivery?: { requestedId: number; location?: QuoteLocation };
+    voucher?: { requested: string; row?: VoucherRuleRow & { code_last4: string } };
     now?: number;
 }
 
@@ -150,12 +155,28 @@ export function buildQuote(input: QuoteInputs): Quote {
         }
     }
 
+    const total = roundMoney(Math.max(0, subtotal - (discount?.amount ?? 0)) + (delivery?.cost ?? 0));
+
+    // Gift voucher: pays what it can of the total; the rest is paid as usual.
+    let voucher: Quote['voucher'] = null;
+    let voucherProblem: string | null = null;
+    if (input.voucher?.requested) {
+        const verdict = evaluateVoucher(input.voucher.row, now);
+        if (verdict.ok) {
+            const row = input.voucher.row!;
+            voucher = { last4: row.code_last4, amount: Math.min(verdict.available, total), balance: verdict.available, expires_at: new Date(row.expires_at).toISOString() };
+        } else {
+            voucherProblem = verdict.reason;
+        }
+    }
+
     const problems: string[] = [];
     if (lines.length === 0) problems.push('Your bag is empty');
     else if (!canCheckout) problems.push('Some items in your bag have changed: review your bag');
     if (input.mode === 'online' && !input.delivery) problems.push('Choose a delivery area');
     if (deliveryProblem) problems.push(deliveryProblem);
     if (discountProblem) problems.push(discountProblem);
+    if (voucherProblem) problems.push(voucherProblem);
 
     return {
         lines,
@@ -168,7 +189,10 @@ export function buildQuote(input: QuoteInputs): Quote {
         discount,
         discount_problem: discountProblem,
         delivery,
-        total: roundMoney(Math.max(0, subtotal - (discount?.amount ?? 0)) + (delivery?.cost ?? 0)),
+        total,
+        voucher,
+        voucher_problem: voucherProblem,
+        amount_to_pay: roundMoney(total - (voucher?.amount ?? 0)),
         problems,
     };
 }
