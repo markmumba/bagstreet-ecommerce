@@ -64,6 +64,21 @@ real customers; sections 2–4 can follow launch.
 
 ## 4. After launch (features)
 
+### Gift vouchers (agreed 14 Oct 2026)
+Decisions: valid **12 months**; the balance carries over across orders; fixed amounts online (KES 2,000 / 5,000 / 10,000 / 20,000), any amount when issued in the shop; can be combined with a discount code (discount first, then the voucher pays); sold **in the shop first**, online in phase 2. A voucher is a way to pay, not a discount, and never paid out as cash.
+
+- [ ] Accountant confirms how voucher sales and unspent balances are recorded, and whether Kenyan rules limit the 12-month expiry (no VAT for now)
+- [ ] **Phase 1, in the shop:**
+  - [ ] `gift_vouchers` (hashed code + last 4, amount, balance, expiry, status, recipient) and `gift_voucher_movements`; every balance change locks the voucher row
+  - [ ] Admin: issue a voucher after a till payment (cash or M-Pesa), list, balance and history, void (admin only, reason audited), adjust
+  - [ ] Checkout: voucher field; the Order quote shows the voucher line and the amount to pay
+  - [ ] Order lifecycle: hold on order creation, redeem on payment, release on expiry or cancellation, refund back onto the voucher; a fully covered order is paid by voucher without Pesapal; Pesapal charges only the remainder
+  - [ ] Payment ledger `VOUCHER_REDEEMED`; order balance and reconciliation show the split
+  - [ ] Dashboard revenue excludes voucher sales and counts redemptions; voucher liability report
+  - [ ] Rate limits on applying codes; codes of 16 random characters in groups (`BGST-XXXX-XXXX-XXXX`)
+- [ ] **Phase 2, online:** gift voucher page (fixed amounts, recipient name, email, message), paid through Pesapal, issued on payment confirmation, recipient email through the outbox; "check my balance" page
+- [ ] **Phase 3, extras:** delivery on a chosen date, printable PDF card, physical cards with QR codes, reminder before expiry
+
 - [ ] VAT line on orders, if the accountant requires it (see section 1)
 - [ ] Saved delivery addresses
 - [ ] Sales reports: revenue by date range, top products (monthly CSV exports already exist)
