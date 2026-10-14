@@ -9,6 +9,8 @@ import { env } from '../../config/env';
 import { BadRequestError, InternalServerError, NotFoundError, UnauthorizedError, ValidationError } from '@server/lib/errors';
 import { enqueueEmail } from '@server/services/email-outbox';
 import { success } from '@server/lib/response';
+import { createAuditLog } from '@server/lib/audit';
+import { getClientIp } from '@server/lib/client-ip';
 import { password} from 'bun';
 import { USER_ROLE } from "shared/dist";
 
@@ -151,42 +153,48 @@ export const authHandlers = {
     refresh: async (c: AppContext) => {
         const requestedApp = getRequestedApp(c);
         const cookies = parseCookies(c.req.header('Cookie') ?? '');
-        let tokenHash: string | null = null;
-        let stored: Awaited<ReturnType<typeof authQueries.findRefreshToken>> | undefined;
-        let user: Awaited<ReturnType<typeof UsersQueries.findById>> | undefined;
 
         for (const cookieName of refreshCookieNamesForApp(requestedApp)) {
             const rawToken = cookies[cookieName];
             if (!rawToken) continue;
 
-            const candidateHash = hashToken(rawToken);
-            const candidateToken = await authQueries.findRefreshToken(candidateHash);
-            if (!candidateToken) continue;
+            const tokenHash = hashToken(rawToken);
+            const ownerId = await authQueries.findRefreshTokenOwner(tokenHash);
+            if (ownerId == null) continue;
 
-            const candidateUser = await UsersQueries.findById(candidateToken.user_id);
-            if (!candidateUser || !candidateUser.is_active) continue;
-            if (!roleAllowedForApp(candidateUser.role as string, requestedApp)) continue;
+            const user = await UsersQueries.findById(ownerId);
+            if (!user || !user.is_active) continue;
+            if (!roleAllowedForApp(user.role as string, requestedApp)) continue;
 
-            tokenHash = candidateHash;
-            stored = candidateToken;
-            user = candidateUser;
-            break;
+            const nextRawToken = randomBytes(32).toString('hex');
+            const { verdict } = await authQueries.useRefreshToken(tokenHash, {
+                tokenHash: hashToken(nextRawToken),
+                expiresAt: new Date(Date.now() + REFRESH_TOKEN_TTL * 1000),
+            });
+            if (verdict === 'invalid') continue;
+
+            if (verdict === 'reuse') {
+                // A token that was already swapped came back: someone else has a copy. Every session
+                // of the account was just signed out; record it for the admin audit log.
+                await createAuditLog({
+                    actor: { sub: String(user.id), email: user.email, role: user.role as string },
+                    action: 'SESSION_TOKEN_REUSED',
+                    entityType: 'user',
+                    entityId: user.id,
+                    metadata: { app: requestedApp, sessions_revoked: 'all' },
+                    ipAddress: getClientIp(c),
+                    userAgent: c.req.header('user-agent') ?? null,
+                });
+                clearRefreshCookies(c, requestedApp);
+                throw new UnauthorizedError('Your session has ended. Please sign in again');
+            }
+
+            const accessToken = await generateAccessToken(Number(user.id), user.email, user.role);
+            setRefreshCookie(c, nextRawToken, user.role as string);
+            return success(c, { access_token: accessToken }, 'Token refreshed');
         }
 
-        if (!tokenHash || !stored || !user) throw new UnauthorizedError('No valid refresh token');
-
-        await authQueries.deleteRefreshToken(tokenHash);
-
-        const newRawToken = randomBytes(32).toString('hex');
-        const newHash = hashToken(newRawToken);
-        const expiresAt = new Date(Date.now() + REFRESH_TOKEN_TTL * 1000);
-        await authQueries.saveRefreshToken(stored.user_id, newHash, expiresAt);
-
-        const accessToken = await generateAccessToken(Number(user.id), user.email, user.role);
-
-        setRefreshCookie(c, newRawToken, user.role as string);
-
-        return success(c, { access_token: accessToken }, 'Token refreshed');
+        throw new UnauthorizedError('No valid refresh token');
     },
 
     register: async (c: AppContext) => {

@@ -1,9 +1,7 @@
 import { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
 import { authService, type AuthUser } from '@/services/auth.service';
-import { apiClient } from '@/services/api';
+import { apiClient, hasSessionHint } from '@/services/api';
 import { USER_ROLE } from 'shared';
-
-const TOKEN_KEY = 'bagstreet_token';
 
 interface AuthContextType {
   user: AuthUser | null;
@@ -25,7 +23,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     function handleAuthExpired() {
-      localStorage.removeItem(TOKEN_KEY);
       apiClient.setAuthToken(null);
       setUser(null);
       setIsLoading(false);
@@ -33,19 +30,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     window.addEventListener('bagstreet:auth-expired', handleAuthExpired);
 
-    const savedToken = localStorage.getItem(TOKEN_KEY);
-    if (!savedToken) {
+    if (!hasSessionHint()) {
       setIsLoading(false);
       return () => window.removeEventListener('bagstreet:auth-expired', handleAuthExpired);
     }
 
-    apiClient.setAuthToken(savedToken);
-    authService
-      .me()
+    // The access token is kept in memory only, so a page load restores the session from the
+    // HttpOnly refresh cookie.
+    apiClient
+      .restoreSession()
+      .then((token) => (token ? authService.me() : null))
       .then((me) => {
+        if (!me) {
+          apiClient.setAuthToken(null);
+          return;
+        }
         const authUser = { id: me.id, email: me.email, full_name: me.full_name, role: me.role };
         if (!isStaffUser(authUser)) {
-          localStorage.removeItem(TOKEN_KEY);
           apiClient.setAuthToken(null);
           setUser(null);
           return;
@@ -53,7 +54,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(authUser);
       })
       .catch(() => {
-        localStorage.removeItem(TOKEN_KEY);
         apiClient.setAuthToken(null);
       })
       .finally(() => setIsLoading(false));
@@ -66,7 +66,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!isStaffUser(authUser)) {
       throw new Error('This account does not have admin access');
     }
-    localStorage.setItem(TOKEN_KEY, access_token);
     apiClient.setAuthToken(access_token);
     setUser(authUser);
     return authUser;
@@ -76,7 +75,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       await authService.logout();
     } finally {
-      localStorage.removeItem(TOKEN_KEY);
       apiClient.setAuthToken(null);
       setUser(null);
     }

@@ -70,7 +70,6 @@ function SetupAccountPage() {
       const res = await apiClient.post<{ access_token: string; user: UserResponse }>('/api/auth/accept-invite', { token, password });
       const accessToken = res.data?.access_token;
       if (accessToken) {
-        localStorage.setItem('bagstreet_store_token', accessToken);
         apiClient.setAuthToken(accessToken);
         await refreshUser();
       }

@@ -12,6 +12,7 @@ import { paymentStatusHeldReversedMigration } from './011_payment_status_held_re
 import { complianceControlsMigration } from './012_compliance_controls';
 import { discountRequiresAccountMigration } from './013_discount_requires_account';
 import { orderDispatchedAtMigration } from './014_order_dispatched_at';
+import { refreshTokenReuseMigration } from './015_refresh_token_reuse';
 import type { Migration } from './types';
 
 export const migrations: Migration[] = [
@@ -29,4 +30,5 @@ export const migrations: Migration[] = [
     complianceControlsMigration,
     discountRequiresAccountMigration,
     orderDispatchedAtMigration,
+    refreshTokenReuseMigration,
 ];
