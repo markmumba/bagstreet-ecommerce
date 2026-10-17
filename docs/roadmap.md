@@ -78,7 +78,13 @@ Decisions: valid **1 year**, disclosed in the terms of sale and on the voucher (
   - [x] Payment ledger `VOUCHER_REDEEMED`; order balance, reconciliation and dashboard revenue count it; cash refunds can never include the voucher part
   - [x] Wrong codes limited to 10 an hour per user or network; codes are BGST + 16 random characters (`BGST-XXXX-XXXX-XXXX-XXXX`)
   - Choices made while building: one voucher per order; shop vouchers KES 100 to 200,000; money given back onto a voucher keeps it usable for at least 30 more days (a released hold does not extend it); a voucher can't be cancelled while an unpaid order holds part of it
-- [ ] **Phase 2, online:** gift voucher page (fixed amounts, recipient name, email, message), paid through Pesapal, issued on payment confirmation, recipient email through the outbox; "check my balance" page
+- [x] **Phase 2, online** (done 17 Oct 2026; decisions agreed the same day):
+  - [x] A purchase is an Order with source `GIFT_VOUCHER` (no items, no delivery), so Pesapal, expiry, late and held payments, reversals and reconciliation work as for any order; it goes straight to delivered once the voucher is issued; left out of dashboard revenue (money owed, not earned)
+  - [x] Storefront **Gift vouchers** page (KES 2,000 / 5,000 / 10,000 / 20,000, "email it to them" or "email it to me", message) and **Check your balance** page; links in the menu and footer
+  - [x] The code goes to exactly one address; a buyer sending it to someone else gets a receipt without the code; the code is removed from the email outbox once sent or given up
+  - [x] Admin **New code** for a lost or exposed code (same voucher and balance, audited)
+  - [x] Reversal cancels whatever is left; an underpaid purchase is held until staff accept it; a payment after expiry still issues the voucher; admin refund only while the voucher is untouched, in full, and it cancels the voucher
+  - [x] Voucher purchases count towards the per-customer order limits and expire like unpaid orders
 - [ ] **Phase 3, extras:** delivery on a chosen date, printable PDF card, physical cards with QR codes, reminder before expiry
 
 - [ ] VAT line on orders, if the accountant requires it (see section 1)
