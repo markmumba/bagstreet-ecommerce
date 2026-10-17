@@ -28,10 +28,12 @@ import { Route as AccountRouteImport } from './routes/account'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ShopIndexRouteImport } from './routes/shop/index'
 import { Route as OrdersIndexRouteImport } from './routes/orders/index'
+import { Route as GiftVouchersIndexRouteImport } from './routes/gift-vouchers.index'
 import { Route as ShopCategorySlugRouteImport } from './routes/shop/$categorySlug'
 import { Route as ProductsProductIdRouteImport } from './routes/products/$productId'
 import { Route as OrdersConfirmReceivedRouteImport } from './routes/orders/confirm-received'
 import { Route as OrdersOrderIdRouteImport } from './routes/orders/$orderId'
+import { Route as GiftVouchersBalanceRouteImport } from './routes/gift-vouchers.balance'
 
 const TermsRoute = TermsRouteImport.update({
   id: '/terms',
@@ -128,6 +130,11 @@ const OrdersIndexRoute = OrdersIndexRouteImport.update({
   path: '/',
   getParentRoute: () => OrdersRoute,
 } as any)
+const GiftVouchersIndexRoute = GiftVouchersIndexRouteImport.update({
+  id: '/gift-vouchers/',
+  path: '/gift-vouchers/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ShopCategorySlugRoute = ShopCategorySlugRouteImport.update({
   id: '/shop/$categorySlug',
   path: '/shop/$categorySlug',
@@ -148,6 +155,11 @@ const OrdersOrderIdRoute = OrdersOrderIdRouteImport.update({
   path: '/$orderId',
   getParentRoute: () => OrdersRoute,
 } as any)
+const GiftVouchersBalanceRoute = GiftVouchersBalanceRouteImport.update({
+  id: '/gift-vouchers/balance',
+  path: '/gift-vouchers/balance',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -167,10 +179,12 @@ export interface FileRoutesByFullPath {
   '/returns': typeof ReturnsRoute
   '/setup-account': typeof SetupAccountRoute
   '/terms': typeof TermsRoute
+  '/gift-vouchers/balance': typeof GiftVouchersBalanceRoute
   '/orders/$orderId': typeof OrdersOrderIdRoute
   '/orders/confirm-received': typeof OrdersConfirmReceivedRoute
   '/products/$productId': typeof ProductsProductIdRoute
   '/shop/$categorySlug': typeof ShopCategorySlugRoute
+  '/gift-vouchers/': typeof GiftVouchersIndexRoute
   '/orders/': typeof OrdersIndexRoute
   '/shop/': typeof ShopIndexRoute
 }
@@ -191,10 +205,12 @@ export interface FileRoutesByTo {
   '/returns': typeof ReturnsRoute
   '/setup-account': typeof SetupAccountRoute
   '/terms': typeof TermsRoute
+  '/gift-vouchers/balance': typeof GiftVouchersBalanceRoute
   '/orders/$orderId': typeof OrdersOrderIdRoute
   '/orders/confirm-received': typeof OrdersConfirmReceivedRoute
   '/products/$productId': typeof ProductsProductIdRoute
   '/shop/$categorySlug': typeof ShopCategorySlugRoute
+  '/gift-vouchers': typeof GiftVouchersIndexRoute
   '/orders': typeof OrdersIndexRoute
   '/shop': typeof ShopIndexRoute
 }
@@ -217,10 +233,12 @@ export interface FileRoutesById {
   '/returns': typeof ReturnsRoute
   '/setup-account': typeof SetupAccountRoute
   '/terms': typeof TermsRoute
+  '/gift-vouchers/balance': typeof GiftVouchersBalanceRoute
   '/orders/$orderId': typeof OrdersOrderIdRoute
   '/orders/confirm-received': typeof OrdersConfirmReceivedRoute
   '/products/$productId': typeof ProductsProductIdRoute
   '/shop/$categorySlug': typeof ShopCategorySlugRoute
+  '/gift-vouchers/': typeof GiftVouchersIndexRoute
   '/orders/': typeof OrdersIndexRoute
   '/shop/': typeof ShopIndexRoute
 }
@@ -244,10 +262,12 @@ export interface FileRouteTypes {
     | '/returns'
     | '/setup-account'
     | '/terms'
+    | '/gift-vouchers/balance'
     | '/orders/$orderId'
     | '/orders/confirm-received'
     | '/products/$productId'
     | '/shop/$categorySlug'
+    | '/gift-vouchers/'
     | '/orders/'
     | '/shop/'
   fileRoutesByTo: FileRoutesByTo
@@ -268,10 +288,12 @@ export interface FileRouteTypes {
     | '/returns'
     | '/setup-account'
     | '/terms'
+    | '/gift-vouchers/balance'
     | '/orders/$orderId'
     | '/orders/confirm-received'
     | '/products/$productId'
     | '/shop/$categorySlug'
+    | '/gift-vouchers'
     | '/orders'
     | '/shop'
   id:
@@ -293,10 +315,12 @@ export interface FileRouteTypes {
     | '/returns'
     | '/setup-account'
     | '/terms'
+    | '/gift-vouchers/balance'
     | '/orders/$orderId'
     | '/orders/confirm-received'
     | '/products/$productId'
     | '/shop/$categorySlug'
+    | '/gift-vouchers/'
     | '/orders/'
     | '/shop/'
   fileRoutesById: FileRoutesById
@@ -319,8 +343,10 @@ export interface RootRouteChildren {
   ReturnsRoute: typeof ReturnsRoute
   SetupAccountRoute: typeof SetupAccountRoute
   TermsRoute: typeof TermsRoute
+  GiftVouchersBalanceRoute: typeof GiftVouchersBalanceRoute
   ProductsProductIdRoute: typeof ProductsProductIdRoute
   ShopCategorySlugRoute: typeof ShopCategorySlugRoute
+  GiftVouchersIndexRoute: typeof GiftVouchersIndexRoute
   ShopIndexRoute: typeof ShopIndexRoute
 }
 
@@ -459,6 +485,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OrdersIndexRouteImport
       parentRoute: typeof OrdersRoute
     }
+    '/gift-vouchers/': {
+      id: '/gift-vouchers/'
+      path: '/gift-vouchers'
+      fullPath: '/gift-vouchers/'
+      preLoaderRoute: typeof GiftVouchersIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/shop/$categorySlug': {
       id: '/shop/$categorySlug'
       path: '/shop/$categorySlug'
@@ -486,6 +519,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/orders/$orderId'
       preLoaderRoute: typeof OrdersOrderIdRouteImport
       parentRoute: typeof OrdersRoute
+    }
+    '/gift-vouchers/balance': {
+      id: '/gift-vouchers/balance'
+      path: '/gift-vouchers/balance'
+      fullPath: '/gift-vouchers/balance'
+      preLoaderRoute: typeof GiftVouchersBalanceRouteImport
+      parentRoute: typeof rootRouteImport
     }
   }
 }
@@ -523,8 +563,10 @@ const rootRouteChildren: RootRouteChildren = {
   ReturnsRoute: ReturnsRoute,
   SetupAccountRoute: SetupAccountRoute,
   TermsRoute: TermsRoute,
+  GiftVouchersBalanceRoute: GiftVouchersBalanceRoute,
   ProductsProductIdRoute: ProductsProductIdRoute,
   ShopCategorySlugRoute: ShopCategorySlugRoute,
+  GiftVouchersIndexRoute: GiftVouchersIndexRoute,
   ShopIndexRoute: ShopIndexRoute,
 }
 export const routeTree = rootRouteImport

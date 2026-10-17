@@ -79,6 +79,8 @@ function PaymentView({ orderRef, urlToken, returnedFrom }: { orderRef: string; u
   const total = info?.total_amount ?? stored?.total;
   // What Pesapal collects: the total less any gift voucher.
   const due = info?.amount_due ?? stored?.total;
+  // A gift voucher purchase rather than an order of goods.
+  const giftVoucher = info?.gift_voucher;
 
   const startPayment = async () => {
     setActionMessage('');
@@ -132,7 +134,11 @@ function PaymentView({ orderRef, urlToken, returnedFrom }: { orderRef: string; u
             <p className="mt-6 text-label-caps text-foreground-faint">Order {orderLabel}</p>
             <h1 className="mt-3 text-headline-lg">Thank you — <em>it's yours</em></h1>
             <p className="mx-auto mt-4 max-w-sm text-[15px] text-foreground-muted">
-              We've received your payment{total != null ? ` of ${formatPrice(total)}` : ''}. You'll get a confirmation email shortly, and our team will be in touch about delivery.
+              {giftVoucher
+                ? giftVoucher.deliver_to === 'RECIPIENT'
+                  ? `Your ${formatPrice(giftVoucher.amount)} gift voucher has been emailed to ${giftVoucher.recipient_name || giftVoucher.recipient_email}. Your receipt is on its way to you.`
+                  : `Your ${formatPrice(giftVoucher.amount)} gift voucher is on its way to your email. Print it or pass the code on.`
+                : `We've received your payment${total != null ? ` of ${formatPrice(total)}` : ''}. You'll get a confirmation email shortly, and our team will be in touch about delivery.`}
             </p>
             <div className="mt-10 flex flex-col items-center gap-4">
               <PrimaryButton onClick={() => (user ? navigate({ to: '/orders/$orderId', params: { orderId: orderRef } }) : navigate({ to: '/' }))}>
@@ -156,7 +162,9 @@ function PaymentView({ orderRef, urlToken, returnedFrom }: { orderRef: string; u
                   : <>Pay {due != null && <span className="text-foreground">{formatPrice(due)}</span>} securely with Pesapal by M-Pesa or card.</>}
             </p>
             <p className="mx-auto mt-3 max-w-sm text-[13px] text-foreground-faint">
-              We hold your items for a short time. Unpaid orders are released after a while so others can buy them.
+              {giftVoucher
+                ? 'Unpaid voucher purchases are cancelled after a while. Nothing is charged until you pay.'
+                : 'We hold your items for a short time. Unpaid orders are released after a while so others can buy them.'}
             </p>
 
             {actionMessage && (

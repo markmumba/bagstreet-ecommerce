@@ -53,6 +53,7 @@ app.use('/api/auth/login', authRateLimit);
 app.use('/api/auth/register', authRateLimit);
 app.use('/api/orders', orderRateLimit);
 app.on('POST', '/api/orders', orderPlacementRateLimit);
+app.on('POST', '/api/gift-vouchers/purchase', orderPlacementRateLimit);
 app.use('/api/payments/*', paymentRateLimit);
 app.use('/api/*', generalRateLimit);
 

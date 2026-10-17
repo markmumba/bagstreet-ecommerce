@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { USER_ROLE } from 'shared/dist';
 import type { AppEnv } from '@server/lib/hono';
-import { requireAuth, requireRole } from '../../middleware/auth.middleware';
+import { optionalAuth, requireAuth, requireRole } from '../../middleware/auth.middleware';
 import { giftVouchersHandlers } from './gift-vouchers.handlers';
 
 const giftVouchersRoutes = new Hono<AppEnv>();
@@ -17,5 +17,10 @@ giftVouchersRoutes.get('/summary', ...admin, giftVouchersHandlers.summary);
 giftVouchersRoutes.get('/:id', ...staff, giftVouchersHandlers.detail);
 giftVouchersRoutes.post('/:id/void', ...admin, giftVouchersHandlers.void);
 giftVouchersRoutes.post('/:id/adjust', ...admin, giftVouchersHandlers.adjust);
+giftVouchersRoutes.post('/:id/replace-code', ...admin, giftVouchersHandlers.replaceCode);
+
+// Storefront: buying a voucher and checking a balance (no account needed).
+giftVouchersRoutes.post('/purchase', optionalAuth, giftVouchersHandlers.purchase);
+giftVouchersRoutes.post('/balance', giftVouchersHandlers.balance);
 
 export default giftVouchersRoutes;

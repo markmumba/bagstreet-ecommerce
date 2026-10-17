@@ -33,7 +33,8 @@ export type AuditAction =
     | 'SESSION_TOKEN_REUSED'
     | 'GIFT_VOUCHER_ISSUED'
     | 'GIFT_VOUCHER_VOIDED'
-    | 'GIFT_VOUCHER_ADJUSTED';
+    | 'GIFT_VOUCHER_ADJUSTED'
+    | 'GIFT_VOUCHER_CODE_REPLACED';
 
 export async function createAuditLog(data: {
     actor?: AuthUser | null;

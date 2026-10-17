@@ -1,6 +1,6 @@
 import nodemailer from 'nodemailer';
 import { env } from '../config/env';
-import { renderEmailTemplate, type EmailTemplateName } from './template';
+import { escapeHtml, renderEmailTemplate, type EmailTemplateName } from './template';
 import { formatEmailMoney, renderOrderItems, type EmailOrderItem } from './email-format';
 import type { RecoveryEmail } from '../features/cart-recovery/recovery.delivery';
 import { renderRecoveryItems } from './recovery-email-format';
@@ -298,6 +298,59 @@ export async function sendOrderExpiredEmail(to: string, name: string, orderRef: 
     });
     const text = `Hi ${name},\n\nWe didn't receive payment for order ${orderRef} in time, so it has been cancelled and its items were released. You haven't been charged.\n\nStill want them? Place a new order whenever you're ready:\n${shopUrl}\n\nIf money did leave your account for this order, don't pay again: contact us with your order number.\n${supportUrl.toString()}`;
     await send(to, `Your Bagstreet order ${orderRef} has expired`, html, text);
+}
+
+/** The gift voucher itself, with its code: to the recipient, or to the buyer to hand over. */
+export async function sendGiftVoucherEmail(job: {
+    to: string; name: string; code: string; amount: number; expiresAt: string;
+    fromName: string | null; message: string | null; forBuyer: boolean;
+}) {
+    if (!emailDeliveryConfigured()) {
+        // Never log the code itself.
+        console.log(`[DEV] Gift voucher email for ${job.name} <${job.to}> - ${formatEmailMoney(job.amount)} ····${job.code.slice(-4)}`);
+        return;
+    }
+    const amount = formatEmailMoney(job.amount);
+    const expiresOn = new Date(job.expiresAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Africa/Nairobi' });
+    const shopUrl = new URL('/shop', env.STOREFRONT_URL).toString();
+    const balanceUrl = new URL('/gift-vouchers/balance', env.STOREFRONT_URL).toString();
+    const heading = job.forBuyer ? 'Your gift voucher<br />is ready.' : 'You\'ve been sent<br />a gift.';
+    const intro = job.forBuyer
+        ? `Here is the ${amount} Bagstreet gift voucher you bought. Print this email or pass the code on to whoever it's for.`
+        : `${job.fromName ?? 'Someone'} has sent you a ${amount} Bagstreet gift voucher.`;
+    const messageHtml = job.message
+        ? `<p style="margin:0 0 24px;padding:16px;background:#f7f4ef;border-left:3px solid #842b3f;font-size:15px;line-height:1.7;font-style:italic;color:#232529;">&ldquo;${escapeHtml(job.message)}&rdquo;</p>`
+        : '';
+    const html = await renderEmail('gift-voucher', {
+        title: job.forBuyer ? `Your ${amount} Bagstreet gift voucher` : `A ${amount} Bagstreet gift voucher for you`,
+        preheader: job.forBuyer ? 'Your gift voucher code is inside.' : `${job.fromName ?? 'Someone'} sent you a Bagstreet gift voucher.`,
+        name: job.name,
+        amount,
+        intro,
+        code: job.code,
+        expiresOn,
+        shopUrl,
+        balanceUrl,
+    }, { heading, messageHtml });
+    const text = `Hi ${job.name},\n\n${intro}${job.message ? `\n\n"${job.message}"` : ''}\n\nYour code: ${job.code}\n${amount}, valid until ${expiresOn}.\n\nEnter it at checkout or show it in our shop. Spend it over one order or several; it can't be exchanged for cash. Keep it private: anyone with the code can spend the balance.\n\nShop: ${shopUrl}\nCheck the balance: ${balanceUrl}`;
+    await send(job.to, job.forBuyer ? `Your ${amount} Bagstreet gift voucher` : `${job.fromName ?? 'Someone'} sent you a Bagstreet gift voucher`, html, text);
+}
+
+/** The buyer's receipt when the voucher went to someone else (no code in it). */
+export async function sendGiftVoucherReceiptEmail(to: string, name: string, orderRef: string, amount: number, recipient: string) {
+    if (!emailDeliveryConfigured()) {
+        console.log(`[DEV] Gift voucher receipt for ${name} <${to}> - ${orderRef}`);
+        return;
+    }
+    const supportUrl = new URL('https://wa.me/254748096887');
+    supportUrl.searchParams.set('text', `Hi BagStreet, I have a question about gift voucher order ${orderRef}.`);
+    const html = await renderEmail('gift-voucher-receipt', {
+        title: `Receipt for your Bagstreet gift voucher ${orderRef}`,
+        preheader: `Your ${formatEmailMoney(amount)} gift voucher has been emailed to ${recipient}.`,
+        name, orderRef, amount: formatEmailMoney(amount), recipient, supportUrl: supportUrl.toString(),
+    });
+    const text = `Hi ${name},\n\nThank you. We've received ${formatEmailMoney(amount)} for a Bagstreet gift voucher (order ${orderRef}) and emailed it to ${recipient}. For their security the code is only in their email.\n\nIf it doesn't arrive, ask them to check spam, then contact us with order ${orderRef} and we'll send a new code.\n${supportUrl.toString()}`;
+    await send(to, `Receipt: Bagstreet gift voucher ${orderRef}`, html, text);
 }
 
 /** A staff alert that needs someone to act (a held or reversed payment, a refund owed). */

@@ -4,7 +4,9 @@ import { ordersQueries } from '../orders/orders.queries';
 import { normalisePhone } from '../../lib/phone';
 import { success } from '@server/lib/response';
 import { BadRequestError, ForbiddenError, NotFoundError } from '@server/lib/errors';
-import { ORDER_STATUS, PAYMENT_STATUS, USER_ROLE } from "shared/dist";
+import { ORDER_SOURCE, ORDER_STATUS, PAYMENT_STATUS, USER_ROLE } from "shared/dist";
+import { sql } from '../../lib/db';
+import { giftVoucherOrderOf } from '../gift-vouchers/voucher-sales';
 import { env } from '../../config/env';
 import { applyOrderEvent, orderStateOf } from '../orders/lifecycle/order-lifecycle';
 import { orderAmountDue, summariseOrderPayments } from './order-balance';
@@ -263,8 +265,20 @@ export const paymentsHandlers = {
         if (!order) throw new NotFoundError('Order', order_ref ?? order_id ?? order_tracking_id ?? 'unknown');
         if (!canAccessOrder(authUser, order, phone, email, token)) throw new ForbiddenError();
 
+        // A voucher purchase: the payment screen says where the voucher was sent.
+        const giftVoucher = (order as any).order_source === ORDER_SOURCE.GIFT_VOUCHER ? await giftVoucherOrderOf(sql, Number(order.id)) : undefined;
         const respond = (status: string, message: string, current: any = order) =>
-            success(c, { status, ...orderPaymentSummary(current) }, message);
+            success(c, {
+                status,
+                ...orderPaymentSummary(current),
+                order_source: current.order_source,
+                gift_voucher: giftVoucher ? {
+                    amount: Number(giftVoucher.amount),
+                    deliver_to: giftVoucher.deliver_to,
+                    recipient_name: giftVoucher.recipient_name,
+                    recipient_email: giftVoucher.recipient_email,
+                } : undefined,
+            }, message);
 
         // Order state first: a cancelled order is never "paid" to the customer, even if money arrived late.
         const state = orderStateOf(order as any);

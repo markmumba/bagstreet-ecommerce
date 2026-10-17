@@ -76,6 +76,11 @@ export interface DecisionContext {
     voucherReturned?: number;
     /** For a Late payment: what the order's voucher can pay again now (0 if it was spent elsewhere). */
     voucherReclaimable?: number;
+    /**
+     * Set when the order is a gift voucher bought online. `issued`: the voucher exists;
+     * `untouched`: none of it has been spent or held yet.
+     */
+    giftVoucher?: { issued: boolean; untouched: boolean };
 }
 
 /** Refunds with this method go back onto the order's gift voucher instead of to the customer. */
@@ -99,6 +104,10 @@ export type Effect =
     /** Give back to the voucher whatever the order still has from it, held or spent. */
     | { type: 'release_voucher' }
     | { type: 'return_to_voucher'; amount: number }
+    /** A gift voucher purchase is paid: create the voucher and email its code. */
+    | { type: 'issue_gift_voucher' }
+    /** Cancel what's left on the voucher this order bought (reversed or refunded payment). */
+    | { type: 'cancel_gift_voucher'; reason: 'payment_reversed' | 'refunded' }
     | { type: 'record_capture'; amount: number; currency: string; reference: string; transactionId?: number | null }
     | { type: 'record_refund'; amount: number; method: string; reason: string; externalReference?: string; idempotencyKey: string }
     | { type: 'record_reversal'; amount: number; reference: string }
@@ -158,6 +167,15 @@ function refundable(ctx: DecisionContext): Refundable {
     return { total, voucher, cash };
 }
 
+/**
+ * Once paid, goods orders are confirmed and wait for dispatch. A gift voucher sale is done the
+ * moment its voucher is issued (the code is emailed), so it goes straight to DELIVERED.
+ */
+const paidState = (ctx: DecisionContext): OrderState =>
+    ctx.giftVoucher ? { status: 'DELIVERED', payment: 'PAID' } : { status: 'CONFIRMED', payment: 'PAID' };
+const whenPaid = (ctx: DecisionContext, orderRef: string): Effect[] =>
+    ctx.giftVoucher ? [{ type: 'issue_gift_voucher' }] : confirmationEffects(orderRef);
+
 function captureEffect(e: Extract<OrderEvent, { type: 'payment_captured' }>): Effect {
     return { type: 'record_capture', amount: e.amount, currency: e.currency, reference: e.reference, transactionId: e.transactionId ?? null };
 }
@@ -214,9 +232,9 @@ export function decide(state: OrderState, event: OrderEvent, actor: Actor, ctx: 
                 if (verdict === 'underpaid' || verdict === 'currency_mismatch') {
                     return to({ status: 'PENDING', payment: 'HELD' }, [capture, { type: 'alert_staff', kind: 'payment_held' }, { type: 'audit', action: 'ORDER_PAYMENT_HELD' }]);
                 }
-                const effects: Effect[] = [capture, { type: 'redeem_voucher' }, ...confirmationEffects(orderRef), { type: 'audit', action: 'ORDER_PAYMENT_CAPTURED' }];
+                const effects: Effect[] = [capture, { type: 'redeem_voucher' }, ...whenPaid(ctx, orderRef), { type: 'audit', action: 'ORDER_PAYMENT_CAPTURED' }];
                 if (verdict === 'overpaid') effects.push({ type: 'alert_staff', kind: 'overpaid' });
-                return to({ status: 'CONFIRMED', payment: 'PAID' }, effects);
+                return to(paidState(ctx), effects);
             }
 
             // Late payment: the order expired (or was cancelled) before the money arrived.
@@ -237,11 +255,11 @@ export function decide(state: OrderState, event: OrderEvent, actor: Actor, ctx: 
                         { type: 'hold_voucher' },
                         capture,
                         { type: 'redeem_voucher' },
-                        ...confirmationEffects(orderRef),
+                        ...whenPaid(ctx, orderRef),
                         { type: 'audit', action: 'ORDER_REINSTATED' },
                     ];
                     if (late === 'overpaid') effects.push({ type: 'alert_staff', kind: 'overpaid' });
-                    return to({ status: 'CONFIRMED', payment: 'PAID' }, effects);
+                    return to(paidState(ctx), effects);
                 }
                 return to({ status: 'CANCELLED', payment: 'PAID' }, [capture, { type: 'alert_staff', kind: 'refund_needed' }, { type: 'audit', action: 'ORDER_LATE_PAYMENT_REFUND_REQUIRED' }]);
             }
@@ -270,6 +288,8 @@ export function decide(state: OrderState, event: OrderEvent, actor: Actor, ctx: 
             const amount = roundMoney(event.amount ?? refundable(ctx).cash);
             return to({ status: state.status, payment: 'REVERSED' }, [
                 { type: 'record_reversal', amount, reference: event.reference },
+                // A voucher bought with money that was taken back can't keep its unspent balance.
+                ...(ctx.giftVoucher?.issued ? [{ type: 'cancel_gift_voucher', reason: 'payment_reversed' } as const] : []),
                 { type: 'alert_staff', kind: 'payment_reversed' },
                 { type: 'audit', action: 'ORDER_PAYMENT_REVERSED' },
                 // Deliberately no customer email: a reversal is not a failed payment.
@@ -284,7 +304,8 @@ export function decide(state: OrderState, event: OrderEvent, actor: Actor, ctx: 
                 { type: 'release_discount' },
                 { type: 'release_voucher' },
                 // Tell the customer, so a returning shopper isn't left wondering where the order went.
-                { type: 'email_customer', kind: 'order_expired', dedupeKey: `order-expired:${orderRef}` },
+                // (Not for an abandoned voucher purchase: the email is about items released.)
+                ...(ctx.giftVoucher ? [] : [{ type: 'email_customer', kind: 'order_expired', dedupeKey: `order-expired:${orderRef}` } as const]),
                 { type: 'audit', action: 'ORDER_EXPIRED' },
             ]);
         }
@@ -316,28 +337,31 @@ export function decide(state: OrderState, event: OrderEvent, actor: Actor, ctx: 
             const reference = event.reference ?? `manual:${orderRef}`;
             if (state.payment === 'HELD' && state.status === 'PENDING') {
                 // Accepting a held payment: the money is already on record — never invent a second capture.
-                return to({ status: 'CONFIRMED', payment: 'PAID' }, [
-                    { type: 'redeem_voucher' }, ...confirmationEffects(orderRef), { type: 'audit', action: 'ORDER_HELD_PAYMENT_ACCEPTED' },
+                return to(paidState(ctx), [
+                    { type: 'redeem_voucher' }, ...whenPaid(ctx, orderRef), { type: 'audit', action: 'ORDER_HELD_PAYMENT_ACCEPTED' },
                 ]);
             }
             // Staff record what's still owed: the total less anything a gift voucher already covers.
             const paid = captureIfDue(stillDue(ctx), ctx.currency, reference);
             if (awaitingPayment(state)) {
-                return to({ status: 'CONFIRMED', payment: 'PAID' }, [
+                return to(paidState(ctx), [
                     ...paid,
                     { type: 'redeem_voucher' },
-                    ...confirmationEffects(orderRef),
+                    ...whenPaid(ctx, orderRef),
                     { type: 'audit', action: 'ORDER_MARKED_PAID' },
                 ]);
             }
             if (state.payment === 'REVERSED' && state.status === 'PENDING') {
                 // A held payment was reversed, then the customer paid in full some other way.
-                return to({ status: 'CONFIRMED', payment: 'PAID' }, [
+                return to(paidState(ctx), [
                     ...paid,
                     { type: 'redeem_voucher' },
-                    ...confirmationEffects(orderRef),
+                    ...whenPaid(ctx, orderRef),
                     { type: 'audit', action: 'ORDER_REPAID_AFTER_REVERSAL' },
                 ]);
+            }
+            if (state.payment === 'REVERSED' && ctx.giftVoucher?.issued) {
+                return notAllowed('invalid_in_state', 'Its voucher was cancelled when the payment was reversed: issue a new voucher from the Gift vouchers page instead');
             }
             if (state.payment === 'REVERSED' && state.status !== 'CANCELLED') {
                 // The customer paid again some other way after a reversal.
@@ -382,6 +406,20 @@ export function decide(state: OrderState, event: OrderEvent, actor: Actor, ctx: 
             const left = refundable(ctx);
             const amount = roundMoney(event.amount);
             if (left.total <= 0) return notAllowed('exceeds_refundable', 'This order has already been fully refunded');
+            if (ctx.giftVoucher?.issued && state.status === 'DELIVERED') {
+                // A voucher purchase is refunded whole, and only while none of the voucher has been used.
+                if (!ctx.giftVoucher.untouched) {
+                    return notAllowed('invalid_in_state', 'Part of this gift voucher has been spent or is held for an order, so the purchase can no longer be refunded');
+                }
+                if (Math.abs(amount - left.total) > 0.005) {
+                    return notAllowed('exceeds_refundable', `Refund the full KES ${left.total.toFixed(2)}: refunding cancels the voucher`);
+                }
+                return to({ status: 'REFUNDED', payment: state.payment }, [
+                    { type: 'record_refund', amount, method: event.method, reason: event.reason, externalReference: event.externalReference, idempotencyKey: event.idempotencyKey },
+                    { type: 'cancel_gift_voucher', reason: 'refunded' },
+                    { type: 'audit', action: 'ORDER_REFUNDED' },
+                ]);
+            }
             const toVoucher = event.method === GIFT_VOUCHER_REFUND;
             const limit = toVoucher ? left.voucher : left.cash;
             if (amount <= 0 || amount > limit) {

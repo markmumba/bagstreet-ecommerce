@@ -56,3 +56,11 @@ export const useVoidGiftVoucher = () =>
 export const useAdjustGiftVoucher = () =>
   useVoucherMutation(({ id, delta, reason }: { id: string; delta: number; reason: string }) =>
     giftVouchersService.adjust(id, delta, reason));
+
+export function useReplaceGiftVoucherCode() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => giftVouchersService.replaceCode(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: giftVoucherKeys.all }),
+  });
+}

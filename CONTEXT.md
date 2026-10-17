@@ -82,5 +82,9 @@ What is left to spend on a **Gift voucher**. It changes only through logged vouc
 Part of a **Voucher balance** set aside for an **Order** that hasn't been paid yet. It becomes a redemption when the **Order** is paid, and is released if the **Order** expires or is cancelled.
 _Avoid_: Reservation (used for stock)
 
+**Voucher purchase**:
+An **Order** for a **Gift voucher** bought online. It has no items or delivery; once it is paid the voucher is issued and its code emailed, which completes the **Order**. Its money is **Voucher liability**, not revenue.
+_Avoid_: Voucher order (ambiguous with an **Order** paid by voucher)
+
 **Voucher liability**:
 The unspent value of all live **Gift vouchers**: money the shop has taken but still owes in goods. A voucher sale adds to it; it becomes revenue only when spent.
