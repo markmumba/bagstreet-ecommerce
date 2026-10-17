@@ -66,7 +66,8 @@ export function classifyOrderForReconciliation(row: ReconciliationOrderRow): Rec
         issues.push({ ...base, kind: 'refund_owed', amount: net, expected: 0,
             message: `Order is cancelled but ${kes(net)} has not been refunded.` });
     }
-    if (paid && !cancelled && row.order_source === 'ONLINE' && !row.has_completed_provider_payment) {
+    // Paid online (goods or a gift voucher purchase) but Pesapal never confirmed it.
+    if (paid && !cancelled && (row.order_source === 'ONLINE' || row.order_source === 'GIFT_VOUCHER') && !row.has_completed_provider_payment) {
         issues.push({ ...base, kind: 'marked_paid_manually', amount: captured || null, expected: total,
             message: 'Online order marked paid without a completed Pesapal payment — confirm the money arrived.' });
     }

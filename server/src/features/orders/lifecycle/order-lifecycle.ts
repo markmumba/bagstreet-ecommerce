@@ -29,6 +29,7 @@ import {
 import { orderConfirmationJob, orderExpiredJob, paymentFailedJob, staffAlert, staffOrderConfirmedEmail } from './order-messages';
 import { alertStaff } from '../../staff-alerts/staff-alerts';
 import { orderVoucherMoney, voucherBalance, voucherReclaimable } from '../../gift-vouchers/voucher-balance';
+import { cancelGiftVoucherForOrder, giftVoucherSaleFacts, issueGiftVoucherForOrder, type VoucherSaleOrder } from '../../gift-vouchers/voucher-sales';
 
 type Executor = typeof sql;
 
@@ -185,6 +186,7 @@ async function loadContext(tx: Executor, order: OrderRow, state: OrderState, eve
         voucherHeld: voucher.held,
         voucherRedeemed: voucher.redeemed,
         voucherReturned: voucher.returned,
+        giftVoucher: order.order_source === 'GIFT_VOUCHER' ? await giftVoucherSaleFacts(tx, order.id) : undefined,
     };
 
     if (event.type === 'refund_recorded') {
@@ -260,6 +262,12 @@ async function applyEffect(run: Run, effect: Effect): Promise<void> {
         case 'release_voucher':
             await voucherBalance.release(tx, order, env.PESAPAL_CURRENCY, staffId(run.actor),
                 run.event.type === 'expired' ? 'Unpaid order expired' : 'Order cancelled');
+            return;
+        case 'issue_gift_voucher':
+            await issueGiftVoucherForOrder(tx, order as OrderRow & VoucherSaleOrder, run.after);
+            return;
+        case 'cancel_gift_voucher':
+            await cancelGiftVoucherForOrder(tx, orderId, effect.reason, staffId(run.actor));
             return;
         case 'return_to_voucher':
             await voucherBalance.returnTo(tx, order, effect.amount, staffId(run.actor),

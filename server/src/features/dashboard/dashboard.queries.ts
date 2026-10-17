@@ -114,23 +114,27 @@ export const dashboardQueries = {
                     SELECT COALESCE(SUM(CASE WHEN direction = 'CREDIT' THEN amount ELSE -amount END), 0)
                     FROM payment_ledger_entries
                     WHERE entry_type IN ('PAYMENT_CAPTURED', 'VOUCHER_REDEEMED', 'REFUND_ISSUED', 'PAYMENT_REVERSED')
+                      AND NOT EXISTS (SELECT 1 FROM orders vo WHERE vo.id = order_id AND vo.order_source = 'GIFT_VOUCHER')
                       AND created_at >= CURRENT_DATE
                 ) AS paid_revenue_today,
                 (
                     SELECT COALESCE(SUM(CASE WHEN direction = 'CREDIT' THEN amount ELSE -amount END), 0)
                     FROM payment_ledger_entries
                     WHERE entry_type IN ('PAYMENT_CAPTURED', 'VOUCHER_REDEEMED', 'REFUND_ISSUED', 'PAYMENT_REVERSED')
+                      AND NOT EXISTS (SELECT 1 FROM orders vo WHERE vo.id = order_id AND vo.order_source = 'GIFT_VOUCHER')
                       AND created_at >= NOW() - INTERVAL '7 days'
                 ) AS paid_revenue_7d,
                 (
                     SELECT COALESCE(SUM(CASE WHEN direction = 'CREDIT' THEN amount ELSE -amount END), 0)
                     FROM payment_ledger_entries
                     WHERE entry_type IN ('PAYMENT_CAPTURED', 'VOUCHER_REDEEMED', 'REFUND_ISSUED', 'PAYMENT_REVERSED')
+                      AND NOT EXISTS (SELECT 1 FROM orders vo WHERE vo.id = order_id AND vo.order_source = 'GIFT_VOUCHER')
                       AND created_at >= NOW() - INTERVAL '30 days'
                 ) AS paid_revenue_30d,
                 COUNT(*) FILTER (
                     WHERE payment_status = ${PAYMENT_STATUS.PAID}
                       AND status NOT IN (${ORDER_STATUS.CANCELLED}, ${ORDER_STATUS.REFUNDED})
+                      AND order_source <> 'GIFT_VOUCHER'
                       AND paid_at >= CURRENT_DATE
                 ) AS paid_orders_today,
                 COUNT(*) FILTER (
@@ -180,6 +184,8 @@ export const dashboardQueries = {
             LEFT JOIN payment_ledger_entries ple
               ON ple.created_at::date = days.day
              AND ple.entry_type IN ('PAYMENT_CAPTURED', 'VOUCHER_REDEEMED', 'REFUND_ISSUED', 'PAYMENT_REVERSED')
+             -- A voucher sale is money owed to the holder, not revenue: it counts when the voucher is spent.
+             AND NOT EXISTS (SELECT 1 FROM orders vo WHERE vo.id = ple.order_id AND vo.order_source = 'GIFT_VOUCHER')
             GROUP BY days.day
             ORDER BY days.day ASC
         `;

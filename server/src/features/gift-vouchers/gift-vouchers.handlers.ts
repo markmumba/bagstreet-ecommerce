@@ -1,13 +1,17 @@
-import type { GiftVoucherDetailResponse, GiftVoucherResponse, IssuedGiftVoucherResponse } from 'shared/dist';
+import { ORDER_SOURCE, type GiftVoucherBalanceResponse, type GiftVoucherDetailResponse, type GiftVoucherResponse, type IssuedGiftVoucherResponse } from 'shared/dist';
 import type { AppContext } from '@server/lib/hono';
-import { getRequiredUser } from '@server/lib/hono';
+import { getOptionalUser, getRequiredUser } from '@server/lib/hono';
+import { getClientIp } from '@server/lib/client-ip';
+import { createOrderAccessToken, orderTokenRef } from '@server/lib/order-received-token';
+import { createOrder } from '../orders/lifecycle/order-lifecycle';
+import { startPesapalPayment } from '../payments/start-payment';
 import { auditFromContext } from '@server/lib/audit';
 import { NotFoundError, ValidationError } from '@server/lib/errors';
 import { normalisePhone } from '@server/lib/phone';
 import { roundMoney } from '@server/lib/pricing';
 import { paginated, success } from '@server/lib/response';
 import { giftVouchersQueries, type GiftVoucherMovementRow, type GiftVoucherRow } from './gift-vouchers.queries';
-import { adjustVoucherSchema, issueVoucherSchema, listVouchersSchema, lookupVoucherSchema, voidVoucherSchema } from './gift-vouchers.schema';
+import { adjustVoucherSchema, balanceVoucherSchema, issueVoucherSchema, listVouchersSchema, lookupVoucherSchema, purchaseVoucherSchema, voidVoucherSchema } from './gift-vouchers.schema';
 import { assertCanTryVoucherCode, recordVoucherCodeResult } from './voucher-guard';
 import { VOUCHER_NOT_FOUND, voucherStatus } from './voucher-rules';
 
@@ -28,6 +32,8 @@ function toResponse(row: GiftVoucherRow): GiftVoucherResponse {
         purchaser_name: row.purchaser_name,
         sale_payment_method: row.sale_payment_method,
         sale_reference: row.sale_reference,
+        sold_via: row.sold_via,
+        purchase_order_number: row.purchase_order_number,
         issued_by_email: row.issued_by_email,
         voided_at: row.voided_at ? new Date(row.voided_at).toISOString() : null,
         void_reason: row.void_reason,
@@ -142,4 +148,85 @@ export const giftVouchersHandlers = {
     },
 
     summary: async (c: AppContext) => success(c, await giftVouchersQueries.summary()),
+
+    /** Staff replacing a lost or exposed code: same voucher and balance, new code shown once. */
+    replaceCode: async (c: AppContext) => {
+        const id = voucherId(c);
+        const { voucher, code, oldLast4 } = await giftVouchersQueries.replaceCode(id, Number(getRequiredUser(c).sub));
+        await auditFromContext(c, {
+            action: 'GIFT_VOUCHER_CODE_REPLACED', entityType: 'gift_voucher', entityId: id,
+            after: auditView(voucher), metadata: { old_code_last4: oldLast4 },
+        });
+        const response: IssuedGiftVoucherResponse = { ...toResponse(voucher), code };
+        return success(c, response, 'New code issued');
+    },
+
+    /**
+     * A customer buying a voucher on the storefront. The purchase is an Order (source GIFT_VOUCHER)
+     * so Pesapal, expiry and late payments work as for any order; the voucher is issued once paid.
+     */
+    purchase: async (c: AppContext) => {
+        const data = await parse(c, purchaseVoucherSchema);
+        const user = getOptionalUser(c);
+        const phone = normalisePhone(data.buyer_phone);
+        const email = (user?.email ?? data.buyer_email).toLowerCase();
+        const order = await createOrder({
+            userId: user ? Number(user.sub) : null,
+            items: [],
+            totalAmount: data.amount,
+            shippingAddress: {
+                full_name: data.buyer_name, email, phone,
+                address_line1: 'Gift voucher (sent by email)', address_line2: '', city: '', state: '', postal_code: '', country: 'Kenya',
+            },
+            shippingLocationId: null,
+            shippingCost: 0,
+            discountCode: null,
+            discountAmount: 0,
+            customerName: data.buyer_name,
+            customerPhone: phone,
+            customerEmail: email,
+            orderSource: ORDER_SOURCE.GIFT_VOUCHER,
+            customerLimits: { phone, email },
+            policyAcceptance: data.policy_acceptance,
+            giftVoucherPurchase: {
+                amount: data.amount,
+                deliverTo: data.deliver_to,
+                recipientName: data.recipient_name,
+                recipientEmail: data.recipient_email?.toLowerCase() ?? null,
+                message: data.message,
+            },
+        }, { type: 'placed_online' }, { kind: 'customer', isOwner: true, via: 'checkout' },
+        { request: { ip: getClientIp(c), userAgent: c.req.header('user-agent') ?? null } });
+
+        const payment = await startPesapalPayment(order, data.amount, { phone, email, fullName: data.buyer_name });
+        return success(c, {
+            order_id: String(order.id),
+            public_id: String(order.public_id),
+            order_number: order.order_number,
+            total_amount: data.amount,
+            amount_due: data.amount,
+            payment_redirect_url: payment.redirectUrl,
+            payment_reference: payment.reference,
+            // Lets a guest check or retry payment without an account, as for any order.
+            access_token: createOrderAccessToken(orderTokenRef(order as any)),
+        }, payment.redirectUrl ? 'Continue to secure payment' : 'Payment is pending', 201);
+    },
+
+    /** A customer checking what's left on a voucher. Wrong codes count towards the guessing limit. */
+    balance: async (c: AppContext) => {
+        const { code } = await parse(c, balanceVoucherSchema);
+        await assertCanTryVoucherCode(c, code);
+        const voucher = await giftVouchersQueries.findByCode(code);
+        if (!voucher) {
+            await recordVoucherCodeResult(c, VOUCHER_NOT_FOUND);
+            throw new NotFoundError('Gift voucher', 'code');
+        }
+        const response: GiftVoucherBalanceResponse = {
+            balance: roundMoney(Number(voucher.balance)),
+            initial_amount: roundMoney(Number(voucher.initial_amount)),
+            status: voucherStatus(voucher),
+            expires_at: new Date(voucher.expires_at).toISOString(),
+        };
+        return success(c, response);
+    },
 };

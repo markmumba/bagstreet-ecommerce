@@ -9,6 +9,8 @@ import {
     sendOrderAgreementEmail,
     sendStaffAlertEmail,
     sendOrderExpiredEmail,
+    sendGiftVoucherEmail,
+    sendGiftVoucherReceiptEmail,
 } from '../lib/email';
 import { deliverRecoveryReminder } from '../features/cart-recovery/recovery.delivery';
 import { archivedAgreement } from '../features/compliance/order-agreement';
@@ -62,7 +64,25 @@ export type EmailJob =
     | { type: 'PAYMENT_FAILED'; to: string; name: string; orderId: number; orderRef?: string; reason?: string | null }
     | { type: 'ORDER_EXPIRED'; to: string; name: string; orderRef: string }
     | { type: 'PASSWORD_RESET'; to: string; name: string; resetUrl: string }
-    | { type: 'STAFF_ALERT'; to: string; name: string; eyebrow: string; heading: string; message: string; linkPath: string };
+    | { type: 'STAFF_ALERT'; to: string; name: string; eyebrow: string; heading: string; message: string; linkPath: string }
+    /** Carries the voucher code: removed from the stored payload once sent or given up (see redactDeliveredJob). */
+    | {
+        type: 'GIFT_VOUCHER'; to: string; name: string; code: string; amount: number; expiresAt: string;
+        fromName: string | null; message: string | null; forBuyer: boolean;
+    }
+    | { type: 'GIFT_VOUCHER_RECEIPT'; to: string; name: string; orderRef: string; amount: number; recipient: string };
+
+/** Placeholder left in a gift voucher email's stored payload once the code no longer needs to be there. */
+export const REDACTED_CODE = '[removed after sending]';
+
+/**
+ * The payload to keep once an email is finished with (sent or abandoned). Gift voucher codes are
+ * stored hashed and must not sit in the outbox for its 30-day retention. Null: keep as is.
+ */
+export function redactDeliveredJob(job: EmailJob): EmailJob | null {
+    if (job.type === 'GIFT_VOUCHER' && job.code !== REDACTED_CODE) return { ...job, code: REDACTED_CODE };
+    return null;
+}
 
 /** Sends one email now. Throws on failure so the outbox can retry. */
 export async function sendEmailJob(job: EmailJob): Promise<void | boolean> {
@@ -92,6 +112,13 @@ export async function sendEmailJob(job: EmailJob): Promise<void | boolean> {
                 job.orderRef,
                 job.voucherAmount ?? 0,
             );
+            break;
+        case 'GIFT_VOUCHER':
+            if (job.code === REDACTED_CODE) throw new Error('This gift voucher email was already sent; its code is no longer stored');
+            await sendGiftVoucherEmail(job);
+            break;
+        case 'GIFT_VOUCHER_RECEIPT':
+            await sendGiftVoucherReceiptEmail(job.to, job.name, job.orderRef, job.amount, job.recipient);
             break;
         case 'ORDER_EXPIRED':
             await sendOrderExpiredEmail(job.to, job.name, job.orderRef);

@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import type { GiftVoucherMovementKind } from 'shared';
-import { useAdjustGiftVoucher, useGiftVoucher, useVoidGiftVoucher } from '@/hooks/useGiftVouchers';
+import type { GiftVoucherMovementKind, IssuedGiftVoucherResponse } from 'shared';
+import { IssuedVoucherDialog } from './IssuedVoucherDialog';
+import { useAdjustGiftVoucher, useGiftVoucher, useReplaceGiftVoucherCode, useVoidGiftVoucher } from '@/hooks/useGiftVouchers';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -15,12 +16,26 @@ const MOVEMENT_LABELS: Record<GiftVoucherMovementKind, string> = {
   RETURNED: 'Given back',
   VOIDED: 'Cancelled',
   ADJUSTED: 'Balance corrected',
+  CODE_REPLACED: 'New code issued',
 };
 
 /** A voucher's details and every change to its balance; admins can cancel it or correct the balance. */
 export function VoucherSheet({ voucherId, isAdmin, onClose }: { voucherId: string | null; isAdmin: boolean; onClose: () => void }) {
   const { data: voucher, isLoading } = useGiftVoucher(voucherId);
-  const [action, setAction] = useState<'void' | 'adjust' | null>(null);
+  const [action, setAction] = useState<'void' | 'adjust' | 'replace' | null>(null);
+  const replaceCode = useReplaceGiftVoucherCode();
+  const [newCode, setNewCode] = useState<IssuedGiftVoucherResponse | null>(null);
+  const [replaceError, setReplaceError] = useState('');
+  const confirmReplace = async () => {
+    if (!voucherId) return;
+    setReplaceError('');
+    try {
+      setNewCode(await replaceCode.mutateAsync(voucherId));
+      setAction(null);
+    } catch (err: any) {
+      setReplaceError(err?.message || 'Could not issue a new code');
+    }
+  };
 
   return (
     <Sheet open={Boolean(voucherId)} onOpenChange={(open) => { if (!open) { setAction(null); onClose(); } }}>
@@ -47,7 +62,10 @@ export function VoucherSheet({ voucherId, isAdmin, onClose }: { voucherId: strin
             )}
             <dl className="grid grid-cols-2 gap-3 rounded-xl border p-3 text-sm">
               <div><dt className="text-xs text-muted-foreground">Valid until</dt><dd>{formatDate(voucher.expires_at)}</dd></div>
-              <div><dt className="text-xs text-muted-foreground">Paid by</dt><dd>{SALE_METHOD_LABELS[voucher.sale_payment_method] ?? voucher.sale_payment_method}{voucher.sale_reference ? ` · ${voucher.sale_reference}` : ''}</dd></div>
+              <div><dt className="text-xs text-muted-foreground">{voucher.sold_via === 'ONLINE' ? 'Bought online' : 'Paid by'}</dt>
+                <dd>{voucher.sold_via === 'ONLINE'
+                  ? `Pesapal · order ${voucher.purchase_order_number ?? voucher.sale_reference ?? ''}`
+                  : `${SALE_METHOD_LABELS[voucher.sale_payment_method] ?? voucher.sale_payment_method}${voucher.sale_reference ? ` · ${voucher.sale_reference}` : ''}`}</dd></div>
               <div><dt className="text-xs text-muted-foreground">Bought by</dt><dd>{voucher.purchaser_name || '—'}</dd></div>
               <div><dt className="text-xs text-muted-foreground">For</dt><dd>{voucher.recipient_name || '—'}</dd></div>
               {(voucher.recipient_phone || voucher.recipient_email) && (
@@ -55,7 +73,9 @@ export function VoucherSheet({ voucherId, isAdmin, onClose }: { voucherId: strin
                   <dd className="break-all">{[voucher.recipient_phone, voucher.recipient_email].filter(Boolean).join(' · ')}</dd></div>
               )}
               {voucher.message && <div className="col-span-2"><dt className="text-xs text-muted-foreground">Message</dt><dd>“{voucher.message}”</dd></div>}
-              <div className="col-span-2"><dt className="text-xs text-muted-foreground">Issued by</dt><dd>{voucher.issued_by_email ?? '—'}</dd></div>
+              {voucher.sold_via !== 'ONLINE' && (
+                <div className="col-span-2"><dt className="text-xs text-muted-foreground">Issued by</dt><dd>{voucher.issued_by_email ?? '—'}</dd></div>
+              )}
               {voucher.voided_at && (
                 <div className="col-span-2"><dt className="text-xs text-muted-foreground">Cancelled</dt>
                   <dd>{formatDate(voucher.voided_at)}{voucher.void_reason ? ` · ${voucher.void_reason}` : ''}</dd></div>
@@ -64,8 +84,19 @@ export function VoucherSheet({ voucherId, isAdmin, onClose }: { voucherId: strin
 
             {isAdmin && !voucher.voided_at && !action && (
               <div className="flex gap-2">
+                <Button variant="outline" size="sm" onClick={() => setAction('replace')}>New code</Button>
                 <Button variant="outline" size="sm" onClick={() => setAction('adjust')}>Correct balance</Button>
                 <Button variant="outline" size="sm" className="text-destructive" onClick={() => setAction('void')}>Cancel voucher</Button>
+              </div>
+            )}
+            {action === 'replace' && (
+              <div className="flex flex-col gap-2 rounded-xl border bg-muted/20 p-3">
+                <p className="text-sm">For a lost or exposed code: the voucher keeps its balance and expiry, the old code stops working, and the new one is shown once.</p>
+                {replaceError && <p className="text-sm text-destructive">{replaceError}</p>}
+                <div className="flex justify-end gap-2">
+                  <Button variant="ghost" size="sm" onClick={() => setAction(null)}>Cancel</Button>
+                  <Button size="sm" onClick={confirmReplace} disabled={replaceCode.isPending}>Issue new code</Button>
+                </div>
               </div>
             )}
             {action === 'void' && <VoidForm id={voucher.id} balance={voucher.balance} onDone={() => setAction(null)} />}
@@ -97,6 +128,7 @@ export function VoucherSheet({ voucherId, isAdmin, onClose }: { voucherId: strin
           </div>
         )}
       </SheetContent>
+      <IssuedVoucherDialog voucher={newCode} replaced onClose={() => setNewCode(null)} />
     </Sheet>
   );
 }

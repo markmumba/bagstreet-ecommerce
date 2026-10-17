@@ -40,7 +40,7 @@ const staffIds: number[] = (await sql`SELECT id FROM users`).map((r: any) => Num
 const [{ last }] = await sql`SELECT COALESCE((SELECT last_value FROM orders_id_seq), 0)::int AS last`;
 for (let id = Number(last) + 1; id <= Number(last) + 40; id++) {
     for (const key of [
-        `order-confirmation:${id}`, `order-expired:${id}`,
+        `order-confirmation:${id}`, `order-expired:${id}`, `order-agreement:${id}`, `gift-voucher:${id}`, `gift-voucher-receipt:${id}`,
         ...staffIds.flatMap((u) => [`admin-order-confirmed:${id}:${u}`,
             ...['PAYMENT_MISMATCH', 'REFUND_REQUIRED', 'PAYMENT_REVERSED', 'PAYMENT_INIT_FAILED'].map((t) => `staff-alert:${t}:${id}:${u}`)]),
     ]) {
@@ -173,7 +173,81 @@ try {
     const afterVoid = await quoteOrder({ items: [{ variant_id: V, quantity: 1 }], voucher_code: g.code }, { mode: 'walk_in' });
     check('a cancelled voucher can not pay', afterVoid.voucher_problem === 'This gift voucher has been cancelled' && await balance(of(g, 0).id) === 0);
 
-    // 10. Every balance is exactly the sum of its movements.
+    // 10. Buying a voucher online: an Order with source GIFT_VOUCHER, issued once paid.
+    const buy = (amount: number, deliverTo: 'RECIPIENT' | 'BUYER' = 'RECIPIENT', phone = '254711000010') => createOrder({
+        ...draft(1, null, phone), items: [], totalAmount: amount, orderSource: 'GIFT_VOUCHER' as any,
+        customerEmail: 'zz-buyer@example.invalid',
+        giftVoucherPurchase: { amount, deliverTo, recipientName: 'ZZ Friend', recipientEmail: 'zz-friend@example.invalid', message: 'Happy birthday' },
+    }, { type: 'placed_online' }, CHECKOUT);
+    const issuedFor = async (orderId: number) =>
+        (await sql`SELECT v.* FROM gift_voucher_orders g JOIN gift_vouchers v ON v.id = g.voucher_id WHERE g.order_id = ${orderId}`)[0];
+    const trackVoucher = async (orderId: number) => { const v = await issuedFor(orderId); if (v) voucherIds.push(Number(v.id)); return v; };
+
+    const p1 = await buy(5000);
+    check('a voucher purchase waits for payment, with no voucher yet', await stateOf(p1.id) === 'PENDING/UNPAID' && !(await issuedFor(p1.id)));
+    const items = await sql`SELECT count(*)::int AS n FROM order_items WHERE order_id = ${p1.id}`;
+    check('a voucher purchase takes no stock and has no items', items[0].n === 0);
+    await applyOrderEvent(p1.id, captured(5000, `zz-vch-buy-${p1.id}`), PROVIDER);
+    const v1 = await trackVoucher(p1.id);
+    check('paying issues the voucher and the sale is done', await stateOf(p1.id) === 'DELIVERED/PAID'
+        && v1 && Number(v1.balance) === 5000 && v1.sold_via === 'ONLINE' && Number(v1.purchase_order_id) === p1.id, JSON.stringify(v1));
+    // (Who gets which email is unit-tested in voucher-sales.test.ts; here the email keys are reserved
+    // so nothing is sent.) The voucher records who it was for.
+    check('the voucher records the recipient it was emailed to', v1.recipient_email === 'zz-friend@example.invalid' && v1.recipient_name === 'ZZ Friend'
+        && v1.message === 'Happy birthday');
+    await applyOrderEvent(p1.id, captured(5000, `zz-vch-buy-${p1.id}`), PROVIDER);
+    check('the same payment reported twice issues one voucher', (await sql`SELECT count(*)::int AS n FROM gift_vouchers WHERE purchase_order_id = ${p1.id}`)[0].n === 1);
+    const sold = await sql`SELECT count(*)::int AS n FROM payment_ledger_entries WHERE order_id = ${p1.id} AND entry_type = 'PAYMENT_CAPTURED'
+        AND NOT EXISTS (SELECT 1 FROM orders vo WHERE vo.id = order_id AND vo.order_source = 'GIFT_VOUCHER')`;
+    check('the voucher sale is left out of dashboard revenue', sold[0].n === 0);
+
+    // Refund only while untouched, and refunding cancels the voucher.
+    const partly = await applyOrderEvent(p1.id, refund(2000, 'MPESA', `zz-vr1-${p1.id}`), ADMIN);
+    check('no partial refund of a voucher purchase', partly.outcome === 'not_allowed');
+    const fullRefund = await applyOrderEvent(p1.id, refund(5000, 'MPESA', `zz-vr2-${p1.id}`), ADMIN);
+    const v1After = await issuedFor(p1.id);
+    check('an untouched voucher purchase can be refunded, which cancels the voucher',
+        fullRefund.outcome === 'changed' && await stateOf(p1.id) === 'REFUNDED/PAID' && v1After.voided_at != null && Number(v1After.balance) === 0);
+
+    const p2 = await buy(2000, 'BUYER', '254711000011');
+    await applyOrderEvent(p2.id, captured(2000, `zz-vch-buy-${p2.id}`), PROVIDER);
+    const v2 = await trackVoucher(p2.id);
+    check('"email it to me" records the buyer as the holder', v2.recipient_email === 'zz-buyer@example.invalid');
+    // Spend part of it, then the buyer's payment is reversed: the rest is cancelled.
+    await createOrder({ ...draft(1, { id: Number(v2.id), amount: 1000, last4: v2.code_last4 }), orderSource: 'WALK_IN' as any },
+        { type: 'walk_in_sale', amount: 0, currency: 'KES', reference: `zz-walkin2-${Date.now()}` }, MANAGER);
+    const spentRefund = await applyOrderEvent(p2.id, refund(2000, 'MPESA', `zz-vr3-${p2.id}`), ADMIN);
+    check('once part of the voucher is spent, the purchase can no longer be refunded', spentRefund.outcome === 'not_allowed');
+    await applyOrderEvent(p2.id, { type: 'payment_reversed', reference: `zz-rev-buy-${p2.id}` }, PROVIDER);
+    const v2After = await issuedFor(p2.id);
+    check('a reversed voucher purchase cancels what is left on the voucher', await stateOf(p2.id) === 'DELIVERED/REVERSED'
+        && v2After.voided_at != null && Number(v2After.balance) === 0, JSON.stringify({ state: await stateOf(p2.id), balance: v2After.balance }));
+
+    // An underpaid purchase is held; staff accepting it issues the voucher.
+    const p3 = await buy(10000, 'RECIPIENT', '254711000012');
+    await applyOrderEvent(p3.id, captured(9000, `zz-vch-buy-${p3.id}`), PROVIDER);
+    check('an underpaid voucher purchase is held with no voucher', await stateOf(p3.id) === 'PENDING/HELD' && !(await issuedFor(p3.id)));
+    await applyOrderEvent(p3.id, { type: 'marked_paid' }, ADMIN);
+    check('accepting the held payment issues the voucher', Boolean(await trackVoucher(p3.id)) && await stateOf(p3.id) === 'DELIVERED/PAID');
+
+    // A late payment after the purchase expired still issues the voucher, and expiry sends no "items released" email.
+    const p4 = await buy(2000, 'RECIPIENT', '254711000013');
+    await age(p4.id);
+    await expireUnpaidOrders();
+    const expiredMail = await sql`SELECT count(*)::int AS n FROM email_outbox WHERE dedupe_key = ${`order-expired:${p4.id}`} AND job_type = 'ORDER_EXPIRED'`;
+    check('an abandoned voucher purchase expires without the goods email', await stateOf(p4.id) === 'CANCELLED/UNPAID' && expiredMail[0].n === 0);
+    await applyOrderEvent(p4.id, captured(2000, `zz-vch-buy-${p4.id}`), PROVIDER);
+    check('a payment after it expired still issues the voucher', Boolean(await trackVoucher(p4.id)) && await stateOf(p4.id) === 'DELIVERED/PAID');
+
+    // Replacing a lost code: same voucher and balance, the old code stops working.
+    const v3 = await issuedFor(p3.id);
+    const replaced = await giftVouchersQueries.replaceCode(Number(v3.id), Number(admin.id));
+    const newCodeQuote = await quoteOrder({ items: [{ variant_id: V, quantity: 1 }], voucher_code: replaced.code }, { mode: 'walk_in' });
+    const [v3After] = await sql`SELECT code_hash, code_last4 FROM gift_vouchers WHERE id = ${v3.id}`;
+    check('a replaced code works, keeps the balance, and the old code is gone',
+        newCodeQuote.voucher?.amount === 1000 && Number(replaced.voucher.balance) === 10000 && v3After.code_hash !== v3.code_hash);
+
+    // 11. Every balance is exactly the sum of its movements.
     const drift = await sql`
         SELECT v.id FROM gift_vouchers v
         WHERE v.id IN ${sql(voucherIds)}
@@ -184,15 +258,26 @@ try {
 } finally {
     const orderIds = (await sql`SELECT DISTINCT order_id FROM order_items WHERE variant_id = ${V}`).map((r: any) => Number(r.order_id));
     if (voucherIds.length) await sql`DELETE FROM gift_voucher_movements WHERE voucher_id IN ${sql(voucherIds)}`;
+    const voucherOrderIds = (await sql`SELECT order_id FROM gift_voucher_orders g JOIN orders o ON o.id = g.order_id WHERE o.customer_email = 'zz-buyer@example.invalid'`).map((r: any) => Number(r.order_id));
+    orderIds.push(...voucherOrderIds);
+    if (voucherOrderIds.length) {
+        const bought = (await sql`SELECT voucher_id FROM gift_voucher_orders WHERE order_id IN ${sql(voucherOrderIds)} AND voucher_id IS NOT NULL`).map((r: any) => Number(r.voucher_id));
+        for (const id of bought) if (!voucherIds.includes(id)) voucherIds.push(id);
+        if (voucherIds.length) await sql`DELETE FROM gift_voucher_movements WHERE voucher_id IN ${sql(voucherIds)}`;
+        await sql`DELETE FROM gift_voucher_orders WHERE order_id IN ${sql(voucherOrderIds)}`;
+        await sql`DELETE FROM order_policy_acceptances WHERE order_id IN ${sql(voucherOrderIds)}`;
+    }
     if (orderIds.length) {
         await sql`DELETE FROM audit_logs WHERE entity_type = 'order' AND entity_id IN ${sql(orderIds.map(String))}`;
         for (const id of orderIds) await sql`DELETE FROM in_app_notifications WHERE data->>'order_id' = ${String(id)}`;
         await sql`DELETE FROM payment_ledger_entries WHERE order_id IN ${sql(orderIds)}`;
         await sql`DELETE FROM payment_transactions WHERE order_id IN ${sql(orderIds)}`;
+        await sql`UPDATE gift_vouchers SET purchase_order_id = NULL WHERE purchase_order_id IN ${sql(orderIds)}`;
         await sql`DELETE FROM orders WHERE id IN ${sql(orderIds)}`;
     }
     if (voucherIds.length) {
         await sql`DELETE FROM audit_logs WHERE entity_type = 'gift_voucher' AND entity_id IN ${sql(voucherIds.map(String))}`;
+        await sql`UPDATE gift_vouchers SET purchase_order_id = NULL WHERE id IN ${sql(voucherIds)}`;
         await sql`DELETE FROM gift_vouchers WHERE id IN ${sql(voucherIds)}`;
     }
     await sql`DELETE FROM inventory_movements WHERE variant_id = ${V}`;
@@ -200,7 +285,8 @@ try {
     await sql`DELETE FROM email_outbox WHERE recipient LIKE 'zz-outbox-%@example.invalid'`;
     await sql`DELETE FROM products WHERE id = ${PRODUCT}`;
     await sql`DELETE FROM categories WHERE id = ${cat.id}`;
-    const realEmails = await sql`SELECT count(*)::int AS n FROM email_outbox WHERE created_at > now() - interval '5 minutes' AND recipient NOT LIKE 'zz-%' AND job_type <> 'ZZ_TEST'`;
+    const realEmails = await sql`SELECT count(*)::int AS n FROM email_outbox WHERE created_at > now() - interval '5 minutes' AND job_type <> 'ZZ_TEST'
+        AND (recipient NOT LIKE 'zz-%' OR job_type IN ('GIFT_VOUCHER', 'GIFT_VOUCHER_RECEIPT'))`;
     for (const [name, ok, detail] of results) console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${ok ? '' : `  — ${detail}`}`);
     const failed = results.filter(([, ok]) => !ok).length;
     console.log(`\n${results.length - failed}/${results.length} gift voucher checks passed. Emails queued for real people in the last 5 minutes: ${realEmails[0].n}`);

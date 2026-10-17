@@ -74,7 +74,7 @@ async function enforceCustomerOrderLimits(tx: typeof sql, phone: string, email: 
             )::int AS "openUnpaid",
             count(*) FILTER (WHERE created_at > now() - interval '1 hour')::int AS "lastHour"
         FROM orders
-        WHERE order_source = ${ORDER_SOURCE.ONLINE}
+        WHERE order_source IN (${ORDER_SOURCE.ONLINE}, ${ORDER_SOURCE.GIFT_VOUCHER})
           AND (customer_phone = ${phone} OR (${normalisedEmail}::text IS NOT NULL AND lower(customer_email) = ${normalisedEmail}))
     `;
     const violation = orderLimitViolation(counts ?? { openUnpaid: 0, lastHour: 0 });
@@ -102,6 +102,14 @@ export interface OrderDraft {
     discountAmount: number;
     /** A gift voucher paying part or all of the total (held by the Order lifecycle when created). */
     voucher?: { id: number; amount: number; last4: string } | null;
+    /** A gift voucher being bought (order source GIFT_VOUCHER): issued once the order is paid. */
+    giftVoucherPurchase?: {
+        amount: number;
+        deliverTo: 'RECIPIENT' | 'BUYER';
+        recipientName: string | null;
+        recipientEmail: string | null;
+        message: string | null;
+    };
     customerName: string;
     customerPhone: string;
     customerEmail: string | null;
@@ -186,12 +194,20 @@ export const ordersQueries = {
         return order;
     },
 
+    /** The order's lines; a gift voucher purchase shows the voucher as its one line. */
     findItemsByOrderId: async (orderId: number): Promise<OrderItemRow[]> => {
         return await sql<OrderItemRow[]>`
-            SELECT oi.*, p.name AS product_name, p.slug AS product_slug
+            SELECT oi.id, oi.order_id, oi.product_id, oi.variant_id, oi.variant_sku, oi.variant_size, oi.variant_color,
+                   oi.quantity, oi.unit_price, oi.subtotal, oi.created_at, p.name AS product_name, p.slug AS product_slug
             FROM order_items oi
             JOIN products p ON p.id = oi.product_id
             WHERE oi.order_id = ${orderId}
+            UNION ALL
+            SELECT 0 AS id, g.order_id, NULL AS product_id, NULL AS variant_id, NULL AS variant_sku, NULL AS variant_size,
+                   NULL AS variant_color, 1 AS quantity, g.amount AS unit_price, g.amount AS subtotal, g.created_at,
+                   'Gift voucher' || COALESCE(' for ' || g.recipient_name, '') AS product_name, NULL AS product_slug
+            FROM gift_voucher_orders g
+            WHERE g.order_id = ${orderId}
         `;
     },
     findProductInOrders: async (productId:number):Promise<boolean> => {
@@ -252,6 +268,14 @@ export const ordersQueries = {
                 RETURNING *
             `;
             if (!order) throw new Error('Failed to create order');
+
+            if (draft.giftVoucherPurchase) {
+                const purchase = draft.giftVoucherPurchase;
+                await tx`
+                    INSERT INTO gift_voucher_orders (order_id, amount, deliver_to, recipient_name, recipient_email, message)
+                    VALUES (${order.id}, ${purchase.amount}, ${purchase.deliverTo}, ${purchase.recipientName}, ${purchase.recipientEmail}, ${purchase.message})
+                `;
+            }
 
             for (const item of items) {
                 const subtotal = item.unit_price * item.quantity;
@@ -316,7 +340,8 @@ export const ordersQueries = {
             SELECT id, created_at FROM orders
             WHERE status = ${ORDER_STATUS.PENDING}
               AND payment_status IN (${PAYMENT_STATUS.UNPAID}, ${PAYMENT_STATUS.FAILED})
-              AND order_source = ${ORDER_SOURCE.ONLINE}
+              -- Paid online: goods orders and gift voucher purchases (walk-ins are paid at the counter).
+              AND order_source IN (${ORDER_SOURCE.ONLINE}, ${ORDER_SOURCE.GIFT_VOUCHER})
               AND created_at < ${createdBefore.toISOString()}
               -- Money already received (e.g. underpaid, held for review): staff resolve it, not the timer.
               AND NOT EXISTS (

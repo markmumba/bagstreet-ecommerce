@@ -32,7 +32,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { ArrowUpDown, Check, ClipboardList, Copy, Download, Eye, MapPin, PackageCheck, PackageX, Plus, ShoppingBag, Timer, Truck, X } from 'lucide-react';
+import { ArrowUpDown, Check, ClipboardList, Copy, Download, Eye, Gift, MapPin, PackageCheck, PackageX, Plus, ShoppingBag, Timer, Truck, X } from 'lucide-react';
 import { ORDER_SOURCE, ORDER_STATUS, PAYMENT_STATUS, USER_ROLE } from 'shared';
 import type { OrderResponse, OrderStatus, PaymentStatus } from 'shared';
 import { cn } from '@/lib/utils';
@@ -102,18 +102,21 @@ function StatusChip({ status }: { status: OrderStatus }) {
 }
 
 function SourceChip({ source }: { source?: OrderResponse['order_source'] }) {
-  const isWalkIn = source === ORDER_SOURCE.WALK_IN;
+  const kind = source === ORDER_SOURCE.WALK_IN ? 'walk_in' : source === ORDER_SOURCE.GIFT_VOUCHER ? 'voucher' : 'online';
+  const Icon = kind === 'walk_in' ? ShoppingBag : kind === 'voucher' ? Gift : Truck;
   return (
     <span
       className={cn(
         'inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-xs font-medium',
-        isWalkIn
+        kind === 'walk_in'
           ? 'bg-[var(--color-info-bg)] text-[var(--color-info-text)]'
-          : 'bg-muted text-muted-foreground'
+          : kind === 'voucher'
+            ? 'bg-[var(--color-warning-bg)] text-[var(--color-warning-text)]'
+            : 'bg-muted text-muted-foreground'
       )}
     >
-      {isWalkIn ? <ShoppingBag className="h-3 w-3" strokeWidth={2} /> : <Truck className="h-3 w-3" strokeWidth={2} />}
-      {isWalkIn ? 'Walk-in' : 'Online'}
+      <Icon className="h-3 w-3" strokeWidth={2} />
+      {kind === 'walk_in' ? 'Walk-in' : kind === 'voucher' ? 'Gift voucher' : 'Online'}
     </span>
   );
 }

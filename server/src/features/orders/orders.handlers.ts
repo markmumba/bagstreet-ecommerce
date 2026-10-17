@@ -19,11 +19,9 @@ import { assertCanTryVoucherCode, recordVoucherCodeResult } from '../gift-vouche
 import { giftVouchersQueries } from '../gift-vouchers/gift-vouchers.queries';
 import type { Quote } from '../quote/quote';
 import { adminActionsFor, applyOrderEvent, createOrder, requireAllowed } from './lifecycle/order-lifecycle';
-import { alertStaff } from '../staff-alerts/staff-alerts';
 import type { Actor } from './lifecycle/transitions';
 import type { AppContext, AuthUser } from '@server/lib/hono';
 import { getOptionalUser, getRequiredUser } from '@server/lib/hono';
-import { submitPesapalOrder } from '../../services/pesapal';
 import { env } from '../../config/env';
 import { verifyOrderReceivedToken } from '../../lib/order-received-token';
 import { normalizeShippingAddress } from '../../lib/shipping-address';
@@ -33,6 +31,7 @@ import { randomUUID } from 'node:crypto';
 import { resolveUnitPrice, saleIsActive } from '@server/lib/pricing';
 import { createOrderAccessToken, orderTokenRef } from '../../lib/order-received-token';
 import { orderAmountDue, summariseOrderPayments } from '../payments/order-balance';
+import { startPesapalPayment } from '../payments/start-payment';
 import { readJsonColumn } from '../../lib/json-column';
 import { REFUND_METHOD } from 'shared/dist';
 import type { OrderPaymentsResponse } from 'shared/dist';
@@ -177,22 +176,6 @@ async function orderPaymentsResponse(order: any): Promise<OrderPaymentsResponse>
     };
 }
 
-/** Tells staff when an order was created but Pesapal couldn't start the payment (e.g. Pesapal is down). */
-async function notifyPaymentInitFailed(order: any, totalAmount: number, err: unknown) {
-    try {
-        await alertStaff({
-            audience: 'money',
-            type: 'PAYMENT_INIT_FAILED',
-            title: `Payment could not start for ${order.order_number ?? `#${order.id}`}`,
-            body: `KES ${totalAmount.toFixed(2)} — Pesapal error: ${err instanceof Error ? err.message : 'unknown'}. The customer can retry from checkout.`,
-            link: '/orders',
-            data: { order_id: String(order.id) },
-            dedupeKey: `staff-alert:PAYMENT_INIT_FAILED:${order.id}`,
-        });
-    } catch (notifyErr) {
-        console.error('[notifications] payment init failure alert failed:', notifyErr);
-    }
-}
 
 export const ordersHandlers = {
 
@@ -565,14 +548,9 @@ export const ordersHandlers = {
         // Staff are alerted about new orders once payment is confirmed (see the Order lifecycle),
         // not here — most unpaid orders are abandoned checkouts. Stock was taken, so low-stock alerts stay.
 
-        let paymentRedirectUrl: string | null = null;
-        let paymentReference: string | null = null;
         // Fully paid by gift voucher: the order is already confirmed, there's nothing to collect.
-        if (amountDue > 0) try {
-            const payment = await submitPesapalOrder({
-                orderId: order.id,
-                orderNumber: (order as any).order_number,
-                amount: amountDue,
+        const { redirectUrl: paymentRedirectUrl, reference: paymentReference } = amountDue > 0
+            ? await startPesapalPayment(order, amountDue, {
                 phone: validated.data.phone,
                 email: customerEmail,
                 fullName: shippingAddress.full_name,
@@ -580,24 +558,8 @@ export const ordersHandlers = {
                 addressLine2: shippingAddress.address_line2,
                 city: shippingAddress.city,
                 state: shippingAddress.state,
-            });
-            paymentRedirectUrl = payment.redirectUrl;
-            paymentReference = payment.orderTrackingId;
-            await paymentsQueries.createProviderTransaction({
-                order_id: order.id,
-                provider: 'pesapal',
-                provider_reference: payment.orderTrackingId,
-                merchant_reference: payment.merchantReference,
-                checkout_url: payment.redirectUrl,
-                amount: amountDue,
-                currency: env.PESAPAL_CURRENCY,
-                status: payment.redirectUrl ? 'PENDING' : 'INITIATED',
-                raw_payload: payment.raw,
-            });
-        } catch (err) {
-            console.error('[pesapal] payment initialization failed:', err);
-            await notifyPaymentInitFailed(order, amountDue, err);
-        }
+            })
+            : { redirectUrl: null, reference: null };
 
         const orderResponse = toOrderResponse(order, items);
         return success(

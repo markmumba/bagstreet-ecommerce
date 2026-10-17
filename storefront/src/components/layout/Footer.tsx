@@ -26,6 +26,8 @@ export function Footer() {
             </li>
           ))}
           <li><Link to="/shop" className="hover:text-brass-text">Shop all</Link></li>
+          <li><Link to="/gift-vouchers" className="hover:text-brass-text">Gift vouchers</Link></li>
+          <li><Link to="/gift-vouchers/balance" className="hover:text-brass-text">Voucher balance</Link></li>
         </FooterColumn>
 
         <FooterColumn title="Account" className="lg:col-span-2">

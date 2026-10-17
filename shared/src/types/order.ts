@@ -42,6 +42,8 @@ export type OrderAction = typeof ORDER_ACTION[keyof typeof ORDER_ACTION];
 export const ORDER_SOURCE = {
     ONLINE: 'ONLINE',
     WALK_IN: 'WALK_IN',
+    /** A gift voucher bought online: no items or delivery; the voucher is issued once paid. */
+    GIFT_VOUCHER: 'GIFT_VOUCHER',
 } as const;
 
 export type OrderSource = typeof ORDER_SOURCE[keyof typeof ORDER_SOURCE];
@@ -191,6 +193,9 @@ export interface PaymentStatusResponse {
     total_amount?: number;
     /** What is paid by card or M-Pesa: the total less any gift voucher. */
     amount_due?: number;
+    order_source?: OrderSource;
+    /** For a gift voucher purchase: what was bought and where the code is emailed. */
+    gift_voucher?: { amount: number; deliver_to: 'RECIPIENT' | 'BUYER'; recipient_name: string | null; recipient_email: string | null };
     order_status?: string;
     payment_status?: string;
     receipt_number?: string;

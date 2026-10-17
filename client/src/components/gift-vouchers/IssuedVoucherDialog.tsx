@@ -30,7 +30,7 @@ function printVoucher(voucher: IssuedGiftVoucherResponse) {
 <body><div class="card">
   <div class="brand">BAGSTREET</div>
   <h1>Gift voucher</h1>
-  <div class="amount">${escapeHtml(kes(voucher.initial_amount))}</div>
+  <div class="amount">${escapeHtml(kes(voucher.balance))}</div>
   ${voucher.recipient_name ? `<p class="to">For ${escapeHtml(voucher.recipient_name)}</p>` : ''}
   ${voucher.message ? `<p class="message">“${escapeHtml(voucher.message)}”</p>` : ''}
   <div class="code">${escapeHtml(voucher.code)}</div>
@@ -44,7 +44,7 @@ function printVoucher(voucher: IssuedGiftVoucherResponse) {
 }
 
 /** Shown once, right after issuing: the full code is never shown again. */
-export function IssuedVoucherDialog({ voucher, onClose }: { voucher: IssuedGiftVoucherResponse | null; onClose: () => void }) {
+export function IssuedVoucherDialog({ voucher, onClose, replaced = false }: { voucher: IssuedGiftVoucherResponse | null; onClose: () => void; replaced?: boolean }) {
   const [copied, setCopied] = useState(false);
   if (!voucher) return null;
 
@@ -62,9 +62,9 @@ export function IssuedVoucherDialog({ voucher, onClose }: { voucher: IssuedGiftV
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="sm:max-w-[460px]">
         <DialogHeader>
-          <DialogTitle>Gift voucher issued: {kes(voucher.initial_amount)}</DialogTitle>
+          <DialogTitle>{replaced ? `New code for ····${voucher.code_last4}` : `Gift voucher issued: ${kes(voucher.initial_amount)}`}</DialogTitle>
           <DialogDescription>
-            Give this code to the customer now. For security it is stored scrambled, so it can't be shown again.
+            {replaced ? 'The old code no longer works. ' : ''}Give this code to the customer now. For security it is stored scrambled, so it can't be shown again.
           </DialogDescription>
         </DialogHeader>
         <div className="rounded-xl border border-dashed bg-muted/30 px-4 py-5 text-center">
