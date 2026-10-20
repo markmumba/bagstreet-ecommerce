@@ -2,19 +2,14 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useState, useEffect } from 'react';
 import type { ColumnDef } from '@tanstack/react-table';
 import { useCategories, useDeleteCategory, useImportCategoriesCsv } from '@/hooks/useCategories';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { CategoryDialog } from '@/components/categories/CategoryDialog';
 import { CategoriesDataTable } from '@/components/categories/CategoriesDataTable';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { CsvImportDialog } from '@/components/import/CsvImportDialog';
 import type { CategoryResponse } from 'shared';
 import { Button } from '@/components/ui/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+import { formatDate } from '@/lib/format';
 
 export const Route = createFileRoute('/categories')({
   component: CategoriesPage,
@@ -64,19 +59,6 @@ function CategoriesPage() {
   const handleDelete = (category: CategoryResponse) => {
     setDeleteTarget(category);
   };
-
-  const confirmDelete = async () => {
-    if (!deleteTarget) return;
-    try {
-      await deleteMutation.mutateAsync(deleteTarget.id);
-      setDeleteTarget(null);
-    } catch (error: unknown) {
-      console.error('Failed to delete category:', error);
-    }
-  };
-
-  const formatDate = (dateString: string) =>
-    new Date(dateString).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 
   const columns: ColumnDef<CategoryResponse>[] = [
     {
@@ -218,29 +200,16 @@ function CategoriesPage() {
           return importMutation.mutateAsync(file);
         }}
       />
-      <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
-        <DialogContent className="sm:max-w-[420px]">
-          <DialogHeader>
-            <DialogTitle>Delete category?</DialogTitle>
-            <DialogDescription>
-              This will permanently delete "{deleteTarget?.name}". Categories with products or subcategories may be blocked by the server.
-            </DialogDescription>
-          </DialogHeader>
-          {deleteMutation.error && (
-            <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
-              {(deleteMutation.error as { message?: string })?.message || 'Failed to delete category'}
-            </div>
-          )}
-          <div className="flex justify-end gap-3 pt-2">
-            <Button variant="outline" onClick={() => setDeleteTarget(null)} disabled={deleteMutation.isPending}>
-              Cancel
-            </Button>
-            <Button variant="destructive" onClick={confirmDelete} disabled={deleteMutation.isPending}>
-              {deleteMutation.isPending ? 'Deleting...' : 'Delete'}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <ConfirmDialog
+        open={!!deleteTarget}
+        onOpenChange={(open) => !open && setDeleteTarget(null)}
+        title="Delete category?"
+        description={<>This permanently deletes “{deleteTarget?.name}”. A category that still has products or subcategories can’t be deleted: move them first.</>}
+        confirmLabel="Delete"
+        pendingLabel="Deleting…"
+        destructive
+        onConfirm={() => deleteMutation.mutateAsync(deleteTarget!.id)}
+      />
     </DashboardLayout>
   );
 }

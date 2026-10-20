@@ -18,6 +18,10 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Textarea } from '@/components/ui/textarea';
 import { Mail, MapPin, Phone, ReceiptText } from 'lucide-react';
+import { formatDateTime, formatMoney } from '@/lib/format';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { ErrorNotice } from '@/components/ui/notice';
+import { Label } from '@/components/ui/label';
 
 const STATUS_LABELS: Record<OrderStatus, string> = {
   [ORDER_STATUS.PENDING]: 'Pending',
@@ -88,15 +92,7 @@ const SITUATION_STYLES = {
   neutral: 'border-[var(--color-neutral-border)] bg-[var(--color-neutral-bg)] text-[var(--color-neutral-text)]',
 };
 
-function formatDate(d: string) {
-  return new Date(d).toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-}
+const formatDate = formatDateTime;
 
 function addressLines(addr: OrderResponse['shipping_address']) {
   return [
@@ -123,6 +119,8 @@ export function OrderSheet({ order, open, onOpenChange }: OrderSheetProps) {
   const [confirmingCancel, setConfirmingCancel] = useState(false);
   const [writingOff, setWritingOff] = useState(false);
   const [writeOffNote, setWriteOffNote] = useState('');
+  // Money and fulfilment actions are confirmed first: one stray tap shouldn't mark an order paid.
+  const [confirming, setConfirming] = useState<OrderAction | null>(null);
   const updateStatus = useUpdateOrderStatus();
   const confirmPayment = useConfirmOrderPayment();
   const writeOff = useWriteOffReversal();
@@ -134,6 +132,7 @@ export function OrderSheet({ order, open, onOpenChange }: OrderSheetProps) {
     setConfirmingCancel(false);
     setWritingOff(false);
     setWriteOffNote('');
+    setConfirming(null);
   }, [order?.id]);
 
   // The sheet is opened with a row from the list; after an action, show the order the server returned.
@@ -155,11 +154,19 @@ export function OrderSheet({ order, open, onOpenChange }: OrderSheetProps) {
     if (!current) return;
     if (action === ORDER_ACTION.CANCEL) return setConfirmingCancel(true);
     if (action === ORDER_ACTION.WRITE_OFF) return setWritingOff(true);
-    if (action === ORDER_ACTION.MARK_PAID) {
-      return run(() => confirmPayment.mutateAsync({ id: current.id }), 'Failed to mark as paid');
-    }
-    const status = action === ORDER_ACTION.MARK_DISPATCHED ? ORDER_STATUS.SHIPPED : ORDER_STATUS.DELIVERED;
-    return run(() => updateStatus.mutateAsync({ id: current.id, status }), 'Failed to update order');
+    setConfirming(action);
+  };
+
+  /** Runs the confirmed action; errors are shown in the confirmation dialog. */
+  const runConfirmed = async (action: OrderAction) => {
+    if (!current) return;
+    const updated = action === ORDER_ACTION.MARK_PAID
+      ? await confirmPayment.mutateAsync({ id: current.id })
+      : await updateStatus.mutateAsync({
+        id: current.id,
+        status: action === ORDER_ACTION.MARK_DISPATCHED ? ORDER_STATUS.SHIPPED : ORDER_STATUS.DELIVERED,
+      });
+    setLatest(updated);
   };
 
   if (!current) return null;
@@ -234,10 +241,12 @@ export function OrderSheet({ order, open, onOpenChange }: OrderSheetProps) {
                 <p className="text-sm">
                   Write off the reversed payment as lost. The order stays as it is, with your note on record.
                 </p>
+                <Label htmlFor="write-off-note">Why it’s being written off</Label>
                 <Textarea
+                  id="write-off-note"
                   value={writeOffNote}
                   onChange={(e) => setWriteOffNote(e.target.value)}
-                  placeholder="Why, e.g. goods delivered, chargeback lost, customer unreachable"
+                  placeholder="e.g. goods delivered, chargeback lost, customer unreachable…"
                   rows={3}
                 />
                 <div className="flex gap-2">
@@ -255,18 +264,14 @@ export function OrderSheet({ order, open, onOpenChange }: OrderSheetProps) {
               </div>
             )}
 
-            {error && (
-              <p className="rounded-xl bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                {error}
-              </p>
-            )}
+            <ErrorNotice>{error}</ErrorNotice>
           </div>
 
           <Separator />
 
           {/* Delivery */}
           <div className="flex flex-col gap-2">
-            <h3 className="text-sm font-semibold">Delivery Details</h3>
+            <h3 className="text-sm font-semibold">Delivery details</h3>
             <div className="rounded-xl border p-3 text-sm">
               <div className="space-y-3">
                 <div>
@@ -327,10 +332,10 @@ export function OrderSheet({ order, open, onOpenChange }: OrderSheetProps) {
                         <p className="text-xs font-mono text-muted-foreground/70">SKU: {item.variant_sku}</p>
                       )}
                       <p className="text-xs text-muted-foreground mt-0.5">
-                        {item.quantity} × KES {item.unit_price.toFixed(2)}
+                        {item.quantity} × {formatMoney(item.unit_price)}
                       </p>
                     </div>
-                    <span className="font-medium shrink-0">KES {item.subtotal.toFixed(2)}</span>
+                    <span className="font-medium shrink-0 tabular-nums">{formatMoney(item.subtotal)}</span>
                   </div>
                 );
               })}
@@ -339,28 +344,28 @@ export function OrderSheet({ order, open, onOpenChange }: OrderSheetProps) {
             {current.shipping_cost > 0 && (
               <div className="flex justify-between text-sm text-muted-foreground pt-2">
                 <span>Delivery</span>
-                <span>KES {current.shipping_cost.toFixed(2)}</span>
+                <span className="tabular-nums">{formatMoney(current.shipping_cost)}</span>
               </div>
             )}
             {current.discount_amount > 0 && (
               <div className="flex justify-between text-sm text-muted-foreground">
                 <span>Discount{current.discount_code ? ` (${current.discount_code})` : ''}</span>
-                <span>-KES {current.discount_amount.toFixed(2)}</span>
+                <span className="tabular-nums">−{formatMoney(current.discount_amount)}</span>
               </div>
             )}
             <div className="flex justify-between border-t pt-3 font-semibold text-sm">
               <span>Total</span>
-              <span>KES {current.total_amount.toFixed(2)}</span>
+              <span className="tabular-nums">{formatMoney(current.total_amount)}</span>
             </div>
             {current.voucher_amount > 0 && (
               <>
                 <div className="flex justify-between text-sm text-muted-foreground">
                   <span>Gift voucher{current.voucher_last4 ? ` ····${current.voucher_last4}` : ''}</span>
-                  <span>-KES {current.voucher_amount.toFixed(2)}</span>
+                  <span className="tabular-nums">−{formatMoney(current.voucher_amount)}</span>
                 </div>
                 <div className="flex justify-between text-sm font-medium">
                   <span>Paid by card, M-Pesa or cash</span>
-                  <span>KES {current.amount_due.toFixed(2)}</span>
+                  <span className="tabular-nums">{formatMoney(current.amount_due)}</span>
                 </div>
               </>
             )}
@@ -385,6 +390,42 @@ export function OrderSheet({ order, open, onOpenChange }: OrderSheetProps) {
       open={receiptOpen}
       onOpenChange={setReceiptOpen}
     />
+    {confirming && current && (
+      <ConfirmDialog
+        open
+        onOpenChange={(open) => !open && setConfirming(null)}
+        {...confirmCopy(confirming, current)}
+        onConfirm={() => runConfirmed(confirming)}
+      />
+    )}
     </>
   );
+}
+
+/** What each confirmed order action says before it runs. */
+function confirmCopy(action: OrderAction, order: OrderResponse) {
+  const ref = order.order_number ?? `#${order.id.slice(-8).toUpperCase()}`;
+  switch (action) {
+    case ORDER_ACTION.MARK_PAID:
+      return {
+        title: `Mark ${ref} as paid?`,
+        description: `Only do this once you’ve seen the ${formatMoney(order.amount_due ?? order.total_amount)} arrive (M-Pesa message or bank statement). The customer is emailed a confirmation.`,
+        confirmLabel: 'Mark as paid',
+        pendingLabel: 'Marking as paid…',
+      };
+    case ORDER_ACTION.MARK_DISPATCHED:
+      return {
+        title: `Send ${ref} out for delivery?`,
+        description: 'Records that the rider has left with it, and the time it left.',
+        confirmLabel: 'Out for delivery',
+        pendingLabel: 'Saving…',
+      };
+    default:
+      return {
+        title: `Mark ${ref} as received?`,
+        description: 'Records that the customer has the order. Do this once delivery is confirmed.',
+        confirmLabel: 'Mark received',
+        pendingLabel: 'Saving…',
+      };
+  }
 }

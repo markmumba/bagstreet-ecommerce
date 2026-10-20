@@ -33,6 +33,9 @@ import {
 import { USER_ROLE } from 'shared';
 import type { UserResponse } from 'shared';
 import { Plus, Users } from 'lucide-react';
+import { formatDate } from '@/lib/format';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { toast } from '@/lib/toast';
 
 export const Route = createFileRoute('/users')({
   component: UsersPage,
@@ -40,9 +43,6 @@ export const Route = createFileRoute('/users')({
 
 const LIMIT = 20;
 
-function formatDate(d: string) {
-  return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-}
 
 function UsersPage() {
   const { user: currentUser } = useAuth();
@@ -92,17 +92,13 @@ function UsersPage() {
     setDialogOpen(true);
   };
 
-  const handleDelete = async (u: UserResponse) => {
+  const [deleteTarget, setDeleteTarget] = useState<UserResponse | null>(null);
+  const handleDelete = (u: UserResponse) => {
     if (u.id === currentUser?.id) {
-      alert("You can't delete your own account.");
+      toast.error("You can't delete your own account. Ask another admin to do it.");
       return;
     }
-    if (!window.confirm(`Delete "${u.full_name}"? This cannot be undone.`)) return;
-    try {
-      await deleteMutation.mutateAsync(u.id);
-    } catch (err: any) {
-      alert(err?.message || 'Failed to delete user');
-    }
+    setDeleteTarget(u);
   };
 
   const columns: ColumnDef<UserResponse>[] = [
@@ -302,6 +298,16 @@ function UsersPage() {
       </div>
 
       <UserDialog open={dialogOpen} onOpenChange={setDialogOpen} user={editingUser} />
+      <ConfirmDialog
+        open={!!deleteTarget}
+        onOpenChange={(open) => !open && setDeleteTarget(null)}
+        title="Delete staff account?"
+        description={<>{deleteTarget?.full_name} will lose access to the dashboard straight away. This can’t be undone.</>}
+        confirmLabel="Delete"
+        pendingLabel="Deleting…"
+        destructive
+        onConfirm={() => deleteMutation.mutateAsync(deleteTarget!.id)}
+      />
     </DashboardLayout>
   );
 }

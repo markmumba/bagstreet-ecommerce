@@ -23,6 +23,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { ErrorNotice, errorMessage } from '@/components/ui/notice';
 
 type Product = ProductResponse;
 
@@ -51,6 +52,7 @@ export function ProductDialog({ open, onOpenChange, product }: ProductDialogProp
   const [imageInputKey, setImageInputKey] = useState(0);
   const [imageError, setImageError] = useState('');
   const [isActive, setIsActive] = useState(true);
+  const [saveError, setSaveError] = useState('');
   const imageInputRef = useRef<HTMLInputElement | null>(null);
 
   const { data: categoryTree } = useCategoryTree();
@@ -62,6 +64,7 @@ export function ProductDialog({ open, onOpenChange, product }: ProductDialogProp
   const isLoading = createMutation.isPending || updateMutation.isPending || updateFormMutation.isPending;
 
   useEffect(() => {
+    setSaveError('');
     if (product) {
       setName(product.name);
       setDescription(product.description || '');
@@ -152,6 +155,7 @@ export function ProductDialog({ open, onOpenChange, product }: ProductDialogProp
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
+    setSaveError('');
     e.preventDefault();
 
     if (!isEditing && imageFiles.length === 0) {
@@ -191,7 +195,7 @@ export function ProductDialog({ open, onOpenChange, product }: ProductDialogProp
       resetForm();
       onOpenChange(false);
     } catch (error) {
-      console.error('Failed to save product:', error);
+      setSaveError(errorMessage(error, 'The product could not be saved. Check the details and try again.'));
     }
   };
 
@@ -446,6 +450,8 @@ export function ProductDialog({ open, onOpenChange, product }: ProductDialogProp
               Product is active and available for sale
             </Label>
           </div>
+
+          <ErrorNotice>{saveError}</ErrorNotice>
 
           <div className="flex justify-end gap-3 pt-4">
             <Button

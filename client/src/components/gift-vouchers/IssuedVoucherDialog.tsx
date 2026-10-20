@@ -4,6 +4,7 @@ import type { IssuedGiftVoucherResponse } from 'shared';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { formatDate, kes } from './voucher-format';
+import { toast } from '@/lib/toast';
 
 function escapeHtml(value: string | null | undefined) {
   return String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[c]!));
@@ -12,7 +13,10 @@ function escapeHtml(value: string | null | undefined) {
 /** A printable card for the customer: the only place the full code appears besides this dialog. */
 function printVoucher(voucher: IssuedGiftVoucherResponse) {
   const printWindow = window.open('', '_blank', 'width=560,height=720');
-  if (!printWindow) return;
+  if (!printWindow) {
+    toast.error('Your browser blocked the print window. Allow pop-ups for this site, then try again.');
+    return;
+  }
   printWindow.document.open();
   printWindow.document.write(`<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>Bagstreet gift voucher</title>

@@ -19,6 +19,8 @@ import {
   useAdjustStock,
   useStockHistory,
 } from '@/hooks/useVariants';
+import { formatDate, formatMoney } from '@/lib/format';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 
 interface VariantsSheetProps {
   open: boolean;
@@ -96,14 +98,8 @@ export function VariantsSheet({ open, onOpenChange, product }: VariantsSheetProp
     });
   };
 
-  const handleDelete = async (variant: ProductVariantResponse) => {
-    if (!window.confirm(`Delete variant SKU ${variant.sku}?`)) return;
-    try {
-      await deleteMutation.mutateAsync(variant.id);
-    } catch (err: any) {
-      setError(err?.message || 'Failed to delete variant');
-    }
-  };
+  const [deleteTarget, setDeleteTarget] = useState<ProductVariantResponse | null>(null);
+  const handleDelete = (variant: ProductVariantResponse) => setDeleteTarget(variant);
 
   const handleAdjustSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -174,7 +170,7 @@ export function VariantsSheet({ open, onOpenChange, product }: VariantsSheetProp
                     {history.map((m) => (
                       <tr key={m.id} className="border-b last:border-0">
                         <td className="py-1 pr-3 text-muted-foreground whitespace-nowrap">
-                          {new Date(m.created_at).toLocaleDateString()}
+                          {formatDate(m.created_at)}
                         </td>
                         <td className={`py-1 pr-3 font-mono font-medium tabular-nums ${m.delta > 0 ? 'text-[var(--color-success-text)]' : 'text-[var(--color-danger-text)]'}`}>
                           {m.delta > 0 ? `+${m.delta}` : m.delta}
@@ -289,7 +285,7 @@ export function VariantsSheet({ open, onOpenChange, product }: VariantsSheetProp
                       <td className="py-2 pr-3 text-xs text-muted-foreground">{threshold}</td>
                       <td className="py-2 pr-3 text-xs">
                         {v.price_override != null
-                          ? `KES ${v.price_override.toFixed(2)}`
+                          ? formatMoney(v.price_override)
                           : <span className="text-muted-foreground">default</span>}
                       </td>
                       <td className="py-2 pr-3">
@@ -407,6 +403,16 @@ export function VariantsSheet({ open, onOpenChange, product }: VariantsSheetProp
           </form>
         </div>
       </SheetContent>
+      <ConfirmDialog
+        open={!!deleteTarget}
+        onOpenChange={(open) => !open && setDeleteTarget(null)}
+        title="Delete this variant?"
+        description={<>SKU {deleteTarget?.sku} is removed for good. A variant that is in a bag or an order can’t be deleted: mark it inactive instead.</>}
+        confirmLabel="Delete"
+        pendingLabel="Deleting…"
+        destructive
+        onConfirm={() => deleteMutation.mutateAsync(deleteTarget!.id)}
+      />
     </Sheet>
   );
 }

@@ -17,6 +17,7 @@ import { StorefrontHeroCard } from '@/components/settings/StorefrontHeroCard';
 import { useOrderHandoverSettings, useUpdateOrderHandoverSettings } from '@/hooks/useSettings';
 import { useUsers } from '@/hooks/useUsers';
 import { USER_ROLE, type UserResponse } from 'shared';
+import { ErrorNotice, SuccessNotice, errorMessage } from '@/components/ui/notice';
 
 export const Route = createFileRoute('/settings')({
   component: SettingsPage,
@@ -49,12 +50,16 @@ function SettingsPage() {
 
   const handleSaveHandover = async () => {
     setSaved(false);
-    await updateHandover.mutateAsync({
-      enabled: handoverEnabled,
-      manager_id: handoverEnabled ? managerId : null,
-    });
-    setSaved(true);
-    window.setTimeout(() => setSaved(false), 2200);
+    try {
+      await updateHandover.mutateAsync({
+        enabled: handoverEnabled,
+        manager_id: handoverEnabled ? managerId : null,
+      });
+      setSaved(true);
+      window.setTimeout(() => setSaved(false), 2200);
+    } catch {
+      // Shown below from updateHandover.error.
+    }
   };
 
   return (
@@ -140,15 +145,9 @@ function SettingsPage() {
               </p>
             )}
             {updateHandover.error && (
-              <p className="rounded-xl bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                {updateHandover.error?.message || 'Failed to update order handover'}
-              </p>
+              <ErrorNotice>{errorMessage(updateHandover.error, 'The order handover could not be saved. Try again.')}</ErrorNotice>
             )}
-            {saved && (
-              <p className="rounded-xl border border-[var(--color-success-border)] bg-[var(--color-success-bg)] px-3 py-2 text-sm text-[var(--color-success-text)]">
-                Order handover updated.
-              </p>
-            )}
+            {saved && <SuccessNotice>Order handover updated.</SuccessNotice>}
           </CardContent>
         </Card>
 

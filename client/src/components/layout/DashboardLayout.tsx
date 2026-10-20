@@ -152,7 +152,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                   <ShoppingBag className="h-4 w-4" strokeWidth={1.5} />
                 </div>
                 <div>
-                  <h1 className="text-sm font-semibold text-sidebar-foreground">BagStreet</h1>
+                  <p className="text-sm font-semibold text-sidebar-foreground">Bagstreet</p>
                   <p className="text-xs text-[var(--sidebar-fg-muted)]">{roleLabel}</p>
                 </div>
               </div>

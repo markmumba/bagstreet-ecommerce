@@ -13,14 +13,16 @@ import {
 import type { ShippingLocationResponse } from 'shared';
 import { Plus, Truck, Pencil, Trash2, Upload } from 'lucide-react';
 import { CsvImportDialog } from '@/components/import/CsvImportDialog';
+import { formatMoney } from '@/lib/format';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { errorMessage } from '@/components/ui/notice';
+import { toast } from '@/lib/toast';
 
 export const Route = createFileRoute('/shipping')({
     component: ShippingPage,
 });
 
-function formatPrice(price: number) {
-    return new Intl.NumberFormat('en-KE', { style: 'currency', currency: 'KES' }).format(price);
-}
+const formatPrice = (price: number) => formatMoney(price);
 
 function ShippingPage() {
     const { data: locations = [], isLoading } = useShippingLocations();
@@ -67,20 +69,15 @@ function ShippingPage() {
         }
     };
 
-    const handleDelete = async (loc: ShippingLocationResponse) => {
-        if (!window.confirm(`Delete "${loc.name}"? This cannot be undone.`)) return;
-        try {
-            await deleteMutation.mutateAsync(loc.id);
-        } catch (err: any) {
-            alert(err?.message ?? 'Failed to delete');
-        }
-    };
+    const [deleteTarget, setDeleteTarget] = useState<ShippingLocationResponse | null>(null);
+    const handleDelete = (loc: ShippingLocationResponse) => setDeleteTarget(loc);
 
     const handleToggleActive = async (loc: ShippingLocationResponse) => {
         try {
             await updateMutation.mutateAsync({ id: loc.id, data: { is_active: !loc.is_active } });
-        } catch (err: any) {
-            alert(err?.message ?? 'Failed to update');
+            toast.success(`${loc.name} is now ${loc.is_active ? 'hidden from' : 'available at'} checkout.`);
+        } catch (err) {
+            toast.error(errorMessage(err, `${loc.name} could not be updated. Try again.`));
         }
     };
 
@@ -251,6 +248,16 @@ function ShippingPage() {
                 onImport={async (file) => {
                     return importMutation.mutateAsync(file);
                 }}
+            />
+            <ConfirmDialog
+                open={!!deleteTarget}
+                onOpenChange={(open) => !open && setDeleteTarget(null)}
+                title="Delete delivery area?"
+                description={<>“{deleteTarget?.name}” will no longer be offered at checkout. Past orders keep their delivery details.</>}
+                confirmLabel="Delete"
+                pendingLabel="Deleting…"
+                destructive
+                onConfirm={() => deleteMutation.mutateAsync(deleteTarget!.id)}
             />
         </DashboardLayout>
     );

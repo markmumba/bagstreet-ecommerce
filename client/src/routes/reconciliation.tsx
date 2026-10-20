@@ -8,13 +8,15 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { useImportStatement, useReconciliationReport } from '@/hooks/useReconciliation';
+import { formatMoney, nairobiDay } from '@/lib/format';
 
 export const Route = createFileRoute('/reconciliation')({
   component: ReconciliationPage,
 });
 
-const kes = (n: number) => `KES ${n.toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-const isoDay = (d: Date) => d.toISOString().slice(0, 10);
+const kes = (n: number) => formatMoney(n);
+// The Nairobi day, so the range is right just after midnight too.
+const isoDay = (d: Date) => nairobiDay(d);
 
 const ISSUE_LABELS: Record<ReconciliationIssueKind, { label: string; variant: React.ComponentProps<typeof Badge>['variant'] }> = {
   refund_owed: { label: 'Refund owed', variant: 'danger' },

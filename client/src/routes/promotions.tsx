@@ -6,7 +6,6 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
   useCreateDiscountCode,
-  useDeactivateDiscountCode,
   useDiscountCodes,
   useFreeDeliveryThreshold,
   useOnSaleProducts,
@@ -14,18 +13,21 @@ import {
   useUpdateFreeDeliveryThreshold,
   useUpdateDiscountCode,
 } from '@/hooks/usePromotions';
+import { formatDate as formatDay, formatMoney } from '@/lib/format';
+import type { ProductResponse } from 'shared';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { errorMessage } from '@/components/ui/notice';
+import { toast } from '@/lib/toast';
 
 export const Route = createFileRoute('/promotions')({
   component: PromotionsPage,
 });
 
-function formatPrice(price: number) {
-  return new Intl.NumberFormat('en-KE', { style: 'currency', currency: 'KES' }).format(price);
-}
+const formatPrice = (price: number) => formatMoney(price);
 
 function formatDate(value?: string) {
   if (!value) return 'No expiry';
-  return new Date(value).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  return formatDay(value);
 }
 
 function generatePromoCode() {
@@ -43,7 +45,6 @@ function PromotionsPage() {
   const { data: salesRes } = useOnSaleProducts();
   const createDiscount = useCreateDiscountCode();
   const updateDiscount = useUpdateDiscountCode();
-  const deactivateDiscount = useDeactivateDiscountCode();
   const updateThreshold = useUpdateFreeDeliveryThreshold();
   const setProductSale = useSetProductSale();
 
@@ -61,6 +62,7 @@ function PromotionsPage() {
   });
   const [thresholdInput, setThresholdInput] = useState('');
   const [error, setError] = useState('');
+  const [endingSale, setEndingSale] = useState<ProductResponse | null>(null);
 
   const handleGenerateCode = () => {
     setForm((f) => ({ ...f, code: generatePromoCode() }));
@@ -235,20 +237,20 @@ function PromotionsPage() {
                       </p>
                     </div>
                     <div className="flex gap-2">
+                      {/* Pausing is undone with one tap, so it isn't confirmed. */}
                       <Button
                         size="sm"
                         variant="outline"
-                        onClick={() => updateDiscount.mutate({ id: discount.id, data: { is_active: !discount.is_active } })}
+                        disabled={updateDiscount.isPending}
+                        onClick={() => updateDiscount.mutate(
+                          { id: discount.id, data: { is_active: !discount.is_active } },
+                          {
+                            onSuccess: () => toast.success(`${discount.code} is ${discount.is_active ? 'paused' : 'active again'}.`),
+                            onError: (err) => toast.error(errorMessage(err, `${discount.code} could not be updated. Try again.`)),
+                          },
+                        )}
                       >
                         {discount.is_active ? 'Pause' : 'Activate'}
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => deactivateDiscount.mutate(discount.id)}
-                        disabled={!discount.is_active}
-                      >
-                        Deactivate
                       </Button>
                     </div>
                   </div>
@@ -273,12 +275,8 @@ function PromotionsPage() {
                         {formatPrice(product.sale_price ?? product.price)} from {formatPrice(product.price)} · {formatDate(product.sale_ends_at)}
                       </p>
                     </div>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => setProductSale.mutate({ id: product.id, data: { sale_price: null } })}
-                    >
-                      Remove sale
+                    <Button size="sm" variant="outline" onClick={() => setEndingSale(product)}>
+                      End sale
                     </Button>
                   </div>
                 ))}
@@ -287,6 +285,15 @@ function PromotionsPage() {
           </div>
         </div>
       </div>
+      <ConfirmDialog
+        open={!!endingSale}
+        onOpenChange={(open) => !open && setEndingSale(null)}
+        title="End this sale?"
+        description={endingSale ? <>{endingSale.name} goes back to {formatPrice(endingSale.price)} on the storefront straight away.</> : ''}
+        confirmLabel="End sale"
+        pendingLabel="Ending sale…"
+        onConfirm={() => setProductSale.mutateAsync({ id: endingSale!.id, data: { sale_price: null } })}
+      />
     </DashboardLayout>
   );
 }

@@ -21,6 +21,7 @@ import {
 } from '@/components/ui/dialog';
 import { AlertTriangle, ArrowUpDown, Boxes, Check, CheckCircle2, Copy, ImageIcon, MoreHorizontal, Pencil, Star, Tag, Trash2, X, XCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { formatDate, formatMoney } from '@/lib/format';
 
 export const Route = createFileRoute('/products')({
   component: ProductsPage,
@@ -243,20 +244,7 @@ function ProductsPage() {
     }
   };
 
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-    });
-  };
-
-  const formatPrice = (price: number) => {
-    return new Intl.NumberFormat('en-KE', {
-      style: 'currency',
-      currency: 'KES',
-    }).format(price);
-  };
+  const formatPrice = (price: number) => formatMoney(price);
 
   const getCategoryName = (categoryId: string) => {
     const category = categories?.find((c: CategoryResponse) => c.id === String(categoryId));

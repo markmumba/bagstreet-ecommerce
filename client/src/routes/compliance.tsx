@@ -11,11 +11,12 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { formatDateTime } from '@/lib/format';
 
 export const Route = createFileRoute('/compliance')({ component: CompliancePage });
 const input = 'min-h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm';
 const errorMessage = (error: unknown) => error && typeof error === 'object' && 'message' in error ? String(error.message) : 'Unable to save. Please try again.';
-const localTime = (value: string) => new Date(value).toLocaleString('en-KE', { timeZone: 'Africa/Nairobi', dateStyle: 'medium', timeStyle: 'short' });
+const localTime = (value: string) => formatDateTime(value);
 const tabs = ['Requests', 'Incidents', 'Supplier evidence', 'Monthly records'];
 function download(name: string, content: string, type: string) {
   const url = URL.createObjectURL(new Blob([content], { type }));

@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { SALE_METHOD_LABELS, STATUS_LABELS, formatDate, kes } from './voucher-format';
+import { formatDateTime } from '@/lib/format';
 
 const MOVEMENT_LABELS: Record<GiftVoucherMovementKind, string> = {
   ISSUED: 'Issued',
@@ -110,7 +111,7 @@ export function VoucherSheet({ voucherId, isAdmin, onClose }: { voucherId: strin
                     <div className="min-w-0">
                       <p className="font-medium">{MOVEMENT_LABELS[m.kind]}{m.order_number ? ` · ${m.order_number}` : ''}</p>
                       <p className="text-xs text-muted-foreground">
-                        {new Date(m.created_at).toLocaleString('en-KE', { dateStyle: 'medium', timeStyle: 'short' })}
+                        {formatDateTime(m.created_at)}
                         {m.created_by_email ? ` · ${m.created_by_email}` : ''}
                       </p>
                       {m.note && <p className="mt-0.5 text-xs text-muted-foreground">{m.note}</p>}

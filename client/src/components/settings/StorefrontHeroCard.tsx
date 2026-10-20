@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { useStorefrontHeroSettings, useUpdateStorefrontHero } from '@/hooks/useSettings';
+import { ErrorNotice, SuccessNotice, errorMessage } from '@/components/ui/notice';
 
 const MAX_IMAGE_BYTES = 15 * 1024 * 1024;
 
@@ -45,7 +46,11 @@ export function StorefrontHeroCard() {
 
   const onSave = async () => {
     setSaved(false);
-    await update.mutateAsync({ eyebrow, title, subtitle, image, removeImage });
+    try {
+      await update.mutateAsync({ eyebrow, title, subtitle, image, removeImage });
+    } catch {
+      return; // Shown below from update.error.
+    }
     setImage(null);
     setRemoveImage(false);
     if (fileInputRef.current) fileInputRef.current.value = '';
@@ -128,15 +133,9 @@ export function StorefrontHeroCard() {
         </div>
 
         {update.error && (
-          <p className="rounded-xl bg-destructive/10 px-3 py-2 text-sm text-destructive">
-            {update.error?.message || 'Failed to update the homepage campaign'}
-          </p>
+          <ErrorNotice>{errorMessage(update.error, 'The homepage campaign could not be saved. Check the image and try again.')}</ErrorNotice>
         )}
-        {saved && (
-          <p className="rounded-xl border border-[var(--color-success-border)] bg-[var(--color-success-bg)] px-3 py-2 text-sm text-[var(--color-success-text)]">
-            Homepage campaign updated. It's live on the storefront now.
-          </p>
-        )}
+        {saved && <SuccessNotice>Homepage campaign updated. It’s live on the storefront now.</SuccessNotice>}
       </CardContent>
     </Card>
   );

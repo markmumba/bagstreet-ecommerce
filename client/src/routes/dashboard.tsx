@@ -23,6 +23,7 @@ import { PAYMENT_STATUS_STYLES } from '@/components/orders/PaymentStatusChip';
 import { RevenueChart } from '@/components/dashboard/RevenueChart';
 import { OrderStatusChart } from '@/components/dashboard/OrderStatusChart';
 import { cn } from '@/lib/utils';
+import { formatMoney, formatNumber, formatDateTime } from '@/lib/format';
 
 export const Route = createFileRoute('/dashboard')({
   component: DashboardPage,
@@ -150,22 +151,12 @@ function LaunchMetricsCard({ metrics }: { metrics: LaunchMetrics }) {
   );
 }
 
-const currencyFormatter = new Intl.NumberFormat('en-KE', {
-  style: 'currency',
-  currency: 'KES',
-  maximumFractionDigits: 0,
-});
-
-const numberFormatter = new Intl.NumberFormat('en-KE');
-const dateTimeFormatter = new Intl.DateTimeFormat('en-KE', {
-  month: 'short',
-  day: 'numeric',
-  hour: '2-digit',
-  minute: '2-digit',
-});
+// Headline figures drop the cents; everything else uses the shared formatter.
+const numberFormatter = { format: formatNumber };
+const dateTimeFormatter = { format: formatDateTime };
 
 function formatCurrency(value: number) {
-  return currencyFormatter.format(value);
+  return formatMoney(value, { whole: true });
 }
 
 function formatAge(value?: string) {

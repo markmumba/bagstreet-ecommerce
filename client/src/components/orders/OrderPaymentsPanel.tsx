@@ -14,6 +14,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { formatDateTime, formatMoney } from '@/lib/format';
 
 const STATE_LABELS: Record<OrderPaymentState, { label: string; variant: React.ComponentProps<typeof Badge>['variant'] }> = {
   unpaid: { label: 'Unpaid', variant: 'neutral' },
@@ -35,7 +36,7 @@ const METHOD_LABELS: Record<RefundMethod, string> = {
   GIFT_VOUCHER: 'Back onto the gift voucher',
 };
 
-const kes = (amount: number) => `KES ${amount.toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const kes = (amount: number) => formatMoney(amount);
 
 function entryLabel(entry: LedgerEntryResponse) {
   if (entry.entry_type === 'PAYMENT_CAPTURED') {
@@ -127,7 +128,7 @@ export function OrderPaymentsPanel({ orderId, canRefund }: { orderId: string; ca
                   <div className="min-w-0">
                     <p className="font-medium first-letter:uppercase">{entryLabel(entry)}</p>
                     <p className="text-xs text-muted-foreground">
-                      {new Date(entry.created_at).toLocaleString('en-KE', { dateStyle: 'medium', timeStyle: 'short' })}
+                      {formatDateTime(entry.created_at)}
                       {externalRef ? ` · ${externalRef}` : ''}
                     </p>
                     {reason && <p className="mt-0.5 text-xs text-muted-foreground">“{reason}”</p>}
@@ -273,7 +274,7 @@ function RefundForm({ orderId, cashRefundable, voucherRefundable, onDone }: {
       </label>
 
       {!amountValid && amount !== '' && (
-        <p className="text-xs text-destructive">Enter an amount between KES 0.01 and {kes(refundable)}.</p>
+        <p className="text-xs text-destructive">Enter an amount between {kes(0.01)} and {kes(refundable)}.</p>
       )}
       {error && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>}
 

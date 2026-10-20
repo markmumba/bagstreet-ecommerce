@@ -19,6 +19,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { formatDate } from '@/lib/format';
 
 interface CategoriesDataTableProps {
   data: CategoryResponse[];
@@ -119,11 +120,7 @@ export function CategoriesDataTable({
 
                 <div className="mt-4 flex items-center justify-between gap-3 border-t pt-3">
                   <p className="text-xs text-muted-foreground tabular-nums">
-                    {new Date(category.created_at).toLocaleDateString('en-US', {
-                      month: 'short',
-                      day: 'numeric',
-                      year: 'numeric',
-                    })}
+                    {formatDate(category.created_at)}
                   </p>
                   <div className="flex gap-2">
                     {onEdit && (

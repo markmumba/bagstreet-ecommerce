@@ -36,6 +36,9 @@ import { ArrowUpDown, Check, ClipboardList, Copy, Download, Eye, Gift, MapPin, P
 import { ORDER_SOURCE, ORDER_STATUS, PAYMENT_STATUS, USER_ROLE } from 'shared';
 import type { OrderResponse, OrderStatus, PaymentStatus } from 'shared';
 import { cn } from '@/lib/utils';
+import { formatDate, formatMoney, nairobiDay } from '@/lib/format';
+import { toast } from '@/lib/toast';
+import { errorMessage } from '@/components/ui/notice';
 
 export const Route = createFileRoute('/orders')({
   validateSearch: z.object({
@@ -69,9 +72,6 @@ const STATUS_STYLES: Record<OrderStatus, { label: string; icon: React.ElementTyp
   [ORDER_STATUS.REFUNDED]: { label: 'Refunded', icon: PackageX, className: 'bg-muted text-muted-foreground' },
 };
 
-function formatDate(d: string) {
-  return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-}
 
 function formatOrderRef(order: Pick<OrderResponse, 'id' | 'order_number'>) {
   return order.order_number ?? `#${order.id.slice(-8).toUpperCase().padStart(6, '0')}`;
@@ -160,9 +160,9 @@ function OrderCard({ order, onOpen }: { order: OrderResponse; onOpen: (order: Or
           </p>
         </div>
         <div className="shrink-0 text-right">
-          <p className="font-semibold tabular-nums text-foreground">KES {order.total_amount.toFixed(2)}</p>
+          <p className="font-semibold tabular-nums text-foreground">{formatMoney(order.total_amount)}</p>
           {order.discount_amount > 0 && (
-            <p className="text-[11px] text-muted-foreground">-{order.discount_amount.toFixed(2)} discount</p>
+            <p className="text-[11px] tabular-nums text-muted-foreground">−{formatMoney(order.discount_amount)} discount</p>
           )}
         </div>
       </div>
@@ -266,12 +266,18 @@ function OrdersPage() {
   const exportCsv = useCallback(async () => {
     setIsExporting(true);
     try {
-      const res = await ordersService.getAll({
-        limit: 5000,
-        status: statusFilter || undefined,
-        payment_status: (paymentFilter || undefined) as PaymentStatus | undefined,
-      });
-      const rows: OrderResponse[] = res.items;
+      // The API returns at most 100 orders per page, so fetch every page.
+      const rows: OrderResponse[] = [];
+      for (let page = 1; ; page++) {
+        const res = await ordersService.getAll({
+          page,
+          limit: 100,
+          status: statusFilter || undefined,
+          payment_status: (paymentFilter || undefined) as PaymentStatus | undefined,
+        });
+        rows.push(...res.items);
+        if (res.items.length === 0 || rows.length >= res.total) break;
+      }
 
       const headers = ['Order ID', 'Source', 'Customer', 'Phone', 'Delivery Address', 'Status', 'Payment', 'Items', 'Shipping (KES)', 'Total (KES)', 'Date'];
       const lines = [
@@ -288,7 +294,7 @@ function OrdersPage() {
             o.items.length,
             (o.shipping_cost ?? 0).toFixed(2),
             o.total_amount.toFixed(2),
-            new Date(o.created_at).toISOString().slice(0, 10),
+            nairobiDay(o.created_at),
           ];
           return csvValues.map((value) => `"${String(value).replace(/"/g, '""')}"`).join(',');
         }),
@@ -298,9 +304,12 @@ function OrdersPage() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `orders${statusFilter ? `-${statusFilter.toLowerCase()}` : ''}${paymentFilter ? `-${paymentFilter.toLowerCase()}` : ''}-${new Date().toISOString().slice(0, 10)}.csv`;
+      a.download = `orders${statusFilter ? `-${statusFilter.toLowerCase()}` : ''}${paymentFilter ? `-${paymentFilter.toLowerCase()}` : ''}-${nairobiDay()}.csv`;
       a.click();
       URL.revokeObjectURL(url);
+      toast.success(`Exported ${rows.length} order${rows.length === 1 ? '' : 's'}.`);
+    } catch (err) {
+      toast.error(errorMessage(err, 'The export failed. Check your connection and try again.'));
     } finally {
       setIsExporting(false);
     }
@@ -410,9 +419,9 @@ function OrdersPage() {
       header: ({ column }) => <SortHeader column={column} label="Total" className="ml-auto" />,
       cell: ({ row }) => (
         <div className="text-right">
-          <span className="block font-semibold tabular-nums">KES {row.original.total_amount.toFixed(2)}</span>
+          <span className="block font-semibold tabular-nums">{formatMoney(row.original.total_amount)}</span>
           {row.original.discount_amount > 0 && (
-            <span className="text-[11px] text-muted-foreground">-{row.original.discount_amount.toFixed(2)} discount</span>
+            <span className="text-[11px] tabular-nums text-muted-foreground">−{formatMoney(row.original.discount_amount)} discount</span>
           )}
         </div>
       ),

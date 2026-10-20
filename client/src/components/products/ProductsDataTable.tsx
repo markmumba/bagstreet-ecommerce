@@ -22,6 +22,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { formatMoney } from '@/lib/format';
 
 const columnClasses: Record<string, string> = {
   name: 'w-[320px]',
@@ -179,7 +180,7 @@ export function ProductsDataTable({
                   <div>
                     <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Price</p>
                     <p className="mt-1 font-semibold tabular-nums text-foreground">
-                      KES {(product.sale_price ?? product.price).toFixed(2)}
+                      {formatMoney(product.sale_price ?? product.price)}
                     </p>
                   </div>
                   <div>

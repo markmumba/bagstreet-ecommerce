@@ -25,6 +25,7 @@ import {
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
+import { formatMoney as formatKes } from '@/lib/format';
 
 type CartItem = WalkInCatalogItemResponse & { quantity: number };
 
@@ -42,9 +43,7 @@ const paymentLabels: Record<WalkInPaymentMethod, string> = {
   [WALK_IN_PAYMENT_METHOD.OTHER]: 'Other',
 };
 
-function formatMoney(value: number) {
-  return `KES ${value.toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
+const formatMoney = (value: number) => formatKes(value);
 
 function variantLabel(item: Pick<WalkInCatalogItemResponse, 'variant_size' | 'variant_color'>) {
   return [item.variant_size, item.variant_color].filter(Boolean).join(' / ') || 'Default variant';

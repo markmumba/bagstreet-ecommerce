@@ -6,6 +6,8 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Download, Printer, ShoppingBag } from 'lucide-react';
+import { formatDateTime, formatMoney as formatKes } from '@/lib/format';
+import { toast } from '@/lib/toast';
 
 interface OrderReceiptDialogProps {
   orderId: string | null;
@@ -13,20 +15,12 @@ interface OrderReceiptDialogProps {
   onOpenChange: (open: boolean) => void;
 }
 
-function formatMoney(amount: number, currency: string) {
-  return new Intl.NumberFormat('en-KE', {
-    style: 'currency',
-    currency,
-    maximumFractionDigits: 2,
-  }).format(amount);
+// The shop trades in KES only; `currency` is kept for the receipt's data shape.
+function formatMoney(amount: number, _currency?: string) {
+  return formatKes(amount);
 }
 
-function formatDate(date: string) {
-  return new Date(date).toLocaleString('en-KE', {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  });
-}
+const formatDate = formatDateTime;
 
 function escapeHtml(value: string | number | null | undefined) {
   return String(value ?? '')
@@ -333,7 +327,7 @@ function buildReceiptPrintHtml(receipt: OrderReceiptResponse) {
             <span></span><span></span><span></span>
           </div>
           <div>
-            <p class="brand-name">BagStreet</p>
+            <p class="brand-name">Bagstreet</p>
             <span class="small muted">Payment receipt</span>
           </div>
         </div>
@@ -380,7 +374,7 @@ function buildReceiptPrintHtml(receipt: OrderReceiptResponse) {
 
       <footer class="footer">
         <div>
-          <div>BagStreet</div>
+          <div>Bagstreet</div>
           <div>Issued ${escapeHtml(formatDate(receipt.issued_at))}</div>
         </div>
         <div class="footer-right">
@@ -395,7 +389,10 @@ function buildReceiptPrintHtml(receipt: OrderReceiptResponse) {
 
 function printReceipt(receipt: OrderReceiptResponse) {
   const printWindow = window.open('', '_blank', 'width=520,height=780');
-  if (!printWindow) return;
+  if (!printWindow) {
+    toast.error('Your browser blocked the print window. Allow pop-ups for this site, then try again.');
+    return;
+  }
 
   printWindow.document.open();
   printWindow.document.write(buildReceiptPrintHtml(receipt));
@@ -420,7 +417,7 @@ function ReceiptBody({ receipt }: { receipt: OrderReceiptResponse }) {
                 ))}
               </div>
               <div>
-                <p className="text-base font-semibold">BagStreet</p>
+                <p className="text-base font-semibold">Bagstreet</p>
                 <p className="text-xs text-[#666]">Payment receipt</p>
               </div>
             </div>
@@ -503,7 +500,7 @@ function ReceiptBody({ receipt }: { receipt: OrderReceiptResponse }) {
 
         <div className="flex items-end justify-between bg-[#ecece8] px-7 py-5 text-[11px] text-[#555]">
           <div>
-            <p>BagStreet</p>
+            <p>Bagstreet</p>
             <p>Issued {formatDate(receipt.issued_at)}</p>
           </div>
           <div className="text-right">
