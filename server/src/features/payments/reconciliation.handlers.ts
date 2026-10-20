@@ -79,7 +79,7 @@ export const reconciliationHandlers = {
             dateRange = { from: day(from), to: day(to) };
             missing = (await reconciliationQueries.pesapalCapturesBetween(from, to))
                 .filter((cap) => !matchedTransactionIds.has(Number(cap.transaction_id)))
-                .map((cap) => ({ order_number: cap.order_number, reference: cap.reference, amount: Number(cap.amount), date: String(cap.created_at) }));
+                .map((cap) => ({ order_id: String(cap.order_id), order_number: cap.order_number, reference: cap.reference, amount: Number(cap.amount), date: String(cap.created_at) }));
         }
 
         const withFees = matches.filter((m) => m.fee != null && m.fee > 0);

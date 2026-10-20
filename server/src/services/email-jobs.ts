@@ -11,6 +11,7 @@ import {
     sendOrderExpiredEmail,
     sendGiftVoucherEmail,
     sendGiftVoucherReceiptEmail,
+    sendReviewInviteEmail,
 } from '../lib/email';
 import { deliverRecoveryReminder } from '../features/cart-recovery/recovery.delivery';
 import { archivedAgreement } from '../features/compliance/order-agreement';
@@ -70,7 +71,8 @@ export type EmailJob =
         type: 'GIFT_VOUCHER'; to: string; name: string; code: string; amount: number; expiresAt: string;
         fromName: string | null; message: string | null; forBuyer: boolean;
     }
-    | { type: 'GIFT_VOUCHER_RECEIPT'; to: string; name: string; orderRef: string; amount: number; recipient: string };
+    | { type: 'GIFT_VOUCHER_RECEIPT'; to: string; name: string; orderRef: string; amount: number; recipient: string }
+    | { type: 'REVIEW_INVITE'; to: string; name: string; orderRef: string; productNames: string[]; reviewUrl: string };
 
 /** Placeholder left in a gift voucher email's stored payload once the code no longer needs to be there. */
 export const REDACTED_CODE = '[removed after sending]';
@@ -116,6 +118,9 @@ export async function sendEmailJob(job: EmailJob): Promise<void | boolean> {
         case 'GIFT_VOUCHER':
             if (job.code === REDACTED_CODE) throw new Error('This gift voucher email was already sent; its code is no longer stored');
             await sendGiftVoucherEmail(job);
+            break;
+        case 'REVIEW_INVITE':
+            await sendReviewInviteEmail(job.to, job.name, job.orderRef, job.productNames, job.reviewUrl);
             break;
         case 'GIFT_VOUCHER_RECEIPT':
             await sendGiftVoucherReceiptEmail(job.to, job.name, job.orderRef, job.amount, job.recipient);

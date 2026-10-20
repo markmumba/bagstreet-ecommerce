@@ -1,20 +1,19 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useState, useEffect } from 'react';
 import type { ColumnDef } from '@tanstack/react-table';
-import { useCategories, useDeleteCategory, useImportCategoriesCsv } from '@/hooks/useCategories';
+import { useCategories, useCategoryOptions, useDeleteCategory, useImportCategoriesCsv } from '@/hooks/useCategories';
+import { useCategoryPairings } from '@/hooks/useRecommendations';
+import { CategoryPairingsDialog } from '@/components/categories/CategoryPairingsDialog';
+import { Link2 } from 'lucide-react';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { CategoryDialog } from '@/components/categories/CategoryDialog';
 import { CategoriesDataTable } from '@/components/categories/CategoriesDataTable';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { CsvImportDialog } from '@/components/import/CsvImportDialog';
 import type { CategoryResponse } from 'shared';
 import { Button } from '@/components/ui/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+import { formatDate } from '@/lib/format';
+import { ErrorNotice, errorMessage } from '@/components/ui/notice';
 
 export const Route = createFileRoute('/categories')({
   component: CategoriesPage,
@@ -49,6 +48,44 @@ function CategoriesPage() {
   const totalPages = Math.max(1, Math.ceil(total / LIMIT));
 
   const deleteMutation = useDeleteCategory();
+  const { data: allCategories = [] } = useCategoryOptions();
+  const { data: pairingsData, error: pairingsError } = useCategoryPairings();
+  const [pairingTarget, setPairingTarget] = useState<CategoryResponse | null>(null);
+
+  const topLevel = allCategories.filter((c) => !c.parent_id);
+  const nameById = new Map(allCategories.map((c) => [c.id, c.name]));
+  const pairedIds = (categoryId: string) =>
+    pairingsData?.pairings.find((p) => p.category_id === categoryId)?.paired_category_ids ?? [];
+
+  /** "Goes with" chips and an edit button; subcategories use their top-level category's pairings. */
+  const renderGoesWith = (cat: CategoryResponse) => {
+    if (cat.parent_id) return null;
+    const names = pairedIds(cat.id).map((id) => nameById.get(id)).filter(Boolean) as string[];
+    return (
+      <div className="group flex min-w-0 flex-wrap items-center gap-1.5">
+        {names.length ? (
+          names.map((name) => (
+            <span key={name} className="rounded-full border border-border bg-background px-2 py-0.5 text-xs font-medium">
+              {name}
+            </span>
+          ))
+        ) : (
+          <span className="text-sm text-muted-foreground">—</span>
+        )}
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => setPairingTarget(cat)}
+          disabled={!pairingsData}
+          title="Edit what goes with this category"
+          aria-label={`Choose categories that go with ${cat.name}`}
+          className="h-7 w-7 px-0 reveal-on-hover"
+        >
+          <Link2 className="h-4 w-4" />
+        </Button>
+      </div>
+    );
+  };
   const importMutation = useImportCategoriesCsv();
 
   const handleCreate = () => {
@@ -65,26 +102,13 @@ function CategoriesPage() {
     setDeleteTarget(category);
   };
 
-  const confirmDelete = async () => {
-    if (!deleteTarget) return;
-    try {
-      await deleteMutation.mutateAsync(deleteTarget.id);
-      setDeleteTarget(null);
-    } catch (error: unknown) {
-      console.error('Failed to delete category:', error);
-    }
-  };
-
-  const formatDate = (dateString: string) =>
-    new Date(dateString).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-
   const columns: ColumnDef<CategoryResponse>[] = [
     {
       accessorKey: 'name',
       header: ({ column }) => (
         <Button variant="ghost" onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')} className="-ml-4">
           Name
-          <svg className="ml-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className="ml-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
           </svg>
         </Button>
@@ -125,11 +149,16 @@ function CategoriesPage() {
       },
     },
     {
+      id: 'goes_with',
+      header: 'Goes with',
+      cell: ({ row }) => renderGoesWith(row.original) ?? <span className="sr-only">Uses its parent’s pairings</span>,
+    },
+    {
       accessorKey: 'created_at',
       header: ({ column }) => (
         <Button variant="ghost" onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')} className="-ml-4">
           Created
-          <svg className="ml-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className="ml-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
           </svg>
         </Button>
@@ -160,7 +189,7 @@ function CategoriesPage() {
 
   return (
     <DashboardLayout>
-      <div className="flex flex-col gap-6 p-6">
+      <div className="flex flex-col gap-6 p-4 sm:p-6">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-semibold leading-tight">Categories</h1>
@@ -173,7 +202,7 @@ function CategoriesPage() {
             <div className="flex flex-col items-center gap-3">
               <div className="skeleton h-8 w-32" />
               <div className="skeleton h-4 w-48" />
-              <p className="text-sm text-muted-foreground">Loading categories...</p>
+              <p className="text-sm text-muted-foreground">Loading categories…</p>
             </div>
           </div>
         )}
@@ -187,15 +216,28 @@ function CategoriesPage() {
           </div>
         )}
 
+        {pairingsError && (
+          <ErrorNotice>{errorMessage(pairingsError, 'Could not load which categories go together. Refresh the page to try again.')}</ErrorNotice>
+        )}
+
         {!isLoading && !error && (
           <CategoriesDataTable
+            renderExtra={(cat) => {
+              const content = renderGoesWith(cat);
+              return content && (
+                <div className="mt-3 border-t pt-3">
+                  <p className="mb-1.5 text-xs text-muted-foreground">Goes with</p>
+                  {content}
+                </div>
+              );
+            }}
             data={categories}
             columns={columns}
             onCreateNew={handleCreate}
             onImportCsv={() => setImportOpen(true)}
             search={search}
             onSearchChange={setSearch}
-            total={categories.length}
+            total={total}
             page={page}
             totalPages={totalPages}
             onPageChange={setPage}
@@ -218,29 +260,22 @@ function CategoriesPage() {
           return importMutation.mutateAsync(file);
         }}
       />
-      <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
-        <DialogContent className="sm:max-w-[420px]">
-          <DialogHeader>
-            <DialogTitle>Delete category?</DialogTitle>
-            <DialogDescription>
-              This will permanently delete "{deleteTarget?.name}". Categories with products or subcategories may be blocked by the server.
-            </DialogDescription>
-          </DialogHeader>
-          {deleteMutation.error && (
-            <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
-              {(deleteMutation.error as { message?: string })?.message || 'Failed to delete category'}
-            </div>
-          )}
-          <div className="flex justify-end gap-3 pt-2">
-            <Button variant="outline" onClick={() => setDeleteTarget(null)} disabled={deleteMutation.isPending}>
-              Cancel
-            </Button>
-            <Button variant="destructive" onClick={confirmDelete} disabled={deleteMutation.isPending}>
-              {deleteMutation.isPending ? 'Deleting...' : 'Delete'}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <CategoryPairingsDialog
+        category={pairingTarget}
+        topLevel={topLevel}
+        current={pairingTarget ? pairedIds(pairingTarget.id) : []}
+        onClose={() => setPairingTarget(null)}
+      />
+      <ConfirmDialog
+        open={!!deleteTarget}
+        onOpenChange={(open) => !open && setDeleteTarget(null)}
+        title="Delete category?"
+        description={<>This permanently deletes “{deleteTarget?.name}”. A category that still has products or subcategories can’t be deleted: move them first.</>}
+        confirmLabel="Delete"
+        pendingLabel="Deleting…"
+        destructive
+        onConfirm={() => deleteMutation.mutateAsync(deleteTarget!.id)}
+      />
     </DashboardLayout>
   );
 }

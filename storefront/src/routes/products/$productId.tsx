@@ -6,8 +6,14 @@ import { useAddToCart } from '@/hooks/useCart';
 import { useSeo } from '@/hooks/useSeo';
 import { useStorefrontHome } from '@/hooks/useStorefrontHome';
 import { ProductRail } from '@/components/home/ProductRail';
+import { RecentlyViewedRail } from '@/components/product/RecentlyViewedRail';
+import { useProductRecommendations } from '@/hooks/useRecommendations';
+import { recordRecentlyViewed } from '@/lib/recently-viewed';
+import { ProductReviews } from '@/components/reviews/ProductReviews';
+import { ratingLabel, Stars } from '@/components/reviews/Stars';
+import { useProductReviews } from '@/hooks/useReviews';
 import { formatPrice, isSaleActive } from '@/lib/format';
-import type { CategoryTreeNode, ProductResponse, ProductVariantResponse } from 'shared';
+import type { CategoryTreeNode, ProductVariantResponse } from 'shared';
 
 export const Route = createFileRoute('/products/$productId')({
   component: ProductDetailPage,
@@ -51,21 +57,25 @@ function ProductDetailPage() {
     return images;
   }, [product]);
 
-  // Category tree is already cached by the navbar; related pieces come from the same category.
+  // Category tree is already cached by the navbar.
   const treeQuery = useStorefrontHome({ limit: 48 });
   const tree = (treeQuery.data?.data?.category_tree as CategoryTreeNode[]) ?? [];
   const categoryPath = findCategoryPath(tree, product ? String(product.category_id) : undefined);
-  const relatedQuery = useStorefrontHome({ categoryId: product ? String(product.category_id) : undefined, limit: 9 });
-  const relatedProducts = ((relatedQuery.data?.data?.products as ProductResponse[]) ?? [])
-    .filter((p) => p.id !== product?.id)
-    .slice(0, 8);
 
-  useSeo({
-    title: product ? product.name : 'Product',
-    description: product?.description || 'Shop this Bagstreet product with secure checkout.',
-    image: product?.image_url || undefined,
-    canonicalPath: `/products/${product?.slug ?? productId}`,
-  });
+  // If recommendations fail to load, their rails simply don't show.
+  const recommendationsQuery = useProductRecommendations(productInternalId);
+  const recommendations = recommendationsQuery.isError ? undefined : recommendationsQuery.data;
+  const completeTheLook = (recommendations?.complete_the_look ?? []).slice(0, 4);
+  const similar = recommendations?.similar ?? [];
+
+  useEffect(() => {
+    if (productInternalId) recordRecentlyViewed(productInternalId);
+  }, [productInternalId]);
+
+  const reviewsQuery = useProductReviews(productInternalId);
+  const reviewPages = reviewsQuery.data?.pages;
+  const reviewSummary = reviewPages?.[0]?.data?.summary;
+  const reviews = useMemo(() => (reviewPages ?? []).flatMap((page) => page.data?.reviews ?? []), [reviewPages]);
 
   useEffect(() => {
     setSelectedImageIndex(0);
@@ -161,6 +171,56 @@ function ProductDetailPage() {
   const needsSelection = (hasColors && !selectedColor) || (hasSizes && !selectedSize);
   const soldOut = activeVariants.length > 0 && activeVariants.every((v) => v.stock === 0);
 
+  const jsonLd = useMemo(() => {
+    if (!product) return null;
+    const onSale = isSaleActive(product);
+    const inStock = activeVariants.length > 0
+      ? activeVariants.some((v) => v.stock > 0)
+      : product.stock_status ? product.stock_status !== 'out' : (product.total_stock ?? 0) > 0;
+    const data: Record<string, unknown> = {
+      '@context': 'https://schema.org',
+      '@type': 'Product',
+      name: product.name,
+      ...(product.description ? { description: product.description } : {}),
+      ...(galleryImages.length ? { image: galleryImages.map((image) => image.url) } : {}),
+      sku: product.slug,
+      brand: { '@type': 'Brand', name: 'Bagstreet' },
+      offers: {
+        '@type': 'Offer',
+        url: `${window.location.origin}/products/${product.slug ?? productId}`,
+        priceCurrency: 'KES',
+        price: onSale && product.sale_price != null ? product.sale_price : product.price,
+        availability: inStock ? 'https://schema.org/InStock' : 'https://schema.org/OutOfStock',
+      },
+    };
+    if (reviewSummary && reviewSummary.count > 0 && reviewSummary.average != null) {
+      data.aggregateRating = {
+        '@type': 'AggregateRating',
+        ratingValue: reviewSummary.average,
+        reviewCount: reviewSummary.count,
+        bestRating: 5,
+        worstRating: 1,
+      };
+      data.review = reviews.slice(0, 5).map((review) => ({
+        '@type': 'Review',
+        author: { '@type': 'Person', name: review.author_name },
+        datePublished: review.created_at.slice(0, 10),
+        ...(review.title ? { name: review.title } : {}),
+        reviewBody: review.body,
+        reviewRating: { '@type': 'Rating', ratingValue: review.rating, bestRating: 5, worstRating: 1 },
+      }));
+    }
+    return data;
+  }, [product, productId, activeVariants, galleryImages, reviewSummary, reviews]);
+
+  useSeo({
+    title: product ? product.name : 'Product',
+    description: product?.description || 'Shop this Bagstreet product with secure checkout.',
+    image: product?.image_url || undefined,
+    canonicalPath: `/products/${product?.slug ?? productId}`,
+    jsonLd,
+  });
+
   useEffect(() => {
     if (!needsSelection) setShowSelectionPrompt(false);
   }, [needsSelection]);
@@ -208,6 +268,7 @@ function ProductDetailPage() {
   }
 
   if (!product) return (
+    <>
     <div className="flex min-h-[70svh] flex-col items-center justify-center gap-6 px-4 pt-[72px] text-center">
       <p className="text-label-caps text-foreground-faint">Not found</p>
       <h1 className="text-headline-lg">This piece has <em>moved on</em></h1>
@@ -218,6 +279,8 @@ function ProductDetailPage() {
         Browse the collection
       </Link>
     </div>
+    <RecentlyViewedRail />
+    </>
   );
 
   const hasVariantPrice = selectedVariant?.price_override != null;
@@ -319,6 +382,16 @@ function ProductDetailPage() {
               formatPrice(effectivePrice)
             )}
           </p>
+
+          {reviewSummary && reviewSummary.count > 0 && reviewSummary.average != null && (
+            <a href="#reviews-heading" className="mt-3 inline-flex items-center gap-2 text-[13px] text-foreground-muted hover:text-foreground">
+              <Stars rating={reviewSummary.average} />
+              <span className="sr-only">{ratingLabel(reviewSummary.average, reviewSummary.count)}</span>
+              <span aria-hidden="true" className="underline decoration-[0.5px] underline-offset-4">
+                {reviewSummary.count} {reviewSummary.count === 1 ? 'review' : 'reviews'}
+              </span>
+            </a>
+          )}
 
           {/* Variant selectors */}
           {activeVariants.length > 0 && (
@@ -494,13 +567,36 @@ function ProductDetailPage() {
     </div>
 
     <div className="border-t border-border-subtle">
-      <ProductRail
-        eyebrow={categoryPath.length > 0 ? categoryPath[categoryPath.length - 1].name : 'More to explore'}
-        title="You may also like"
-        products={relatedProducts}
-        isLoading={relatedQuery.isLoading}
+      <ProductReviews
+        summary={reviewSummary}
+        reviews={reviews}
+        isLoading={reviewsQuery.isLoading}
+        isError={reviewsQuery.isError}
+        hasMore={Boolean(reviewsQuery.hasNextPage)}
+        isLoadingMore={reviewsQuery.isFetchingNextPage}
+        onShowMore={() => reviewsQuery.fetchNextPage()}
       />
     </div>
+
+    {completeTheLook.length > 0 && (
+      <div className="border-t border-border-subtle">
+        <ProductRail eyebrow="Styled with" title="Complete the look" products={completeTheLook} isLoading={false} rail="complete_the_look" />
+      </div>
+    )}
+
+    {(recommendationsQuery.isLoading || similar.length > 0) && (
+      <div className="border-t border-border-subtle">
+        <ProductRail
+          eyebrow={categoryPath.length > 0 ? categoryPath[categoryPath.length - 1].name : 'More to explore'}
+          title="You may also like"
+          products={similar}
+          isLoading={recommendationsQuery.isLoading}
+          rail="similar"
+        />
+      </div>
+    )}
+
+    <RecentlyViewedRail excludeId={productInternalId} />
     </>
   );
 }

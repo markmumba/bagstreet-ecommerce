@@ -19,6 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { ErrorNotice, errorMessage } from '@/components/ui/notice';
 
 interface CategoryDialogProps {
   open: boolean;
@@ -30,6 +31,7 @@ export function CategoryDialog({ open, onOpenChange, category }: CategoryDialogP
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [parentId, setParentId] = useState<string>('');
+  const [saveError, setSaveError] = useState('');
 
   const createMutation = useCreateCategory();
   const updateMutation = useUpdateCategory();
@@ -44,6 +46,7 @@ export function CategoryDialog({ open, onOpenChange, category }: CategoryDialogP
   );
 
   useEffect(() => {
+    setSaveError('');
     if (category) {
       setName(category.name);
       setDescription(category.description || '');
@@ -56,6 +59,7 @@ export function CategoryDialog({ open, onOpenChange, category }: CategoryDialogP
   }, [category, open]);
 
   const handleSubmit = async (e: React.FormEvent) => {
+    setSaveError('');
     e.preventDefault();
 
     const data = {
@@ -76,7 +80,7 @@ export function CategoryDialog({ open, onOpenChange, category }: CategoryDialogP
       setParentId('none');
       onOpenChange(false);
     } catch (error) {
-      console.error('Failed to save category:', error);
+      setSaveError(errorMessage(error, 'The category could not be saved. Check the name and try again.'));
     }
   };
 
@@ -103,7 +107,7 @@ export function CategoryDialog({ open, onOpenChange, category }: CategoryDialogP
               id="name"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Electronics, Clothing, Books..."
+              placeholder="e.g. Handbags"
               required
               maxLength={100}
               disabled={isLoading}
@@ -111,13 +115,13 @@ export function CategoryDialog({ open, onOpenChange, category }: CategoryDialogP
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="parent">Parent Category</Label>
+            <Label htmlFor="parent">Parent category</Label>
             <Select
               value={parentId}
               onValueChange={setParentId}
               disabled={isLoading}
             >
-              <SelectTrigger>
+              <SelectTrigger id="parent">
                 <SelectValue placeholder="None (top-level)" />
               </SelectTrigger>
               <SelectContent>
@@ -137,7 +141,7 @@ export function CategoryDialog({ open, onOpenChange, category }: CategoryDialogP
               id="description"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="Describe this category..."
+              placeholder="Describe this category…"
               rows={4}
               maxLength={500}
               disabled={isLoading}
@@ -146,6 +150,8 @@ export function CategoryDialog({ open, onOpenChange, category }: CategoryDialogP
               {description.length}/500 characters
             </p>
           </div>
+
+          <ErrorNotice>{saveError}</ErrorNotice>
 
           <div className="flex justify-end gap-3 pt-4">
             <Button
@@ -157,7 +163,7 @@ export function CategoryDialog({ open, onOpenChange, category }: CategoryDialogP
               Cancel
             </Button>
             <Button type="submit" disabled={isLoading || !name.trim()}>
-              {isLoading ? 'Saving...' : isEditing ? 'Update' : 'Create'}
+              {isLoading ? 'Saving…' : isEditing ? 'Update' : 'Create'}
             </Button>
           </div>
         </form>

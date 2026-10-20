@@ -1,4 +1,4 @@
-import { ordersQueries, type OrderDraft } from './orders.queries';
+import { ORDER_SORT_FIELDS, ordersQueries, type OrderDraft, type OrderSort } from './orders.queries';
 import { createOrderSchema, createWalkInSaleSchema, updateOrderStatusSchema, writeOffSchema } from './orders.schema';
 import { sql } from '../../lib/db';
 import { success, paginated } from '@server/lib/response';
@@ -187,10 +187,16 @@ export const ordersHandlers = {
         const limit = Math.min(100, Math.max(1, parseInt(c.req.query('limit') ?? '20', 10)));
         const statusFilter = c.req.query('status') ?? null;
         const paymentStatusFilter = c.req.query('payment_status') ?? null;
+        // Sorting is done by the database across every order, not just this page.
+        const sortBy = c.req.query('sort');
+        const sort: OrderSort = {
+            by: (ORDER_SORT_FIELDS as readonly string[]).includes(sortBy ?? '') ? sortBy as OrderSort['by'] : 'date',
+            dir: c.req.query('dir') === 'asc' ? 'asc' : 'desc',
+        };
 
         const [orders, total] = isAdmin
             ? await Promise.all([
-                ordersQueries.findAll(page, limit, statusFilter, paymentStatusFilter),
+                ordersQueries.findAll(page, limit, statusFilter, paymentStatusFilter, sort),
                 ordersQueries.countAll(statusFilter, paymentStatusFilter),
               ])
             : await Promise.all([

@@ -1,11 +1,10 @@
 import type { GiftVoucherStatus } from 'shared';
 import type { Badge } from '@/components/ui/badge';
+import { formatDate as formatDay, formatMoney } from '@/lib/format';
 
-export const kes = (amount: number) =>
-  `KES ${amount.toLocaleString('en-KE', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+export const kes = (amount: number) => formatMoney(amount);
 
-export const formatDate = (value: string) =>
-  new Date(value).toLocaleDateString('en-KE', { day: 'numeric', month: 'short', year: 'numeric' });
+export const formatDate = (value: string) => formatDay(value);
 
 export const STATUS_LABELS: Record<GiftVoucherStatus, { label: string; variant: React.ComponentProps<typeof Badge>['variant'] }> = {
   active: { label: 'Active', variant: 'success' },

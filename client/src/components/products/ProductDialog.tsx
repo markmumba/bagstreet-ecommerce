@@ -23,6 +23,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { ErrorNotice, errorMessage } from '@/components/ui/notice';
 
 type Product = ProductResponse;
 
@@ -51,6 +52,7 @@ export function ProductDialog({ open, onOpenChange, product }: ProductDialogProp
   const [imageInputKey, setImageInputKey] = useState(0);
   const [imageError, setImageError] = useState('');
   const [isActive, setIsActive] = useState(true);
+  const [saveError, setSaveError] = useState('');
   const imageInputRef = useRef<HTMLInputElement | null>(null);
 
   const { data: categoryTree } = useCategoryTree();
@@ -62,6 +64,7 @@ export function ProductDialog({ open, onOpenChange, product }: ProductDialogProp
   const isLoading = createMutation.isPending || updateMutation.isPending || updateFormMutation.isPending;
 
   useEffect(() => {
+    setSaveError('');
     if (product) {
       setName(product.name);
       setDescription(product.description || '');
@@ -152,10 +155,20 @@ export function ProductDialog({ open, onOpenChange, product }: ProductDialogProp
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
+    setSaveError('');
     e.preventDefault();
 
-    if (!isEditing && imageFiles.length === 0) {
-      setImageError('Add at least one product image.');
+    const missing: string[] = [];
+    if (!name.trim()) missing.push('a name');
+    if (!isEditing && !categoryId) missing.push('a category');
+    const priceValue = Number(price);
+    if (!price.trim() || !Number.isFinite(priceValue) || priceValue < 0) missing.push('a price of 0 or more');
+    if (!isEditing && imageFiles.length === 0) missing.push('at least one image');
+    if (missing.length > 0) {
+      const list = missing.length === 1
+        ? missing[0]
+        : `${missing.slice(0, -1).join(', ')} and ${missing[missing.length - 1]}`;
+      setSaveError(`Add ${list} to save this product.`);
       return;
     }
 
@@ -191,7 +204,7 @@ export function ProductDialog({ open, onOpenChange, product }: ProductDialogProp
       resetForm();
       onOpenChange(false);
     } catch (error) {
-      console.error('Failed to save product:', error);
+      setSaveError(errorMessage(error, 'The product could not be saved. Check the details and try again.'));
     }
   };
 
@@ -207,8 +220,8 @@ export function ProductDialog({ open, onOpenChange, product }: ProductDialogProp
 
   const submitLabel = isLoading
     ? imageFiles.length > 0
-      ? imageFiles.length === 1 ? 'Optimizing image...' : 'Optimizing images...'
-      : 'Saving...'
+      ? imageFiles.length === 1 ? 'Optimizing image…' : 'Optimizing images…'
+      : 'Saving…'
     : isEditing
       ? 'Update'
       : 'Create';
@@ -219,7 +232,7 @@ export function ProductDialog({ open, onOpenChange, product }: ProductDialogProp
       <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="text-2xl">
-            {isEditing ? 'Edit Product' : 'Create Product'}
+            {isEditing ? 'Edit product' : 'Create product'}
           </DialogTitle>
           <DialogDescription>
             {isEditing
@@ -228,7 +241,7 @@ export function ProductDialog({ open, onOpenChange, product }: ProductDialogProp
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="space-y-6 mt-4">
+        <form onSubmit={handleSubmit} noValidate className="space-y-6 mt-4">
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="name">
@@ -254,7 +267,7 @@ export function ProductDialog({ open, onOpenChange, product }: ProductDialogProp
                 onValueChange={setCategoryId}
                 disabled={isLoading || isEditing}
               >
-                <SelectTrigger>
+                <SelectTrigger id="category">
                   <SelectValue placeholder="Select a category" />
                 </SelectTrigger>
                 <SelectContent>
@@ -287,7 +300,7 @@ export function ProductDialog({ open, onOpenChange, product }: ProductDialogProp
               id="description"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="Describe this product..."
+              placeholder="Describe this product…"
               rows={3}
               maxLength={1000}
               disabled={isLoading}
@@ -331,7 +344,14 @@ export function ProductDialog({ open, onOpenChange, product }: ProductDialogProp
                 <div className="flex gap-2 overflow-x-auto rounded-lg border bg-muted/30 p-2">
                   {(product.images?.length ? product.images : [{ id: 'primary', url: product.image_url }]).map((image, index) => (
                     <div key={image.id} className="relative h-20 w-20 shrink-0 overflow-hidden rounded-lg bg-muted">
-                      <img src={image.url} alt={product.name} className="h-full w-full object-cover" />
+                      <img
+                        src={image.url}
+                        alt={`Photo ${index + 1} of ${product.name}`}
+                        width={80}
+                        height={80}
+                        loading="lazy"
+                        className="h-full w-full object-cover"
+                      />
                       {index === 0 && (
                         <span className="absolute left-1.5 top-1.5 rounded-md bg-background/90 px-1.5 py-0.5 text-[10px] font-medium text-foreground shadow-sm">
                           Main
@@ -383,7 +403,7 @@ export function ProductDialog({ open, onOpenChange, product }: ProductDialogProp
                       {imagePreviewUrls[index] ? (
                         <img
                           src={imagePreviewUrls[index]}
-                          alt={file.name}
+                          alt={`New photo ${index + 1}: ${file.name}`}
                           className="h-full w-full object-cover"
                         />
                       ) : (
@@ -412,7 +432,8 @@ export function ProductDialog({ open, onOpenChange, product }: ProductDialogProp
                       <button
                         type="button"
                         onClick={() => makePrimaryImage(index)}
-                        className="absolute left-1.5 top-1.5 rounded-md bg-background/95 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground opacity-0 shadow-sm transition hover:text-foreground group-hover:opacity-100 focus:opacity-100"
+                        aria-label={`Make photo ${index + 1} the main photo`}
+                        className="absolute left-1.5 top-1.5 rounded-md bg-background/95 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground shadow-sm reveal-on-hover hover:text-foreground"
                         disabled={isLoading}
                       >
                         Make main
@@ -430,7 +451,7 @@ export function ProductDialog({ open, onOpenChange, product }: ProductDialogProp
               </div>
             )}
 
-            {imageError && <p className="text-xs text-destructive">{imageError}</p>}
+            {imageError && <p role="alert" className="text-xs text-destructive">{imageError}</p>}
           </div>
 
           <div className="flex items-center space-x-2">
@@ -440,12 +461,14 @@ export function ProductDialog({ open, onOpenChange, product }: ProductDialogProp
               checked={isActive}
               onChange={(e) => setIsActive(e.target.checked)}
               disabled={isLoading}
-              className="h-4 w-4 rounded border-gray-300"
+              className="h-4 w-4 rounded border-input accent-primary focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
             />
             <Label htmlFor="isActive" className="font-normal">
               Product is active and available for sale
             </Label>
           </div>
+
+          <ErrorNotice>{saveError}</ErrorNotice>
 
           <div className="flex justify-end gap-3 pt-4">
             <Button
@@ -458,7 +481,7 @@ export function ProductDialog({ open, onOpenChange, product }: ProductDialogProp
             </Button>
             <Button
               type="submit"
-              disabled={isLoading || !!imageError || !name.trim() || !price || (!isEditing && (!categoryId || imageFiles.length === 0))}
+              disabled={isLoading}
             >
               {submitLabel}
             </Button>

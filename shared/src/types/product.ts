@@ -52,6 +52,9 @@ export interface ProductDeleteResponse {
 }
 
 export interface ProductResponse {
+    /** Approved reviews: average rating (one decimal) and how many. */
+    rating_average?: number | null;
+    rating_count?: number;
     id: string,
     category_id: string,
     sku: string,

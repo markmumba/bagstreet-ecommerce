@@ -24,6 +24,9 @@ export interface OrderRow extends Omit<Order, 'id' | 'created_at' | 'updated_at'
     updated_at: string;
 }
 
+export const ORDER_SORT_FIELDS = ['date', 'total', 'order', 'customer'] as const;
+export interface OrderSort { by: typeof ORDER_SORT_FIELDS[number]; dir: 'asc' | 'desc' }
+
 export interface OrderItemRow {
     id: number;
     order_id: number;
@@ -132,13 +135,26 @@ export interface OrderDraft {
 }
 
 export const ordersQueries = {
-    findAll: async (page: number, limit: number, status: string | null, paymentStatus: string | null): Promise<OrderRow[]> => {
+    /** One page of orders, sorted across all of them (not just the page): newest first by default. */
+    findAll: async (
+        page: number, limit: number, status: string | null, paymentStatus: string | null,
+        sort: OrderSort = { by: 'date', dir: 'desc' },
+    ): Promise<OrderRow[]> => {
         const offset = (page - 1) * limit;
+        const { by, dir } = sort;
         return await sql<OrderRow[]>`
             SELECT * FROM orders
             WHERE (${status}::text IS NULL OR status = ${status}::text)
               AND (${paymentStatus}::text IS NULL OR payment_status = ${paymentStatus}::text)
-            ORDER BY created_at DESC
+            ORDER BY
+                CASE WHEN ${by} = 'total' AND ${dir} = 'asc' THEN total_amount END ASC,
+                CASE WHEN ${by} = 'total' AND ${dir} = 'desc' THEN total_amount END DESC,
+                CASE WHEN ${by} = 'order' AND ${dir} = 'asc' THEN order_number END ASC,
+                CASE WHEN ${by} = 'order' AND ${dir} = 'desc' THEN order_number END DESC,
+                CASE WHEN ${by} = 'customer' AND ${dir} = 'asc' THEN lower(customer_name) END ASC,
+                CASE WHEN ${by} = 'customer' AND ${dir} = 'desc' THEN lower(customer_name) END DESC,
+                CASE WHEN ${by} = 'date' AND ${dir} = 'asc' THEN created_at END ASC,
+                created_at DESC, id DESC
             LIMIT ${limit} OFFSET ${offset}
         `;
     },
@@ -256,14 +272,15 @@ export const ordersQueries = {
                 INSERT INTO orders(
                     user_id, order_number, total_amount, shipping_address, shipping_location_id, shipping_cost,
                     notes, discount_code, discount_amount, customer_name, customer_phone, customer_email,
-                    status, payment_status, order_source, paid_at, voucher_id, voucher_amount, voucher_last4
+                    status, payment_status, order_source, paid_at, voucher_id, voucher_amount, voucher_last4, delivered_at
                 )
                 VALUES (
                     ${userId}, ${orderNumber}, ${draft.totalAmount}, ${toJsonbParam(shippingAddress)}::jsonb,
                     ${draft.shippingLocationId}, ${draft.shippingCost}, ${draft.notes ?? null},
                     ${draft.discountCode}, ${draft.discountAmount}, ${draft.customerName}, ${draft.customerPhone}, ${customerEmail},
                     ${start.status}, ${start.payment}, ${draft.orderSource ?? ORDER_SOURCE.ONLINE}, ${paidAt},
-                    ${draft.voucher?.id ?? null}, ${draft.voucher?.amount ?? 0}, ${draft.voucher?.last4 ?? null}
+                    ${draft.voucher?.id ?? null}, ${draft.voucher?.amount ?? 0}, ${draft.voucher?.last4 ?? null},
+                    ${start.status === ORDER_STATUS.DELIVERED ? new Date().toISOString() : null}
                 )
                 RETURNING *
             `;

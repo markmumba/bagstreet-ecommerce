@@ -1,6 +1,6 @@
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
 import { AlertCircle, Lock, X } from 'lucide-react';
-import type { CartQuoteLine, ProductResponse } from 'shared';
+import type { CartQuoteLine } from 'shared';
 import {
   useCart,
   useCartQuote,
@@ -9,9 +9,10 @@ import {
   useUpdateCartItem,
   type StorefrontCartItem,
 } from '@/hooks/useCart';
-import { useStorefrontHome } from '@/hooks/useStorefrontHome';
+import { useBagRecommendations } from '@/hooks/useRecommendations';
 import { useSeo } from '@/hooks/useSeo';
 import { ProductRail } from '@/components/home/ProductRail';
+import { RecentlyViewedRail } from '@/components/product/RecentlyViewedRail';
 import { formatPrice } from '@/lib/format';
 
 export const Route = createFileRoute('/cart')({
@@ -60,6 +61,7 @@ function CartPage() {
   };
 
   return (
+    <>
     <div className="max-w-[1440px] mx-auto px-4 pt-[104px] pb-24 sm:px-8 lg:px-20 lg:pt-32">
       <header className="flex flex-wrap items-end justify-between gap-4 border-b border-border pb-8">
         <div>
@@ -186,6 +188,28 @@ function CartPage() {
           </div>
         </aside>
       </div>
+    </div>
+    {/* Below the summary, so the checkout button stays where it is on phones. */}
+    <BagRecommendationsRail productIds={items.map((item) => item.product_id)} />
+    </>
+  );
+}
+
+/** "You might also like" for the bag; with an empty bag the server suggests popular pieces. */
+function BagRecommendationsRail({ productIds }: { productIds: string[] }) {
+  const query = useBagRecommendations(productIds);
+  const products = query.data ?? [];
+  if (query.isError || (!query.isLoading && products.length === 0)) return null;
+
+  return (
+    <div className="border-t border-border-subtle">
+      <ProductRail
+        eyebrow="Chosen for you"
+        title="You might also like"
+        products={products}
+        isLoading={query.isLoading}
+        rail="bag"
+      />
     </div>
   );
 }
@@ -320,9 +344,6 @@ function Notice({ children, tone = 'info', onDismiss }: { children: React.ReactN
 }
 
 function EmptyBag() {
-  const { data, isLoading } = useStorefrontHome({ limit: 48 });
-  const featured = (data?.data?.featured_products as ProductResponse[]) ?? [];
-
   return (
     <>
       <div className="max-w-[1440px] mx-auto px-4 pt-40 pb-12 text-center sm:px-8 lg:px-20">
@@ -338,9 +359,7 @@ function EmptyBag() {
           Discover the collection
         </Link>
       </div>
-      <div className="border-t border-border-subtle">
-        <ProductRail eyebrow="The Edit" title="Featured pieces" products={featured} isLoading={isLoading} />
-      </div>
+      <RecentlyViewedRail fallback={<BagRecommendationsRail productIds={[]} />} />
     </>
   );
 }

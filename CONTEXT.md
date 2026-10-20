@@ -88,3 +88,36 @@ _Avoid_: Voucher order (ambiguous with an **Order** paid by voucher)
 
 **Voucher liability**:
 The unspent value of all live **Gift vouchers**: money the shop has taken but still owes in goods. A voucher sale adds to it; it becomes revenue only when spent.
+
+## Reviews
+
+**Product review**:
+A customer's 1–5 star rating and words about one product they bought, written against the **Order** it came in. It shows on the shop only after staff approve it; an edit sends it back for approval. Negative reviews are approved like any other: staff hold one back only for abuse, personal details or being off-topic, and record why.
+_Avoid_: Rating (only the stars), testimonial (about the shop, not a product)
+
+**Verified buyer**:
+Someone whose **Order** for the product has been received. Only verified buyers can write a **Product review**, and every published review shows that it is from one.
+
+**Review invitation**:
+The one email sent about 5 days after an **Order** is received, with a link to review what was bought. Never sent for a **Voucher purchase**, more than once per order, or to anyone who has unsubscribed. No reward is offered for reviewing.
+
+## Recommendations
+
+**Complete the look**:
+Pieces from other categories that go with a product: first the ones staff chose for it (**Staff pick**), then pieces from its **Category pairings**, then pieces often **Bought together** with it.
+
+**You may also like**:
+Other pieces from the same category family as a product, at a similar price, favouring shared colours. Never repeats what **Complete the look** already shows.
+
+**Staff pick**:
+Up to 4 products staff chose as going well with a product, in their order. Shown only while active and in stock.
+
+**Category pairing**:
+Top-level categories that go together (e.g. Bags → Scarves, Shoes). They fill **Complete the look** when a product has fewer than 4 **Staff picks**.
+
+**Bought together**:
+Two products in the same paid **Order** that wasn't cancelled or refunded. A pair counts only once it has been bought together in at least 3 orders.
+
+**Recently viewed**:
+Products this visitor opened, kept only in their own browser. The shop never records who viewed what; it counts only how often each rail is seen and clicked, per day.
+

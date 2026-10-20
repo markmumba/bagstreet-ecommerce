@@ -15,6 +15,8 @@ import { orderDispatchedAtMigration } from './014_order_dispatched_at';
 import { refreshTokenReuseMigration } from './015_refresh_token_reuse';
 import { giftVouchersMigration } from './016_gift_vouchers';
 import { giftVoucherOrdersMigration } from './017_gift_voucher_orders';
+import { productReviewsMigration } from './018_product_reviews';
+import { recommendationsMigration } from './019_recommendations';
 import type { Migration } from './types';
 
 export const migrations: Migration[] = [
@@ -35,4 +37,6 @@ export const migrations: Migration[] = [
     refreshTokenReuseMigration,
     giftVouchersMigration,
     giftVoucherOrdersMigration,
+    productReviewsMigration,
+    recommendationsMigration,
 ];

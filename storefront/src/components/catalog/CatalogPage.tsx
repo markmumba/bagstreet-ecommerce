@@ -6,6 +6,7 @@ import { useStorefrontCatalog } from '@/hooks/useStorefrontCatalog';
 import { useSeo } from '@/hooks/useSeo';
 import { categoryPath, paginationPages, type CatalogSearch } from '@/lib/catalog';
 import { ProductCard, ProductCardSkeleton } from '@/components/product/ProductCard';
+import { RecentlyViewedRail } from '@/components/product/RecentlyViewedRail';
 
 export function CatalogPage({
   query,
@@ -128,6 +129,7 @@ export function CatalogPage({
   if (catalog.isError) {
     const notFound = (catalog.error as { status?: number }).status === 404;
     return (
+      <>
       <section className="mx-auto max-w-[1440px] px-4 pt-32 pb-24 sm:px-8 lg:px-20">
         <h1 className="font-display text-[40px] leading-tight">
           {notFound ? 'Collection not found' : 'The collection could not load'}
@@ -154,10 +156,15 @@ export function CatalogPage({
           </button>
         )}
       </section>
+      {notFound && <RecentlyViewedRail />}
+      </>
     );
   }
 
+  const noSearchResults = Boolean(urlSearch) && !catalog.isLoading && products.length === 0;
+
   return (
+    <>
     <section className="mx-auto max-w-[1440px] px-4 pt-28 pb-20 sm:px-8 lg:px-20 lg:pt-32">
       <nav aria-label="Breadcrumb" className="mb-6 text-xs text-foreground-muted">
         <ol className="flex flex-wrap items-center gap-2">
@@ -369,6 +376,8 @@ export function CatalogPage({
         </nav>
       )}
     </section>
+    {noSearchResults && <RecentlyViewedRail />}
+    </>
   );
 }
 

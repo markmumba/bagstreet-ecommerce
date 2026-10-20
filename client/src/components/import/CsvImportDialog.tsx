@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { Download, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -8,6 +8,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { ErrorNotice, errorMessage } from '@/components/ui/notice';
 
 export interface ImportReport {
   total_rows: number;
@@ -41,9 +42,13 @@ export function CsvImportDialog({
   const [error, setError] = useState('');
   const [isImporting, setIsImporting] = useState(false);
 
-  const templateUrl = useMemo(() => {
-    const blob = new Blob([templateCsv], { type: 'text/csv;charset=utf-8' });
-    return URL.createObjectURL(blob);
+  const fileInputId = useId();
+  const [templateUrl, setTemplateUrl] = useState('');
+
+  useEffect(() => {
+    const url = URL.createObjectURL(new Blob([templateCsv], { type: 'text/csv;charset=utf-8' }));
+    setTemplateUrl(url);
+    return () => URL.revokeObjectURL(url);
   }, [templateCsv]);
 
   const handleImport = async () => {
@@ -58,8 +63,8 @@ export function CsvImportDialog({
       const result = await onImport(file);
       setReport(result);
       setFile(null);
-    } catch (err: any) {
-      setError(err?.message || 'CSV import failed.');
+    } catch (err) {
+      setError(errorMessage(err, 'The import failed. Check the file matches the template and try again.'));
     } finally {
       setIsImporting(false);
     }
@@ -84,8 +89,9 @@ export function CsvImportDialog({
           </a>
 
           <div className="rounded-lg border border-dashed border-border p-4">
-            <label className="block text-sm font-medium">CSV file</label>
+            <label htmlFor={fileInputId} className="block text-sm font-medium">CSV file</label>
             <input
+              id={fileInputId}
               type="file"
               accept=".csv,text/csv"
               onChange={(event) => {
@@ -98,15 +104,14 @@ export function CsvImportDialog({
             {file && <p className="mt-2 text-xs text-muted-foreground">{file.name}</p>}
           </div>
 
-          {error && (
-            <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-              {error}
-            </div>
-          )}
+          <ErrorNotice>{error}</ErrorNotice>
 
           {report && (
-            <div className="rounded-lg border border-border bg-muted/30 p-3">
-              <div className="grid grid-cols-4 gap-2 text-center text-sm">
+            <div role="status" className="rounded-lg border border-border bg-muted/30 p-3">
+              <p className="sr-only">
+                Import finished: {report.created} created, {report.skipped} skipped, {report.failed} failed.
+              </p>
+              <div aria-hidden="true" className="grid grid-cols-4 gap-2 text-center text-sm">
                 <div>
                   <p className="font-semibold tabular-nums">{report.total_rows}</p>
                   <p className="text-xs text-muted-foreground">Rows</p>
@@ -129,7 +134,7 @@ export function CsvImportDialog({
                   {report.errors.slice(0, 20).map((item, index) => (
                     <p key={`${item.row}-${index}`}>Row {item.row}: {item.message}</p>
                   ))}
-                  {report.errors.length > 20 && <p>...and {report.errors.length - 20} more</p>}
+                  {report.errors.length > 20 && <p>…and {report.errors.length - 20} more</p>}
                 </div>
               )}
             </div>
@@ -141,7 +146,7 @@ export function CsvImportDialog({
             </Button>
             <Button onClick={handleImport} disabled={isImporting}>
               <Upload className="h-4 w-4" strokeWidth={1.7} />
-              {isImporting ? 'Importing...' : 'Import CSV'}
+              {isImporting ? 'Importing…' : 'Import CSV'}
             </Button>
           </div>
         </div>

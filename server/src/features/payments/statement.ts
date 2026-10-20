@@ -106,6 +106,8 @@ export interface StatementIssue {
     row: number;
     kind: StatementIssueKind;
     reference: string | null;
+    /** The order the row belongs to, when the reference matched one (for linking to it). */
+    order_id: string | null;
     order_number: string | null;
     statement_amount: number | null;
     ledger_amount: number | null;
@@ -134,17 +136,17 @@ export function reconcileStatementRows(rows: StatementRow[], known: KnownTransac
     for (const row of rows) {
         const reference = row.references[0] ?? null;
         if (!row.successful) {
-            issues.push({ row: row.rowNumber, kind: 'not_successful', reference, order_number: null, statement_amount: row.amount, ledger_amount: null, message: 'Not a completed payment on the statement — skipped.' });
+            issues.push({ row: row.rowNumber, kind: 'not_successful', reference, order_id: null, order_number: null, statement_amount: row.amount, ledger_amount: null, message: 'Not a completed payment on the statement — skipped.' });
             continue;
         }
         if (row.amount == null) {
-            issues.push({ row: row.rowNumber, kind: 'unreadable_amount', reference, order_number: null, statement_amount: null, ledger_amount: null, message: 'Amount could not be read.' });
+            issues.push({ row: row.rowNumber, kind: 'unreadable_amount', reference, order_id: null, order_number: null, statement_amount: null, ledger_amount: null, message: 'Amount could not be read.' });
             continue;
         }
 
         const tx = row.references.map((ref) => byReference.get(ref.toUpperCase())).find(Boolean);
         if (!tx) {
-            issues.push({ row: row.rowNumber, kind: 'unknown_reference', reference, order_number: null, statement_amount: row.amount, ledger_amount: null, message: 'No Bagstreet payment has this reference.' });
+            issues.push({ row: row.rowNumber, kind: 'unknown_reference', reference, order_id: null, order_number: null, statement_amount: row.amount, ledger_amount: null, message: 'No Bagstreet payment has this reference.' });
             continue;
         }
 
@@ -152,9 +154,9 @@ export function reconcileStatementRows(rows: StatementRow[], known: KnownTransac
         matches.push({ row: row.rowNumber, transactionId: tx.transactionId, orderId: tx.orderId, reference: reference ?? tx.references[0]!, fee: row.fee });
 
         if (tx.capturedAmount === 0) {
-            issues.push({ row: row.rowNumber, kind: 'not_in_ledger', reference, order_number: tx.orderNumber, statement_amount: row.amount, ledger_amount: 0, message: 'Pesapal received this payment but the order has no payment recorded.' });
+            issues.push({ row: row.rowNumber, kind: 'not_in_ledger', reference, order_id: String(tx.orderId), order_number: tx.orderNumber, statement_amount: row.amount, ledger_amount: 0, message: 'Pesapal received this payment but the order has no payment recorded.' });
         } else if (Math.abs(tx.capturedAmount - row.amount) > TOLERANCE) {
-            issues.push({ row: row.rowNumber, kind: 'amount_mismatch', reference, order_number: tx.orderNumber, statement_amount: row.amount, ledger_amount: tx.capturedAmount, message: `Statement shows KES ${row.amount.toFixed(2)}, ledger recorded KES ${tx.capturedAmount.toFixed(2)}.` });
+            issues.push({ row: row.rowNumber, kind: 'amount_mismatch', reference, order_id: String(tx.orderId), order_number: tx.orderNumber, statement_amount: row.amount, ledger_amount: tx.capturedAmount, message: `Statement shows KES ${row.amount.toFixed(2)}, ledger recorded KES ${tx.capturedAmount.toFixed(2)}.` });
         }
     }
 

@@ -52,9 +52,11 @@ export async function eraseCustomerAccount(requestId: string, retentionReason: s
         await tx`DELETE FROM user_invitations WHERE user_id = ${request.user_id}`;
         await tx`DELETE FROM password_reset_tokens WHERE user_id = ${request.user_id}`;
         await tx`DELETE FROM in_app_notifications WHERE recipient_id = ${request.user_id}`;
+        // Their product reviews (by account, or on their orders) go too: a review is personal content.
+        await tx`DELETE FROM product_reviews WHERE user_id = ${request.user_id} OR order_id IN (SELECT id FROM orders WHERE user_id = ${request.user_id})`;
         await tx`UPDATE users SET full_name = 'Deleted customer', email = ${`deleted-${randomUUID()}@example.invalid`},
             password_hash = ${await Bun.password.hash(randomUUID())}, is_active = false WHERE id = ${request.user_id}`;
-        const resolution = `Account credentials, profile, sessions and cart erased. Financial/delivery records and email suppression retained: ${retentionReason}`;
+        const resolution = `Account credentials, profile, sessions, cart and product reviews erased. Financial/delivery records and email suppression retained: ${retentionReason}`;
         await tx`UPDATE privacy_requests SET status = 'COMPLETED', resolution = ${resolution}, resolved_at = now() WHERE id = ${requestId}`;
         await createAuditLog({ actor, action: 'CUSTOMER_ACCOUNT_ERASED', entityType: 'privacy_request', entityId: requestId,
             metadata: { user_id: request.user_id, retention_reason: retentionReason } }, tx);

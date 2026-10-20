@@ -5,13 +5,15 @@ import { env } from '../config/env';
  * Signed, expiring tokens tied to one order. They let a guest (no account) prove they own an order:
  * - `order-received`: link in the confirmation email to mark the order as received
  * - `order-access`: issued at checkout so the guest can check or retry payment for that order
+ * - `order-review`: link in the review invitation email to review what was bought
  * The purpose is part of the signature, so one kind can't be used as the other.
  */
-type TokenPurpose = 'order-received' | 'order-access';
+type TokenPurpose = 'order-received' | 'order-access' | 'order-review';
 
 const TTL_MS: Record<TokenPurpose, number> = {
     'order-received': 1000 * 60 * 60 * 24 * 30,
     'order-access': 1000 * 60 * 60 * 24 * 7,
+    'order-review': 1000 * 60 * 60 * 24 * 90,
 };
 
 function sign(purpose: TokenPurpose, orderRef: string | number, expiresAt: number) {
@@ -47,6 +49,10 @@ export const verifyOrderReceivedToken = (orderRef: string | number, token: strin
 export const createOrderAccessToken = (orderRef: string | number) => createToken('order-access', orderRef);
 export const verifyOrderAccessToken = (orderRef: string | number, token: string | undefined) =>
     verifyToken('order-access', orderRef, token);
+
+export const createOrderReviewToken = (orderRef: string | number) => createToken('order-review', orderRef);
+export const verifyOrderReviewToken = (orderRef: string | number, token: string | undefined) =>
+    verifyToken('order-review', orderRef, token);
 
 /** The reference tokens are bound to: the public id when present, otherwise the numeric id. */
 export function orderTokenRef(order: { id: number | string; public_id?: string | null }) {

@@ -19,7 +19,7 @@
 # can't load more code or send data elsewhere. The built apps have no inline scripts; inline
 # styles stay allowed because UI libraries set them. STORAGE_PUBLIC_URL must be an origin (no path).
 (csp) {
-	header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' {args[0]}; font-src 'self' {args[1]}; img-src 'self' data: blob: {$STORAGE_PUBLIC_URL}; connect-src 'self' https://{$API_DOMAIN}; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+	header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob: {$STORAGE_PUBLIC_URL}; connect-src 'self' https://{$API_DOMAIN}; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
 }
 
 (spa) {
@@ -35,7 +35,7 @@
 # Storefront
 {$SHOP_DOMAIN} {
 	import security_headers
-	import csp "" ""
+	import csp
 	root * /srv/storefront
 	import spa
 }
@@ -47,8 +47,7 @@ www.{$SHOP_DOMAIN} {
 # Admin dashboard (has its own login; kept out of search engines)
 {$ADMIN_DOMAIN} {
 	import security_headers
-	# The admin loads its Inter font from Google Fonts.
-	import csp https://fonts.googleapis.com https://fonts.gstatic.com
+	import csp
 	header X-Robots-Tag "noindex, nofollow"
 	root * /srv/admin
 	import spa
