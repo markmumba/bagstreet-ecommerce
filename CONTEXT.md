@@ -100,3 +100,24 @@ Someone whose **Order** for the product has been received. Only verified buyers 
 
 **Review invitation**:
 The one email sent about 5 days after an **Order** is received, with a link to review what was bought. Never sent for a **Voucher purchase**, more than once per order, or to anyone who has unsubscribed. No reward is offered for reviewing.
+
+## Recommendations
+
+**Complete the look**:
+Pieces from other categories that go with a product: first the ones staff chose for it (**Staff pick**), then pieces from its **Category pairings**, then pieces often **Bought together** with it.
+
+**You may also like**:
+Other pieces from the same category family as a product, at a similar price, favouring shared colours. Never repeats what **Complete the look** already shows.
+
+**Staff pick**:
+Up to 4 products staff chose as going well with a product, in their order. Shown only while active and in stock.
+
+**Category pairing**:
+Top-level categories that go together (e.g. Bags → Scarves, Shoes). They fill **Complete the look** when a product has fewer than 4 **Staff picks**.
+
+**Bought together**:
+Two products in the same paid **Order** that wasn't cancelled or refunded. A pair counts only once it has been bought together in at least 3 orders.
+
+**Recently viewed**:
+Products this visitor opened, kept only in their own browser. The shop never records who viewed what; it counts only how often each rail is seen and clicked, per day.
+

@@ -27,3 +27,4 @@ export interface PaginatedResponse<T> extends ApiResponse<T[]> {
     total:number
   }
 }
+export * from './recommendation';

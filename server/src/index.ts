@@ -22,6 +22,7 @@ import paymentsRoutes from './features/payments/payments.routes';
 import discountsRoutes from './features/discounts/discounts.routes';
 import giftVouchersRoutes from './features/gift-vouchers/gift-vouchers.routes';
 import reviewsRoutes from './features/reviews/reviews.routes';
+import recommendationsRoutes from './features/recommendations/recommendations.routes';
 import settingsRoutes from './features/settings/settings.routes';
 import dashboardRoutes from './features/dashboard/dashboard.routes';
 import { healthHandlers } from './features/health/health.handlers';
@@ -58,6 +59,8 @@ app.on('POST', '/api/orders', orderPlacementRateLimit);
 app.on('POST', '/api/gift-vouchers/purchase', orderPlacementRateLimit);
 // Writing reviews: plenty for real customers, not for flooding the moderation queue.
 app.on('PUT', '/api/reviews/order/*', rateLimit({ scope: 'reviews', limit: 20, windowMs: 60 * 60 * 1000, message: 'Too many reviews from this network. Please try again later.' }));
+// Recommendation counts: a page sends a few per view; enough for browsing, not for inflating the numbers.
+app.post('/api/recommendations/events', rateLimit({ scope: 'rec-events', limit: 600, windowMs: 60 * 60 * 1000, message: 'Too many requests. Please try again later.' }));
 app.use('/api/payments/*', paymentRateLimit);
 app.use('/api/*', generalRateLimit);
 
@@ -76,6 +79,7 @@ app.route('/api/payments', paymentsRoutes);
 app.route('/api/discounts', discountsRoutes);
 app.route('/api/gift-vouchers', giftVouchersRoutes);
 app.route('/api/reviews', reviewsRoutes);
+app.route('/api/recommendations', recommendationsRoutes);
 app.route('/api/settings', settingsRoutes);
 app.route('/api/audit-logs', auditRoutes);
 app.route('/api/compliance', complianceRoutes);

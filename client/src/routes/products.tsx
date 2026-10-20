@@ -7,6 +7,7 @@ import { useCategoryOptions } from '@/hooks/useCategories';
 import { ProductDialog } from '@/components/products/ProductDialog';
 import { ProductsDataTable } from '@/components/products/ProductsDataTable';
 import { VariantsSheet } from '@/components/products/VariantsSheet';
+import { PairingsSheet } from '@/components/products/PairingsSheet';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { CsvImportDialog } from '@/components/import/CsvImportDialog';
 import type { ProductResponse, CategoryResponse } from 'shared';
@@ -19,7 +20,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, Boxes, Check, CheckCircle2, Copy, ImageIcon, MoreHorizontal, Pencil, Star, Tag, Trash2, X, XCircle } from 'lucide-react';
+import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, Boxes, Check, CheckCircle2, Copy, ImageIcon, Link2, MoreHorizontal, Pencil, Star, Tag, Trash2, X, XCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { formatDate, formatMoney } from '@/lib/format';
 import { Input } from '@/components/ui/input';
@@ -122,6 +123,8 @@ function ProductsPage() {
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [variantsProduct, setVariantsProduct] = useState<Product | null>(null);
   const [variantsSheetOpen, setVariantsSheetOpen] = useState(false);
+  const [pairingsProduct, setPairingsProduct] = useState<Product | null>(null);
+  const [pairingsSheetOpen, setPairingsSheetOpen] = useState(false);
   const [removeProduct, setRemoveProduct] = useState<Product | null>(null);
   const [saleProduct, setSaleProduct] = useState<Product | null>(null);
   const [saleForm, setSaleForm] = useState({ sale_price: '', sale_ends_at: '' });
@@ -165,6 +168,11 @@ function ProductsPage() {
   const handleOpenVariants = (product: Product) => {
     setVariantsProduct(product);
     setVariantsSheetOpen(true);
+  };
+
+  const handleOpenPairings = (product: Product) => {
+    setPairingsProduct(product);
+    setPairingsSheetOpen(true);
   };
 
   const handleRemoveClick = (product: Product) => {
@@ -420,7 +428,7 @@ function ProductsPage() {
       cell: ({ row }) => {
         const product = row.original;
         return (
-          <div className="group/actions flex min-w-[174px] justify-end gap-1">
+          <div className="group/actions flex min-w-[210px] justify-end gap-1">
             <Button
               variant="outline"
               size="sm"
@@ -439,6 +447,16 @@ function ProductsPage() {
               className="h-8 w-8 px-0 reveal-on-hover"
             >
               <Pencil className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => handleOpenPairings(product)}
+              title="Goes well with"
+              aria-label={`Choose what goes well with ${product.name}`}
+              className="h-8 w-8 px-0 reveal-on-hover"
+            >
+              <Link2 className="h-4 w-4" />
             </Button>
             <Button
               variant="ghost"
@@ -508,6 +526,7 @@ function ProductsPage() {
             onCreateNew={handleCreate}
             onImportCsv={() => setImportOpen(true)}
             onOpenVariants={handleOpenVariants}
+            onOpenPairings={handleOpenPairings}
             onEdit={handleEdit}
             onSale={handleSaleClick}
             onRemove={handleRemoveClick}
@@ -548,6 +567,12 @@ function ProductsPage() {
         open={variantsSheetOpen}
         onOpenChange={setVariantsSheetOpen}
         product={variantsProduct}
+      />
+
+      <PairingsSheet
+        open={pairingsSheetOpen}
+        onOpenChange={setPairingsSheetOpen}
+        product={pairingsProduct}
       />
 
       <Dialog open={!!saleProduct} onOpenChange={(open) => { if (!open) setSaleProduct(null); }}>

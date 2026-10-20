@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from '@tanstack/react-router';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   AlertTriangle,
   ArrowRight,
@@ -25,6 +25,9 @@ import { RevenueChart } from '@/components/dashboard/RevenueChart';
 import { OrderStatusChart } from '@/components/dashboard/OrderStatusChart';
 import { cn } from '@/lib/utils';
 import { formatMoney, formatNumber, formatDateTime } from '@/lib/format';
+import { recommendationKeys, useRecommendationStats } from '@/hooks/useRecommendations';
+import { errorMessage } from '@/components/ui/notice';
+import type { RecommendationRail } from 'shared';
 
 export const Route = createFileRoute('/dashboard')({
   component: DashboardPage,
@@ -147,6 +150,60 @@ function LaunchMetricsCard({ metrics }: { metrics: LaunchMetrics }) {
             </div>
           ))}
         </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+const RAIL_LABELS: Record<RecommendationRail, string> = {
+  complete_the_look: 'Complete the look',
+  similar: 'You may also like',
+  bag: 'Bag suggestions',
+  recently_viewed: 'Recently viewed',
+};
+const RAIL_ORDER: RecommendationRail[] = ['complete_the_look', 'similar', 'bag', 'recently_viewed'];
+
+/** How often each recommendation rail on the shop was shown and clicked. */
+function RecommendationsCard() {
+  const stats = useRecommendationStats(30);
+  const rails = RAIL_ORDER.map((rail) => {
+    const row = stats.data?.rails.find((r) => r.rail === rail);
+    return { rail, impressions: row?.impressions ?? 0, clicks: row?.clicks ?? 0 };
+  });
+  const hasData = rails.some((r) => r.impressions > 0 || r.clicks > 0);
+  const rate = (clicks: number, impressions: number) =>
+    impressions === 0 ? '—' : `${(Math.round((clicks / impressions) * 1000) / 10).toLocaleString('en-KE')}%`;
+
+  return (
+    <Card>
+      <CardHeader className="pb-0">
+        <h2 data-slot="card-title" className="leading-none font-semibold text-base">
+          Recommendations (last {stats.data?.days ?? 30} days)
+        </h2>
+        <p className="text-sm text-muted-foreground">How often suggested products were shown to customers and clicked.</p>
+      </CardHeader>
+      <CardContent>
+        {stats.isLoading ? (
+          <p className="text-sm text-muted-foreground">Loading…</p>
+        ) : stats.error ? (
+          <ErrorNotice>{errorMessage(stats.error, 'Recommendation counts could not be loaded. Press Refresh to try again.')}</ErrorNotice>
+        ) : !hasData ? (
+          <EmptyState message="No data yet. Counts start when customers see recommendations." />
+        ) : (
+          <div className="grid grid-cols-[minmax(0,1fr)] gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            {rails.map((r) => (
+              <div key={r.rail} className="rounded-lg border border-border px-4 py-3">
+                <p className="text-xs text-muted-foreground">{RAIL_LABELS[r.rail]}</p>
+                <p className="mt-1 text-2xl font-semibold tabular-nums">{rate(r.clicks, r.impressions)}
+                  <span className="ml-1.5 text-xs font-normal text-muted-foreground">click rate</span>
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground tabular-nums">
+                  {numberFormatter.format(r.impressions)} shown · {numberFormatter.format(r.clicks)} clicked
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
       </CardContent>
     </Card>
   );
@@ -504,6 +561,7 @@ function DashboardSkeleton() {
 }
 
 function DashboardPage() {
+  const queryClient = useQueryClient();
   const dashboardQuery = useQuery({
     queryKey: ['dashboard', 'overview'],
     queryFn: () => apiClient.get<DashboardOverview>('/api/dashboard/overview'),
@@ -528,7 +586,10 @@ function DashboardPage() {
             type="button"
             variant="outline"
             size="sm"
-            onClick={() => dashboardQuery.refetch()}
+            onClick={() => {
+              void dashboardQuery.refetch();
+              void queryClient.invalidateQueries({ queryKey: recommendationKeys.all });
+            }}
             disabled={dashboardQuery.isFetching}
             aria-label="Refresh dashboard"
           >
@@ -586,6 +647,8 @@ function DashboardPage() {
             </div>
 
             <LaunchMetricsCard metrics={overview.launch_metrics} />
+
+            <RecommendationsCard />
 
             <div className="grid grid-cols-[minmax(0,1fr)] gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(340px,1fr)]">
               <RevenueChart data={overview.revenue_trend} />

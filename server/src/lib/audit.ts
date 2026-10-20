@@ -38,7 +38,9 @@ export type AuditAction =
     | 'REVIEW_APPROVED'
     | 'REVIEW_REJECTED'
     | 'REVIEW_REPLIED'
-    | 'REVIEW_REPLY_REMOVED';
+    | 'REVIEW_REPLY_REMOVED'
+    | 'PRODUCT_PAIRINGS_UPDATED'
+    | 'CATEGORY_PAIRINGS_UPDATED';
 
 export async function createAuditLog(data: {
     actor?: AuthUser | null;

@@ -11,7 +11,7 @@ import { productsQueries } from '../products/products.queries';
 import { catalogPagination, catalogQuerySchema } from './catalog.schema';
 import type { CategoryTreeNode, CategoryResponse, ProductImage, ProductResponse, StorefrontCatalogResponse, StorefrontHomeResponse } from 'shared/dist';
 
-function toProductResponse(product: any): ProductResponse {
+export function toProductResponse(product: any): ProductResponse {
     const images = (product.images ?? []).map((image: ProductImage) => ({
         id: image.id.toString(),
         product_id: image.product_id.toString(),
@@ -86,7 +86,7 @@ function toCategoryTree(categories: any[]): CategoryTreeNode[] {
     return roots;
 }
 
-async function attachImages(products: any[]) {
+export async function attachImages(products: any[]) {
     const productIds = [...new Set(products.map((product) => Number(product.id)).filter(Boolean))];
     const images = await productsQueries.findImagesByProductIds(productIds);
     const imagesByProductId = new Map<number, typeof images>();

@@ -13,7 +13,7 @@ import { cn } from '@/lib/utils';
 type Product = ProductResponse;
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Boxes, ImageIcon, Package, Pencil, Plus, Search, Star, Tag, Trash2, Upload } from 'lucide-react';
+import { Boxes, ImageIcon, Link2, Package, Pencil, Plus, Search, Star, Tag, Trash2, Upload } from 'lucide-react';
 import {
   Table,
   TableBody,
@@ -48,6 +48,7 @@ interface ProductsDataTableProps {
   onCreateNew?: () => void;
   onImportCsv?: () => void;
   onOpenVariants?: (product: Product) => void;
+  onOpenPairings?: (product: Product) => void;
   onEdit?: (product: Product) => void;
   onSale?: (product: Product) => void;
   onRemove?: (product: Product) => void;
@@ -72,6 +73,7 @@ export function ProductsDataTable({
   onCreateNew,
   onImportCsv,
   onOpenVariants,
+  onOpenPairings,
   onEdit,
   onSale,
   onRemove,
@@ -230,6 +232,11 @@ export function ProductsDataTable({
                   <Button variant="ghost" size="sm" onClick={() => onEdit?.(product)} title="Edit" aria-label={`Edit ${product.name}`} className="h-8 w-8 px-0">
                     <Pencil className="h-4 w-4" />
                   </Button>
+                  {onOpenPairings && (
+                    <Button variant="ghost" size="sm" onClick={() => onOpenPairings(product)} title="Goes well with" aria-label={`Choose what goes well with ${product.name}`} className="h-8 w-8 px-0">
+                      <Link2 className="h-4 w-4" />
+                    </Button>
+                  )}
                   <Button variant="ghost" size="sm" onClick={() => onSale?.(product)} title="Sale" aria-label={`Set a sale price for ${product.name}`} className="h-8 w-8 px-0">
                     <Tag className="h-4 w-4" />
                   </Button>

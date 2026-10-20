@@ -6,11 +6,14 @@ import { useAddToCart } from '@/hooks/useCart';
 import { useSeo } from '@/hooks/useSeo';
 import { useStorefrontHome } from '@/hooks/useStorefrontHome';
 import { ProductRail } from '@/components/home/ProductRail';
+import { RecentlyViewedRail } from '@/components/product/RecentlyViewedRail';
+import { useProductRecommendations } from '@/hooks/useRecommendations';
+import { recordRecentlyViewed } from '@/lib/recently-viewed';
 import { ProductReviews } from '@/components/reviews/ProductReviews';
 import { ratingLabel, Stars } from '@/components/reviews/Stars';
 import { useProductReviews } from '@/hooks/useReviews';
 import { formatPrice, isSaleActive } from '@/lib/format';
-import type { CategoryTreeNode, ProductResponse, ProductVariantResponse } from 'shared';
+import type { CategoryTreeNode, ProductVariantResponse } from 'shared';
 
 export const Route = createFileRoute('/products/$productId')({
   component: ProductDetailPage,
@@ -54,15 +57,20 @@ function ProductDetailPage() {
     return images;
   }, [product]);
 
-  // Category tree is already cached by the navbar; related pieces come from the same category.
+  // Category tree is already cached by the navbar.
   const treeQuery = useStorefrontHome({ limit: 48 });
   const tree = (treeQuery.data?.data?.category_tree as CategoryTreeNode[]) ?? [];
   const categoryPath = findCategoryPath(tree, product ? String(product.category_id) : undefined);
 
-  const relatedQuery = useStorefrontHome({ categoryId: product ? String(product.category_id) : undefined, limit: 9 });
-  const relatedProducts = ((relatedQuery.data?.data?.products as ProductResponse[]) ?? [])
-    .filter((p) => p.id !== product?.id)
-    .slice(0, 8);
+  // If recommendations fail to load, their rails simply don't show.
+  const recommendationsQuery = useProductRecommendations(productInternalId);
+  const recommendations = recommendationsQuery.isError ? undefined : recommendationsQuery.data;
+  const completeTheLook = (recommendations?.complete_the_look ?? []).slice(0, 4);
+  const similar = recommendations?.similar ?? [];
+
+  useEffect(() => {
+    if (productInternalId) recordRecentlyViewed(productInternalId);
+  }, [productInternalId]);
 
   const reviewsQuery = useProductReviews(productInternalId);
   const reviewPages = reviewsQuery.data?.pages;
@@ -260,6 +268,7 @@ function ProductDetailPage() {
   }
 
   if (!product) return (
+    <>
     <div className="flex min-h-[70svh] flex-col items-center justify-center gap-6 px-4 pt-[72px] text-center">
       <p className="text-label-caps text-foreground-faint">Not found</p>
       <h1 className="text-headline-lg">This piece has <em>moved on</em></h1>
@@ -270,6 +279,8 @@ function ProductDetailPage() {
         Browse the collection
       </Link>
     </div>
+    <RecentlyViewedRail />
+    </>
   );
 
   const hasVariantPrice = selectedVariant?.price_override != null;
@@ -567,14 +578,25 @@ function ProductDetailPage() {
       />
     </div>
 
-    <div className="border-t border-border-subtle">
-      <ProductRail
-        eyebrow={categoryPath.length > 0 ? categoryPath[categoryPath.length - 1].name : 'More to explore'}
-        title="You may also like"
-        products={relatedProducts}
-        isLoading={relatedQuery.isLoading}
-      />
-    </div>
+    {completeTheLook.length > 0 && (
+      <div className="border-t border-border-subtle">
+        <ProductRail eyebrow="Styled with" title="Complete the look" products={completeTheLook} isLoading={false} rail="complete_the_look" />
+      </div>
+    )}
+
+    {(recommendationsQuery.isLoading || similar.length > 0) && (
+      <div className="border-t border-border-subtle">
+        <ProductRail
+          eyebrow={categoryPath.length > 0 ? categoryPath[categoryPath.length - 1].name : 'More to explore'}
+          title="You may also like"
+          products={similar}
+          isLoading={recommendationsQuery.isLoading}
+          rail="similar"
+        />
+      </div>
+    )}
+
+    <RecentlyViewedRail excludeId={productInternalId} />
     </>
   );
 }
