@@ -1,3 +1,5 @@
+/* Inter, self-hosted: bundled by Vite and served by the admin itself (no Google Fonts request). */
+@import "@fontsource-variable/inter";
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "../../shared/styles/motion.css";
@@ -185,7 +187,7 @@
   }
   body {
     @apply bg-background text-foreground;
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    font-family: 'Inter Variable', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
     font-feature-settings: "cv02" 1, "cv03" 1, "cv04" 1, "cv11" 1;
   }
 }

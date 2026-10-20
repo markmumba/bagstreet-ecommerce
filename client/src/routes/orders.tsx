@@ -491,6 +491,8 @@ function OrdersPage() {
             size="sm"
             title="View order"
             aria-label={`View order ${formatOrderRef(row.original)}`}
+            // Keyboard users open the order from the row itself; this is the mouse/touch target.
+            tabIndex={-1}
             className="h-8 w-8 px-0 reveal-on-hover"
             onClick={(e) => { e.stopPropagation(); openOrder(row.original); }}
           >
@@ -631,12 +633,22 @@ function OrdersPage() {
                     table.getRowModel().rows.map((row) => (
                       <TableRow
                         key={row.id}
+                        // The row is the keyboard path to an order: Tab to it, then Enter or Space.
+                        tabIndex={0}
+                        aria-label={`Order ${formatOrderRef(row.original)}, ${row.original.shipping_address.full_name || 'guest'}, ${formatMoney(row.original.total_amount)}. Press Enter to open.`}
                         className={cn(
-                          'group cursor-pointer hover:bg-muted/50',
+                          'group cursor-pointer hover:bg-muted/50 focus-visible:bg-muted/50 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring',
                           (row.original.status === ORDER_STATUS.CANCELLED || row.original.status === ORDER_STATUS.REFUNDED)
                             && 'bg-muted/30 text-muted-foreground hover:bg-muted/40'
                         )}
                         onClick={() => openOrder(row.original)}
+                        onKeyDown={(event) => {
+                          if (event.target !== event.currentTarget) return;
+                          if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault();
+                            openOrder(row.original);
+                          }
+                        }}
                       >
                         {row.getVisibleCells().map((cell) => (
                           <TableCell key={cell.id} className={columnClasses[cell.column.id]}>

@@ -364,6 +364,8 @@ export interface StatementIssueResponse {
     row: number;
     kind: 'not_in_ledger' | 'amount_mismatch' | 'unknown_reference' | 'not_successful' | 'unreadable_amount';
     reference: string | null;
+    /** Set when the row's reference matched an order. */
+    order_id: string | null;
     order_number: string | null;
     statement_amount: number | null;
     ledger_amount: number | null;
@@ -382,6 +384,6 @@ export interface StatementReconciliationReport {
     fees_recorded: number;
     issues: StatementIssueResponse[];
     /** Payments in the ledger, dated within the statement's range, that the statement doesn't list. */
-    missing_from_statement: { order_number: string | null; reference: string | null; amount: number; date: string }[];
+    missing_from_statement: { order_id: string; order_number: string | null; reference: string | null; amount: number; date: string }[];
     date_range: { from: string; to: string } | null;
 }

@@ -93,9 +93,9 @@ export const reconciliationQueries = {
 
     /** Pesapal payments captured in [from, to] — to spot ones a statement for that period leaves out. */
     pesapalCapturesBetween: async (from: Date, to: Date) => {
-        return await sql<{ transaction_id: number; order_number: string | null; reference: string | null; amount: string; created_at: string }[]>`
+        return await sql<{ transaction_id: number; order_id: number; order_number: string | null; reference: string | null; amount: string; created_at: string }[]>`
             SELECT DISTINCT ON (t.id)
-                t.id AS transaction_id, o.order_number, COALESCE(t.provider_reference, t.merchant_reference) AS reference,
+                t.id AS transaction_id, o.id AS order_id, o.order_number, COALESCE(t.provider_reference, t.merchant_reference) AS reference,
                 l.amount, l.created_at
             FROM payment_ledger_entries l
             JOIN payment_transactions t ON t.order_id = l.order_id AND t.provider = 'pesapal' AND t.status = 'COMPLETED'

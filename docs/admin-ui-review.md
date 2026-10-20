@@ -146,7 +146,7 @@ This is roadmap item #7. Create one shared formatter module using `Intl.NumberFo
 - [x] `components/ui/input.tsx:12` and `components/ui/select.tsx:36`: the focus ring is `ring-ring/15`, which is nearly invisible. `button.tsx` and `textarea.tsx` use `/50`. Make them all the same and visible.
 - [x] `components/layout/DashboardLayout.tsx:199`: the account button's focus ring is too faint for the same reason. The menu items at `:223, :233` have no focus-visible style, and they use `role="menu"` without arrow-key handling.
 - [x] `components/layout/DashboardLayout.tsx:186`: there is no skip-to-content link.
-- [x] `routes/orders.tsx:570-578`: clickable rows have no keyboard handler. The View button covers this but is hidden until hover (see section 2). *(Kept: keyboard users use the View button, now visible on focus and on touch; a second tab stop per row would add noise.)*
+- [x] `routes/orders.tsx:570-578`: clickable rows have no keyboard handler. The View button covers this but is hidden until hover (see section 2). *(Rows are now focusable: Tab to a row, Enter or Space opens it. The View button is the mouse/touch target and is skipped by Tab.)*
 
 ### 3.6 Headings
 - [x] `routes/dashboard.tsx:236, :282, :336, :399, :462, :627`: section titles are `CardTitle` divs, so the page has an h1 and no h2s.
@@ -170,7 +170,7 @@ These should keep their filters, page and other state in the URL, so refresh, Ba
 - [x] `routes/orders.tsx:489-493`: the status filter has no "Processing" or "Out for delivery" option.
 - [x] `routes/orders.tsx:555`: `min-w-[1500px]` pushes the Total, Date and Actions columns off-screen on laptops between 1024px and 1500px.
 - [x] `components/products/ProductsDataTable.tsx:227`: `min-w-[1080px]` inside `overflow-hidden` clips columns between the `lg` breakpoint and about 1080px plus the sidebar width.
-- [x] `routes/reconciliation.tsx:120, :239-240, :257`: order numbers in issues are plain text. Link them to `/orders?order_id=…`. *(Report issues are linked. Statement-import rows only carry the order number, not its id, so they stay plain text for now.)*
+- [x] `routes/reconciliation.tsx:120, :239-240, :257`: order numbers in issues are plain text. Link them to `/orders?order_id=…`. *(Report issues, statement-import rows and "not on the statement" rows all link to their order: the import now returns `order_id`.)*
 
 ### 4.3 Phone width (390px), confirmed in the browser
 - [x] `components/layout/NotificationBell.tsx:117`: the panel (`w-80 right-0`) runs 22px off the left edge.
@@ -228,7 +228,7 @@ These should keep their filters, page and other state in the URL, so refresh, Ba
 
 ### 5.5 Motion and performance
 - [x] `client/src/index.css:210-220`: the `.skeleton` shimmer runs forever and has no `prefers-reduced-motion` guard. `animate-spin` and `animate-pulse` aren't covered either.
-- [x] `client/src/index.css:1`: Inter is loaded with a render-blocking Google Fonts `@import`. Self-host it, as the storefront does, or preconnect and preload. *(Moved to `<link>` tags with preconnect; self-hosting is still an option.)*
+- [x] `client/src/index.css:1`: Inter is loaded with a render-blocking Google Fonts `@import`. Self-host it, as the storefront does, or preconnect and preload. *(Self-hosted via `@fontsource-variable/inter`, bundled by Vite; only the Latin file is downloaded. Google Fonts is gone from the page and from the admin's Content-Security-Policy.)*
 
 ---
 

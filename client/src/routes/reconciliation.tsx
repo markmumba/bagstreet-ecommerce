@@ -1,4 +1,5 @@
 import { createFileRoute, Link } from '@tanstack/react-router';
+import { cn } from '@/lib/utils';
 import { useRef, useState } from 'react';
 import { AlertTriangle, CheckCircle2, FileSpreadsheet, Scale, Upload } from 'lucide-react';
 import type { ReconciliationIssueKind, StatementIssueResponse, StatementReconciliationReport } from 'shared';
@@ -251,7 +252,9 @@ function StatementImport() {
                       <div className="min-w-0">
                         <p className="text-xs text-muted-foreground">
                           Row {issue.row} · <span className="font-mono">{issue.reference ?? '—'}</span>
-                          {issue.order_number ? ` · ${issue.order_number}` : ''}
+                          {issue.order_id && (
+                            <> · <OrderLink id={issue.order_id}>{issue.order_number ?? `#${issue.order_id}`}</OrderLink></>
+                          )}
                         </p>
                         <p><Badge variant="warning" className="mr-2">{STATEMENT_ISSUE_LABELS[issue.kind]}</Badge>{issue.message}</p>
                       </div>
@@ -268,7 +271,9 @@ function StatementImport() {
                 <div className="divide-y rounded-xl border text-sm">
                   {result.missing_from_statement.map((m, i) => (
                     <div key={`${m.reference}-${i}`} className="flex justify-between gap-3 px-3 py-2">
-                      <span><span className="font-mono text-xs">{m.order_number}</span> · {m.reference}</span>
+                      <span className="min-w-0">
+                        <OrderLink id={m.order_id} className="font-mono text-xs">{m.order_number ?? `#${m.order_id}`}</OrderLink> · {m.reference}
+                      </span>
                       <span className="tabular-nums">{kes(m.amount)}</span>
                     </div>
                   ))}
@@ -291,5 +296,14 @@ function StatementImport() {
         )}
       </CardContent>
     </Card>
+  );
+}
+
+/** An order number that opens the order in the orders page. */
+function OrderLink({ id, className, children }: { id: string; className?: string; children: React.ReactNode }) {
+  return (
+    <Link to="/orders" search={{ order_id: id }} className={cn('font-mono underline-offset-2 hover:underline', className)}>
+      {children}
+    </Link>
   );
 }
