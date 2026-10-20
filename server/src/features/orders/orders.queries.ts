@@ -272,14 +272,15 @@ export const ordersQueries = {
                 INSERT INTO orders(
                     user_id, order_number, total_amount, shipping_address, shipping_location_id, shipping_cost,
                     notes, discount_code, discount_amount, customer_name, customer_phone, customer_email,
-                    status, payment_status, order_source, paid_at, voucher_id, voucher_amount, voucher_last4
+                    status, payment_status, order_source, paid_at, voucher_id, voucher_amount, voucher_last4, delivered_at
                 )
                 VALUES (
                     ${userId}, ${orderNumber}, ${draft.totalAmount}, ${toJsonbParam(shippingAddress)}::jsonb,
                     ${draft.shippingLocationId}, ${draft.shippingCost}, ${draft.notes ?? null},
                     ${draft.discountCode}, ${draft.discountAmount}, ${draft.customerName}, ${draft.customerPhone}, ${customerEmail},
                     ${start.status}, ${start.payment}, ${draft.orderSource ?? ORDER_SOURCE.ONLINE}, ${paidAt},
-                    ${draft.voucher?.id ?? null}, ${draft.voucher?.amount ?? 0}, ${draft.voucher?.last4 ?? null}
+                    ${draft.voucher?.id ?? null}, ${draft.voucher?.amount ?? 0}, ${draft.voucher?.last4 ?? null},
+                    ${start.status === ORDER_STATUS.DELIVERED ? new Date().toISOString() : null}
                 )
                 RETURNING *
             `;

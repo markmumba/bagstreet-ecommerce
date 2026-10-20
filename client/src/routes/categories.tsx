@@ -1,7 +1,10 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useState, useEffect } from 'react';
 import type { ColumnDef } from '@tanstack/react-table';
-import { useCategories, useDeleteCategory, useImportCategoriesCsv } from '@/hooks/useCategories';
+import { useCategories, useCategoryOptions, useDeleteCategory, useImportCategoriesCsv } from '@/hooks/useCategories';
+import { useCategoryPairings } from '@/hooks/useRecommendations';
+import { CategoryPairingsDialog } from '@/components/categories/CategoryPairingsDialog';
+import { Link2 } from 'lucide-react';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { CategoryDialog } from '@/components/categories/CategoryDialog';
 import { CategoriesDataTable } from '@/components/categories/CategoriesDataTable';
@@ -10,6 +13,7 @@ import { CsvImportDialog } from '@/components/import/CsvImportDialog';
 import type { CategoryResponse } from 'shared';
 import { Button } from '@/components/ui/button';
 import { formatDate } from '@/lib/format';
+import { ErrorNotice, errorMessage } from '@/components/ui/notice';
 
 export const Route = createFileRoute('/categories')({
   component: CategoriesPage,
@@ -44,6 +48,44 @@ function CategoriesPage() {
   const totalPages = Math.max(1, Math.ceil(total / LIMIT));
 
   const deleteMutation = useDeleteCategory();
+  const { data: allCategories = [] } = useCategoryOptions();
+  const { data: pairingsData, error: pairingsError } = useCategoryPairings();
+  const [pairingTarget, setPairingTarget] = useState<CategoryResponse | null>(null);
+
+  const topLevel = allCategories.filter((c) => !c.parent_id);
+  const nameById = new Map(allCategories.map((c) => [c.id, c.name]));
+  const pairedIds = (categoryId: string) =>
+    pairingsData?.pairings.find((p) => p.category_id === categoryId)?.paired_category_ids ?? [];
+
+  /** "Goes with" chips and an edit button; subcategories use their top-level category's pairings. */
+  const renderGoesWith = (cat: CategoryResponse) => {
+    if (cat.parent_id) return null;
+    const names = pairedIds(cat.id).map((id) => nameById.get(id)).filter(Boolean) as string[];
+    return (
+      <div className="group flex min-w-0 flex-wrap items-center gap-1.5">
+        {names.length ? (
+          names.map((name) => (
+            <span key={name} className="rounded-full border border-border bg-background px-2 py-0.5 text-xs font-medium">
+              {name}
+            </span>
+          ))
+        ) : (
+          <span className="text-sm text-muted-foreground">—</span>
+        )}
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => setPairingTarget(cat)}
+          disabled={!pairingsData}
+          title="Edit what goes with this category"
+          aria-label={`Choose categories that go with ${cat.name}`}
+          className="h-7 w-7 px-0 reveal-on-hover"
+        >
+          <Link2 className="h-4 w-4" />
+        </Button>
+      </div>
+    );
+  };
   const importMutation = useImportCategoriesCsv();
 
   const handleCreate = () => {
@@ -105,6 +147,11 @@ function CategoriesPage() {
           </div>
         );
       },
+    },
+    {
+      id: 'goes_with',
+      header: 'Goes with',
+      cell: ({ row }) => renderGoesWith(row.original) ?? <span className="sr-only">Uses its parent’s pairings</span>,
     },
     {
       accessorKey: 'created_at',
@@ -169,8 +216,21 @@ function CategoriesPage() {
           </div>
         )}
 
+        {pairingsError && (
+          <ErrorNotice>{errorMessage(pairingsError, 'Could not load which categories go together. Refresh the page to try again.')}</ErrorNotice>
+        )}
+
         {!isLoading && !error && (
           <CategoriesDataTable
+            renderExtra={(cat) => {
+              const content = renderGoesWith(cat);
+              return content && (
+                <div className="mt-3 border-t pt-3">
+                  <p className="mb-1.5 text-xs text-muted-foreground">Goes with</p>
+                  {content}
+                </div>
+              );
+            }}
             data={categories}
             columns={columns}
             onCreateNew={handleCreate}
@@ -199,6 +259,12 @@ function CategoriesPage() {
         onImport={async (file) => {
           return importMutation.mutateAsync(file);
         }}
+      />
+      <CategoryPairingsDialog
+        category={pairingTarget}
+        topLevel={topLevel}
+        current={pairingTarget ? pairedIds(pairingTarget.id) : []}
+        onClose={() => setPairingTarget(null)}
       />
       <ConfirmDialog
         open={!!deleteTarget}

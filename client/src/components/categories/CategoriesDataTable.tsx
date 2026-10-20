@@ -6,7 +6,7 @@ import {
   type ColumnDef,
   type SortingState,
 } from '@tanstack/react-table';
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import type { CategoryResponse } from 'shared';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -36,6 +36,8 @@ interface CategoriesDataTableProps {
   onEdit?: (category: CategoryResponse) => void;
   onDelete?: (category: CategoryResponse) => void;
   isDeleting?: boolean;
+  /** Extra content at the bottom of each phone card. */
+  renderExtra?: (category: CategoryResponse) => ReactNode;
 }
 
 export function CategoriesDataTable({
@@ -52,6 +54,7 @@ export function CategoriesDataTable({
   onEdit,
   onDelete,
   isDeleting = false,
+  renderExtra,
 }: CategoriesDataTableProps) {
   const [sorting, setSorting] = useState<SortingState>([]);
 
@@ -120,6 +123,8 @@ export function CategoriesDataTable({
                     {cat.children_count ?? 0} sub
                   </div>
                 </div>
+
+                {renderExtra?.(category)}
 
                 <div className="mt-4 flex items-center justify-between gap-3 border-t pt-3">
                   <p className="text-xs text-muted-foreground tabular-nums">

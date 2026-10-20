@@ -1,10 +1,13 @@
 import { Link } from '@tanstack/react-router';
 import type { ProductResponse } from 'shared';
 import { formatPrice, isSaleActive } from '@/lib/format';
+import { ratingLabel, Stars } from '@/components/reviews/Stars';
 
 export function ProductCard({ product, priority = false }: { product: ProductResponse; priority?: boolean }) {
   const onSale = isSaleActive(product);
   const soldOut = product.stock_status === 'out';
+  const ratingCount = product.rating_count ?? 0;
+  const showRating = ratingCount >= 3 && product.rating_average != null;
   const hoverImage = product.images?.find((img) => !img.is_primary && img.url !== product.image_url)?.url;
 
   return (
@@ -73,6 +76,13 @@ export function ProductCard({ product, priority = false }: { product: ProductRes
               formatPrice(product.price)
             )}
           </p>
+          {showRating && (
+            <p className="mt-1.5 flex items-center gap-1.5 text-[12px] text-foreground-faint">
+              <Stars rating={product.rating_average!} size={12} />
+              <span aria-hidden="true" className="tabular-nums">({ratingCount})</span>
+              <span className="sr-only">{ratingLabel(product.rating_average!, ratingCount)}</span>
+            </p>
+          )}
         </div>
       </article>
     </Link>

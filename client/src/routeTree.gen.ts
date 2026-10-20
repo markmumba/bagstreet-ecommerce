@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as UsersRouteImport } from './routes/users'
 import { Route as ShippingRouteImport } from './routes/shipping'
 import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as ReviewsRouteImport } from './routes/reviews'
 import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as ReconciliationRouteImport } from './routes/reconciliation'
 import { Route as PromotionsRouteImport } from './routes/promotions'
@@ -39,6 +40,11 @@ const ShippingRoute = ShippingRouteImport.update({
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ReviewsRoute = ReviewsRouteImport.update({
+  id: '/reviews',
+  path: '/reviews',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ResetPasswordRoute = ResetPasswordRouteImport.update({
@@ -121,6 +127,7 @@ export interface FileRoutesByFullPath {
   '/promotions': typeof PromotionsRoute
   '/reconciliation': typeof ReconciliationRoute
   '/reset-password': typeof ResetPasswordRoute
+  '/reviews': typeof ReviewsRoute
   '/settings': typeof SettingsRoute
   '/shipping': typeof ShippingRoute
   '/users': typeof UsersRoute
@@ -139,6 +146,7 @@ export interface FileRoutesByTo {
   '/promotions': typeof PromotionsRoute
   '/reconciliation': typeof ReconciliationRoute
   '/reset-password': typeof ResetPasswordRoute
+  '/reviews': typeof ReviewsRoute
   '/settings': typeof SettingsRoute
   '/shipping': typeof ShippingRoute
   '/users': typeof UsersRoute
@@ -158,6 +166,7 @@ export interface FileRoutesById {
   '/promotions': typeof PromotionsRoute
   '/reconciliation': typeof ReconciliationRoute
   '/reset-password': typeof ResetPasswordRoute
+  '/reviews': typeof ReviewsRoute
   '/settings': typeof SettingsRoute
   '/shipping': typeof ShippingRoute
   '/users': typeof UsersRoute
@@ -178,6 +187,7 @@ export interface FileRouteTypes {
     | '/promotions'
     | '/reconciliation'
     | '/reset-password'
+    | '/reviews'
     | '/settings'
     | '/shipping'
     | '/users'
@@ -196,6 +206,7 @@ export interface FileRouteTypes {
     | '/promotions'
     | '/reconciliation'
     | '/reset-password'
+    | '/reviews'
     | '/settings'
     | '/shipping'
     | '/users'
@@ -214,6 +225,7 @@ export interface FileRouteTypes {
     | '/promotions'
     | '/reconciliation'
     | '/reset-password'
+    | '/reviews'
     | '/settings'
     | '/shipping'
     | '/users'
@@ -233,6 +245,7 @@ export interface RootRouteChildren {
   PromotionsRoute: typeof PromotionsRoute
   ReconciliationRoute: typeof ReconciliationRoute
   ResetPasswordRoute: typeof ResetPasswordRoute
+  ReviewsRoute: typeof ReviewsRoute
   SettingsRoute: typeof SettingsRoute
   ShippingRoute: typeof ShippingRoute
   UsersRoute: typeof UsersRoute
@@ -259,6 +272,13 @@ declare module '@tanstack/react-router' {
       path: '/settings'
       fullPath: '/settings'
       preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/reviews': {
+      id: '/reviews'
+      path: '/reviews'
+      fullPath: '/reviews'
+      preLoaderRoute: typeof ReviewsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/reset-password': {
@@ -369,6 +389,7 @@ const rootRouteChildren: RootRouteChildren = {
   PromotionsRoute: PromotionsRoute,
   ReconciliationRoute: ReconciliationRoute,
   ResetPasswordRoute: ResetPasswordRoute,
+  ReviewsRoute: ReviewsRoute,
   SettingsRoute: SettingsRoute,
   ShippingRoute: ShippingRoute,
   UsersRoute: UsersRoute,

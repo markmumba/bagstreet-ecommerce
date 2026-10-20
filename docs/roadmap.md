@@ -92,8 +92,8 @@ Decisions: valid **1 year**, disclosed in the terms of sale and on the voucher (
 - [ ] Sales reports: revenue by date range, top products (monthly CSV exports already exist)
 - [ ] Wishlist
 - [ ] Returns request flow (refunds are recorded today; there is no customer return request)
-- [ ] Product reviews
-- [ ] Better recommendations (the product page shows same-category items today)
+- [x] Product reviews (agreed 20 Oct 2026): verified buyers only, approved by staff before they show, invitation email 5 days after the order is received, one public reply per review, stars on shop cards from 3 reviews, `aggregateRating` on the product page. `bun run test:reviews`
+- [x] Better recommendations (20 Oct 2026): "Complete the look" (staff picks, then paired categories), "You may also like" (same category family, similar price, shared colours), bag suggestions, recently viewed (browser only); bought-together counts join from 3 paid orders; clicks counted per day and rail on the dashboard. `bun run test:recommendations`
 - [ ] Google sign-in
 - [ ] Order tracking, only if dispatch stops being manual
 
