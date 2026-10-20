@@ -95,21 +95,24 @@ export function NotificationBell() {
                 size="sm"
                 className="relative h-8 w-8 p-0"
                 onClick={() => setOpen((o) => !o)}
-                aria-label="Notifications"
+                aria-label={unreadCount > 0 ? `Notifications, ${unreadCount} unread` : 'Notifications'}
+                aria-haspopup="true"
+                aria-controls="notifications-panel"
                 aria-expanded={open}
             >
                 <Bell className="h-4 w-4" />
                 {unreadCount > 0 && (
-                    <span className="absolute -top-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-[10px] font-medium text-destructive-foreground">
+                    <span aria-hidden="true" className="absolute -top-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-[10px] font-medium text-destructive-foreground">
                         {unreadCount > 99 ? '99+' : unreadCount}
                     </span>
                 )}
             </Button>
 
             <div
+                id="notifications-panel"
                 inert={!open}
                 data-state={open ? 'open' : 'closed'}
-                className="ui-menu absolute right-0 top-10 z-[100] w-80 rounded-md border border-border bg-background shadow-lg"
+                className="ui-menu fixed inset-x-4 top-16 z-[100] rounded-md border border-border bg-background shadow-lg sm:absolute sm:inset-x-auto sm:right-0 sm:top-10 sm:w-80"
             >
                 {/* Header */}
                 <div className="flex items-center justify-between border-b border-border px-4 py-2">
@@ -139,12 +142,14 @@ export function NotificationBell() {
                             >
                                 {/* Unread dot */}
                                 <span
+                                    aria-hidden="true"
                                     className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${
                                         notif.is_read ? 'bg-transparent' : 'bg-primary'
                                     }`}
                                 />
                                 <div className="min-w-0 flex-1">
                                     <p className={`text-sm leading-snug ${notif.is_read ? 'text-muted-foreground' : 'font-medium text-foreground'}`}>
+                                        {!notif.is_read && <span className="sr-only">Unread: </span>}
                                         {notif.title}
                                     </p>
                                     {notif.body && (

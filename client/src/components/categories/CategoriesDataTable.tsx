@@ -68,7 +68,10 @@ export function CategoriesDataTable({
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
         <Input
-          placeholder="Search categories..."
+          type="search"
+          aria-label="Search categories"
+          autoComplete="off"
+          placeholder="Search categories…"
           value={search}
           onChange={(e) => onSearchChange(e.target.value)}
           className="h-9 w-full max-w-[240px]"
@@ -85,7 +88,7 @@ export function CategoriesDataTable({
         {onCreateNew && (
           <Button onClick={onCreateNew}>
             <Plus className="h-4 w-4" />
-            New Category
+            New category
           </Button>
         )}
       </div>

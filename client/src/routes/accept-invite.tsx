@@ -1,10 +1,11 @@
-import { createFileRoute, useNavigate } from '@tanstack/react-router';
+import { createFileRoute, useNavigate, Link } from '@tanstack/react-router';
 import { useState } from 'react';
 import { z } from 'zod';
 import { apiClient } from '@/services/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { ErrorNotice } from '@/components/ui/notice';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { ShoppingBag } from 'lucide-react';
 
@@ -26,12 +27,12 @@ function AcceptInvitePage() {
     setError(null);
 
     if (password !== confirm) {
-      setError('Passwords do not match');
+      setError('The passwords don’t match. Type the same password in both fields.');
       return;
     }
 
     if (password.length < 8) {
-      setError('Password must be at least 8 characters');
+      setError('Use a password of at least 8 characters.');
       return;
     }
 
@@ -40,7 +41,7 @@ function AcceptInvitePage() {
       await apiClient.post('/api/auth/accept-invite', { token, password });
       navigate({ to: '/login', search: { activated: '1' } });
     } catch (err: any) {
-      setError(err?.message || 'Invalid or expired invite link');
+      setError(err?.message || 'This invite link is invalid or has expired. Ask an admin to send a new invite.');
     } finally {
       setSubmitting(false);
     }
@@ -51,9 +52,14 @@ function AcceptInvitePage() {
       <div className="flex min-h-screen items-center justify-center bg-muted/40 px-4">
         <Card className="w-full max-w-sm">
           <CardHeader>
-            <CardTitle>Invalid Link</CardTitle>
-            <CardDescription>This invite link is missing or invalid.</CardDescription>
+            <CardTitle>Invalid link</CardTitle>
+            <CardDescription>This invite link is missing or invalid. Ask an admin to send you a new invite.</CardDescription>
           </CardHeader>
+          <CardContent>
+            <Link to="/login" className="block text-center text-sm text-muted-foreground hover:text-foreground">
+              Back to sign in
+            </Link>
+          </CardContent>
         </Card>
       </div>
     );
@@ -72,7 +78,7 @@ function AcceptInvitePage() {
 
         <Card>
           <CardHeader className="space-y-1">
-            <CardTitle className="text-xl">Accept Invitation</CardTitle>
+            <CardTitle className="text-xl">Accept invitation</CardTitle>
             <CardDescription>Choose a password to activate your account.</CardDescription>
           </CardHeader>
           <CardContent>
@@ -81,7 +87,9 @@ function AcceptInvitePage() {
                 <Label htmlFor="password">Password</Label>
                 <Input
                   id="password"
+                  name="new-password"
                   type="password"
+                  autoComplete="new-password"
                   placeholder="Min 8 characters"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
@@ -90,10 +98,12 @@ function AcceptInvitePage() {
                 />
               </div>
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="confirm">Confirm Password</Label>
+                <Label htmlFor="confirm">Confirm password</Label>
                 <Input
                   id="confirm"
+                  name="confirm-password"
                   type="password"
+                  autoComplete="new-password"
                   placeholder="Repeat password"
                   value={confirm}
                   onChange={(e) => setConfirm(e.target.value)}
@@ -101,14 +111,10 @@ function AcceptInvitePage() {
                 />
               </div>
 
-              {error && (
-                <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                  {error}
-                </p>
-              )}
+              <ErrorNotice>{error}</ErrorNotice>
 
               <Button type="submit" className="w-full" disabled={submitting}>
-                {submitting ? 'Activating…' : 'Set Password & Activate'}
+                {submitting ? 'Activating…' : 'Set password and activate'}
               </Button>
             </form>
           </CardContent>

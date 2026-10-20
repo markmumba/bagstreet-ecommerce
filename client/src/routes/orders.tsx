@@ -5,16 +5,15 @@ import type { ColumnDef } from '@tanstack/react-table';
 import {
   flexRender,
   getCoreRowModel,
-  getSortedRowModel,
   useReactTable,
   type SortingState,
 } from '@tanstack/react-table';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { OrderSheet } from '@/components/orders/OrderSheet';
-import { PaymentStatusChip } from '@/components/orders/PaymentStatusChip';
+import { PAYMENT_STATUS_STYLES, PaymentStatusChip } from '@/components/orders/PaymentStatusChip';
 import { WalkInSaleDialog } from '@/components/orders/WalkInSaleDialog';
 import { useOrders } from '@/hooks/useOrders';
-import { ordersService } from '@/services/orders.service';
+import { ordersService, type OrderSortField } from '@/services/orders.service';
 import { useAuth } from '@/context/AuthContext';
 import { Button } from '@/components/ui/button';
 import {
@@ -38,29 +37,40 @@ import type { OrderResponse, OrderStatus, PaymentStatus } from 'shared';
 import { cn } from '@/lib/utils';
 import { formatDate, formatMoney, nairobiDay } from '@/lib/format';
 import { toast } from '@/lib/toast';
-import { errorMessage } from '@/components/ui/notice';
+import { ErrorNotice, errorMessage } from '@/components/ui/notice';
 
 export const Route = createFileRoute('/orders')({
+  // Filters, page and sort live in the URL, so refresh, Back and shared links keep them.
   validateSearch: z.object({
     order_id: z.string().optional(),
+    status: z.string().optional().catch(undefined),
+    payment: z.string().optional().catch(undefined),
+    page: z.coerce.number().int().min(1).optional().catch(undefined),
+    sort: z.enum(['date', 'total', 'order', 'customer']).optional().catch(undefined),
+    dir: z.enum(['asc', 'desc']).optional().catch(undefined),
   }),
   component: OrdersPage,
 });
 
 const LIMIT = 20;
 
+// Less important columns drop out on narrower screens so Total, Date and Actions stay in view
+// (the order sheet has everything).
 const columnClasses: Record<string, string> = {
-  id: 'w-[280px]',
-  customer: 'w-[220px]',
-  source: 'w-[130px]',
-  delivery: 'w-[320px]',
-  status: 'w-[150px]',
+  id: 'w-[220px]',
+  customer: 'w-[200px]',
+  source: 'hidden w-[120px] xl:table-cell',
+  delivery: 'hidden w-[280px] 2xl:table-cell',
+  status: 'w-[140px]',
   payment_status: 'w-[140px]',
-  items: 'w-[240px]',
-  total_amount: 'w-[150px]',
-  created_at: 'w-[150px]',
-  actions: 'w-[88px]',
+  items: 'hidden w-[220px] 2xl:table-cell',
+  total_amount: 'w-[140px]',
+  created_at: 'w-[130px]',
+  actions: 'w-[72px]',
 };
+
+/** Table column → server sort field. */
+const SORT_FIELDS: Record<string, OrderSortField> = { id: 'order', total_amount: 'total', created_at: 'date' };
 
 const STATUS_STYLES: Record<OrderStatus, { label: string; icon: React.ElementType; className: string }> = {
   [ORDER_STATUS.PENDING]: { label: 'Pending', icon: Timer, className: 'bg-[var(--color-warning-bg)] text-[var(--color-warning-text)]' },
@@ -119,6 +129,21 @@ function SourceChip({ source }: { source?: OrderResponse['order_source'] }) {
       {kind === 'walk_in' ? 'Walk-in' : kind === 'voucher' ? 'Gift voucher' : 'Online'}
     </span>
   );
+}
+
+/** What an empty list says: why it's empty, in words staff use, and what to do. */
+function emptyOrdersCopy(statusFilter: string, paymentFilter: string) {
+  if (!statusFilter && !paymentFilter) {
+    return { title: 'No orders yet', hint: 'Share your store link on Instagram to get started.' };
+  }
+  const labels = [
+    statusFilter && (STATUS_STYLES[statusFilter as OrderStatus]?.label ?? statusFilter),
+    paymentFilter && (PAYMENT_STATUS_STYLES[paymentFilter as PaymentStatus]?.label ?? paymentFilter),
+  ].filter(Boolean).map((label) => `“${label}”`);
+  return {
+    title: 'No orders match these filters',
+    hint: `No orders are ${labels.join(' and ')} right now. Choose “All statuses” and “All payments” to see every order.`,
+  };
 }
 
 function copyOrderRef(order: OrderResponse) {
@@ -202,26 +227,45 @@ function OrdersPage() {
   const [selectedOrder, setSelectedOrder] = useState<OrderResponse | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [walkInOpen, setWalkInOpen] = useState(false);
-  const [sorting, setSorting] = useState<SortingState>([]);
+  // Filters, page and sort come from the URL; changing a filter goes back to page 1.
+  const statusFilter = search.status ?? '';
+  const paymentFilter = search.payment ?? '';
+  const page = search.page ?? 1;
+  const sortBy: OrderSortField = search.sort ?? 'date';
+  const sortDir = search.dir ?? 'desc';
+  const updateSearch = (patch: Partial<typeof search>) =>
+    navigate({ to: '/orders', search: (prev: typeof search) => ({ ...prev, ...patch }), replace: true });
+  const setStatusFilter = (status: string) => updateSearch({ status: status || undefined, page: undefined });
+  const setPaymentFilter = (payment: string) => updateSearch({ payment: payment || undefined, page: undefined });
+  const setPage = (next: number | ((current: number) => number)) => {
+    const value = typeof next === 'function' ? next(page) : next;
+    updateSearch({ page: value > 1 ? value : undefined });
+  };
+  const sortColumn = Object.entries(SORT_FIELDS).find(([, field]) => field === sortBy)?.[0] ?? 'created_at';
+  const sorting: SortingState = [{ id: sortColumn, desc: sortDir === 'desc' }];
+  const setSorting = (updater: SortingState | ((old: SortingState) => SortingState)) => {
+    const next = (typeof updater === 'function' ? updater(sorting) : updater)[0];
+    const field = next ? SORT_FIELDS[next.id] : undefined;
+    updateSearch({
+      sort: field && field !== 'date' ? field : undefined,
+      dir: field && !(field === 'date' && next!.desc) ? (next!.desc ? 'desc' : 'asc') : undefined,
+      page: undefined,
+    });
+  };
 
-  // Server-side filter state
-  const [statusFilter, setStatusFilter] = useState('');
-  const [paymentFilter, setPaymentFilter] = useState('');
-  const [page, setPage] = useState(1);
-
-  // Reset page on filter change
-  useEffect(() => { setPage(1); }, [statusFilter, paymentFilter]);
-
-  const { data: res, isLoading, error } = useOrders({
+  const { data: res, isLoading, error, refetch, isRefetching } = useOrders({
     page,
     limit: LIMIT,
     status: statusFilter || undefined,
     payment_status: (paymentFilter || undefined) as PaymentStatus | undefined,
+    sort: sortBy,
+    dir: sortDir,
   });
 
   const orders: OrderResponse[] = res?.items ?? [];
   const total = res?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / LIMIT));
+  const empty = emptyOrdersCopy(statusFilter, paymentFilter);
   const canCreateWalkInSale = user?.role === USER_ROLE.ADMIN || user?.role === USER_ROLE.MANAGER;
 
   const openOrder = (order: OrderResponse) => {
@@ -260,7 +304,7 @@ function OrdersPage() {
     setSheetOpen(nextOpen);
     if (!nextOpen && search.order_id) {
       openedSearchOrderRef.current = null;
-      navigate({ to: '/orders', search: {} as any, replace: true });
+      updateSearch({ order_id: undefined });
     }
   };
 
@@ -461,14 +505,16 @@ function OrdersPage() {
     data: orders,
     columns,
     getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
+    // Sorted by the server across every order; the table only shows the current page.
+    manualSorting: true,
+    enableSortingRemoval: false,
     onSortingChange: setSorting,
     state: { sorting },
   });
 
   return (
     <DashboardLayout>
-      <div className="flex flex-col gap-6 p-6">
+      <div className="flex flex-col gap-6 p-4 sm:p-6">
         <div>
           <h1 className="text-2xl font-semibold leading-tight">Orders</h1>
           <p className="mt-1 text-sm text-muted-foreground">Track and manage customer orders</p>
@@ -485,8 +531,13 @@ function OrdersPage() {
         )}
 
         {error && (
-          <div className="rounded-xl border border-destructive/50 bg-destructive/10 p-4">
-            <p className="text-sm font-medium text-destructive">Failed to load orders</p>
+          <div className="flex flex-col items-start gap-3">
+            <ErrorNotice>
+              {errorMessage(error, 'Orders couldn’t be loaded. Check your connection, then try again.')}
+            </ErrorNotice>
+            <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isRefetching}>
+              {isRefetching ? 'Trying again…' : 'Try again'}
+            </Button>
           </div>
         )}
 
@@ -502,6 +553,7 @@ function OrdersPage() {
                   <SelectItem value="all">All statuses</SelectItem>
                   <SelectItem value={ORDER_STATUS.PENDING}>Pending</SelectItem>
                   <SelectItem value={ORDER_STATUS.CONFIRMED}>Confirmed</SelectItem>
+                  <SelectItem value={ORDER_STATUS.SHIPPED}>Out for delivery</SelectItem>
                   <SelectItem value={ORDER_STATUS.DELIVERED}>Received</SelectItem>
                   <SelectItem value={ORDER_STATUS.CANCELLED}>Cancelled</SelectItem>
                   <SelectItem value={ORDER_STATUS.REFUNDED}>Refunded</SelectItem>
@@ -542,7 +594,7 @@ function OrdersPage() {
                 )}
                 <Button variant="outline" size="sm" onClick={exportCsv} disabled={isExporting || total === 0}>
                   <Download className="mr-1.5 h-3.5 w-3.5" />
-                  {isExporting ? 'Exporting...' : 'Export CSV'}
+                  {isExporting ? 'Exporting…' : 'Export CSV'}
                 </Button>
               </div>
             </div>
@@ -555,18 +607,14 @@ function OrdersPage() {
               ) : (
                 <div className="rounded-xl border bg-card p-8 text-center text-muted-foreground">
                   <ClipboardList className="mx-auto h-6 w-6" strokeWidth={1.5} />
-                  <p className="mt-3 font-medium text-foreground">
-                    {statusFilter ? `No ${statusFilter} orders right now` : 'No orders yet'}
-                  </p>
-                  <p className="mt-1 text-sm">
-                    {statusFilter ? 'All caught up.' : 'Share your store link on Instagram to get started.'}
-                  </p>
+                  <p className="mt-3 font-medium text-foreground">{empty.title}</p>
+                  <p className="mt-1 text-sm">{empty.hint}</p>
                 </div>
               )}
             </div>
 
-            <div className="hidden overflow-hidden rounded-xl border bg-card lg:block">
-              <Table className="min-w-[1500px] table-fixed">
+            <div className="hidden overflow-x-auto rounded-xl border bg-card lg:block">
+              <Table className="min-w-[1000px] table-fixed xl:min-w-[1120px] 2xl:min-w-[1600px]">
                 <TableHeader>
                   {table.getHeaderGroups().map((hg) => (
                     <TableRow key={hg.id}>
@@ -603,12 +651,8 @@ function OrdersPage() {
                         <div className="flex flex-col items-center gap-3">
                           <ClipboardList className="h-6 w-6" strokeWidth={1.5} />
                           <div>
-                            <p className="font-medium text-foreground">
-                              {statusFilter ? `No ${statusFilter} orders right now` : 'No orders yet'}
-                            </p>
-                            <p className="mt-1 text-sm text-muted-foreground">
-                              {statusFilter ? 'All caught up.' : 'Share your store link on Instagram to get started.'}
-                            </p>
+                            <p className="font-medium text-foreground">{empty.title}</p>
+                            <p className="mt-1 text-sm text-muted-foreground">{empty.hint}</p>
                           </div>
                         </div>
                       </TableCell>

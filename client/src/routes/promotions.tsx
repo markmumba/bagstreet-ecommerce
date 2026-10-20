@@ -16,7 +16,9 @@ import {
 import { formatDate as formatDay, formatMoney } from '@/lib/format';
 import type { ProductResponse } from 'shared';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
-import { errorMessage } from '@/components/ui/notice';
+import { ErrorNotice, errorMessage } from '@/components/ui/notice';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { toast } from '@/lib/toast';
 
 export const Route = createFileRoute('/promotions')({
@@ -61,7 +63,8 @@ function PromotionsPage() {
     requires_account: true,
   });
   const [thresholdInput, setThresholdInput] = useState('');
-  const [error, setError] = useState('');
+  const [discountError, setDiscountError] = useState('');
+  const [thresholdError, setThresholdError] = useState('');
   const [endingSale, setEndingSale] = useState<ProductResponse | null>(null);
 
   const handleGenerateCode = () => {
@@ -70,7 +73,7 @@ function PromotionsPage() {
 
   const submitDiscount = async (event: React.FormEvent) => {
     event.preventDefault();
-    setError('');
+    setDiscountError('');
     try {
       await createDiscount.mutateAsync({
         code: form.code.trim(),
@@ -82,97 +85,118 @@ function PromotionsPage() {
         requires_account: form.requires_account,
       });
       setForm({ code: '', value: '', min_order_amount: '0', usage_limit: '', expires_at: '', requires_account: true });
-    } catch (err: any) {
-      setError(err?.message || 'Failed to create discount code');
+    } catch (err) {
+      setDiscountError(errorMessage(err, 'Could not create the code. Check the details and try again.'));
     }
   };
 
   const submitThreshold = async (event: React.FormEvent) => {
     event.preventDefault();
-    setError('');
+    setThresholdError('');
     try {
       await updateThreshold.mutateAsync(Number(thresholdInput || 0));
       setThresholdInput('');
-    } catch (err: any) {
-      setError(err?.message || 'Failed to update threshold');
+    } catch (err) {
+      setThresholdError(errorMessage(err, 'Could not save the threshold. Check your connection and try again.'));
     }
   };
 
   return (
     <DashboardLayout>
-      <div className="flex flex-col gap-6 p-6">
+      <div className="flex flex-col gap-6 p-4 sm:p-6">
         <div>
           <h1 className="text-2xl font-semibold leading-tight">Promotions</h1>
           <p className="mt-1 text-sm text-muted-foreground">Manage discount codes, free delivery, and flash sales</p>
         </div>
-
-        {error && (
-          <div className="rounded-xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-            {error}
-          </div>
-        )}
 
         <div className="grid gap-6 xl:grid-cols-[420px_1fr]">
           <div className="space-y-6">
             <form onSubmit={submitDiscount} className="rounded-xl border bg-card p-4">
               <h2 className="text-sm font-semibold">Create promo code</h2>
               <div className="mt-4 grid gap-3">
-                <div className="flex gap-2">
-                  <input
-                    value={form.code}
-                    onChange={(e) => setForm((f) => ({ ...f, code: e.target.value.toUpperCase() }))}
-                    placeholder="Code, e.g. INSTA10"
-                    className="h-10 flex-1 rounded-md border bg-background px-3 text-sm"
-                    required
-                  />
-                  <Button type="button" variant="outline" onClick={handleGenerateCode}>
-                    <WandSparkles className="h-4 w-4" />
-                    Generate
-                  </Button>
+                <div className="space-y-1.5">
+                  <Label htmlFor="promo-code">Code</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      id="promo-code"
+                      value={form.code}
+                      onChange={(e) => setForm((f) => ({ ...f, code: e.target.value.toUpperCase() }))}
+                      placeholder="e.g. INSTA10"
+                      spellCheck={false}
+                      autoComplete="off"
+                      autoCapitalize="characters"
+                      className="h-10 flex-1"
+                      required
+                    />
+                    <Button type="button" variant="outline" onClick={handleGenerateCode}>
+                      <WandSparkles className="h-4 w-4" />
+                      Generate
+                    </Button>
+                  </div>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
-                  <input
-                    type="number"
-                    min="0"
-                    max="100"
-                    step="0.01"
-                    value={form.value}
-                    onChange={(e) => setForm((f) => ({ ...f, value: e.target.value }))}
-                    placeholder="% off"
-                    className="h-10 rounded-md border bg-background px-3 text-sm"
-                    required
-                  />
-                  <input
-                    type="number"
-                    min="0"
-                    value={form.min_order_amount}
-                    onChange={(e) => setForm((f) => ({ ...f, min_order_amount: e.target.value }))}
-                    placeholder="Min order"
-                    className="h-10 rounded-md border bg-background px-3 text-sm"
-                  />
+                  <div className="space-y-1.5">
+                    <Label htmlFor="promo-value">Percent off</Label>
+                    <Input
+                      id="promo-value"
+                      type="number"
+                      inputMode="decimal"
+                      min="0"
+                      max="100"
+                      step="0.01"
+                      value={form.value}
+                      onChange={(e) => setForm((f) => ({ ...f, value: e.target.value }))}
+                      placeholder="e.g. 10"
+                      className="h-10"
+                      required
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="promo-min-order">Minimum order</Label>
+                    <Input
+                      id="promo-min-order"
+                      type="number"
+                      inputMode="decimal"
+                      min="0"
+                      value={form.min_order_amount}
+                      onChange={(e) => setForm((f) => ({ ...f, min_order_amount: e.target.value }))}
+                      placeholder="0 for no minimum"
+                      className="h-10"
+                    />
+                  </div>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
-                  <input
-                    type="number"
-                    min="1"
-                    value={form.usage_limit}
-                    onChange={(e) => setForm((f) => ({ ...f, usage_limit: e.target.value }))}
-                    placeholder="Usage limit"
-                    className="h-10 rounded-md border bg-background px-3 text-sm"
-                  />
-                  <input
-                    type="date"
-                    value={form.expires_at}
-                    onChange={(e) => setForm((f) => ({ ...f, expires_at: e.target.value }))}
-                    className="h-10 rounded-md border bg-background px-3 text-sm"
-                  />
+                  <div className="space-y-1.5">
+                    <Label htmlFor="promo-usage-limit">Usage limit (optional)</Label>
+                    <Input
+                      id="promo-usage-limit"
+                      type="number"
+                      inputMode="numeric"
+                      min="1"
+                      value={form.usage_limit}
+                      onChange={(e) => setForm((f) => ({ ...f, usage_limit: e.target.value }))}
+                      placeholder="Blank for no limit"
+                      className="h-10"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="promo-expires-at">Expires on (optional)</Label>
+                    <Input
+                      id="promo-expires-at"
+                      type="date"
+                      value={form.expires_at}
+                      onChange={(e) => setForm((f) => ({ ...f, expires_at: e.target.value }))}
+                      className="h-10"
+                    />
+                  </div>
                 </div>
-                <label className="flex items-start gap-2 text-sm">
+                <label htmlFor="promo-requires-account" className="flex items-start gap-2 text-sm">
                   <input
+                    id="promo-requires-account"
                     type="checkbox"
                     checked={form.requires_account}
                     onChange={(e) => setForm((f) => ({ ...f, requires_account: e.target.checked }))}
-                    className="mt-0.5 h-4 w-4"
+                    className="mt-0.5 h-4 w-4 rounded border-input accent-primary focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
                   />
                   <span>
                     Customers must be signed in
@@ -181,8 +205,9 @@ function PromotionsPage() {
                     </span>
                   </span>
                 </label>
+                <ErrorNotice>{discountError}</ErrorNotice>
                 <Button type="submit" disabled={createDiscount.isPending}>
-                  {createDiscount.isPending ? 'Creating...' : 'Create Code'}
+                  {createDiscount.isPending ? 'Creating…' : 'Create code'}
                 </Button>
               </div>
             </form>
@@ -195,19 +220,25 @@ function PromotionsPage() {
               <p className="mt-1 text-xs text-muted-foreground">
                 Judged on the bag subtotal before any discount code.
               </p>
-              <div className="mt-4 flex gap-2">
-                <input
-                  type="number"
-                  min="0"
-                  value={thresholdInput}
-                  onChange={(e) => setThresholdInput(e.target.value)}
-                  placeholder="0 disables it"
-                  className="h-10 flex-1 rounded-md border bg-background px-3 text-sm"
-                />
-                <Button type="submit" disabled={updateThreshold.isPending}>
-                  Save
-                </Button>
+              <div className="mt-4 space-y-1.5">
+                <Label htmlFor="free-delivery-threshold">New threshold</Label>
+                <div className="flex gap-2">
+                  <Input
+                    id="free-delivery-threshold"
+                    type="number"
+                    inputMode="decimal"
+                    min="0"
+                    value={thresholdInput}
+                    onChange={(e) => setThresholdInput(e.target.value)}
+                    placeholder="0 disables it"
+                    className="h-10 flex-1"
+                  />
+                  <Button type="submit" disabled={updateThreshold.isPending}>
+                    {updateThreshold.isPending ? 'Saving…' : 'Save'}
+                  </Button>
+                </div>
               </div>
+              <ErrorNotice className="mt-3">{thresholdError}</ErrorNotice>
             </form>
           </div>
 
@@ -217,7 +248,7 @@ function PromotionsPage() {
                 <h2 className="text-sm font-semibold">Promo codes</h2>
               </div>
               <div className="divide-y">
-                {discountsLoading && <p className="p-4 text-sm text-muted-foreground">Loading codes...</p>}
+                {discountsLoading && <p className="p-4 text-sm text-muted-foreground">Loading codes…</p>}
                 {!discountsLoading && discounts.length === 0 && (
                   <p className="p-4 text-sm text-muted-foreground">No promo codes yet.</p>
                 )}

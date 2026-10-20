@@ -66,7 +66,7 @@ function CategoriesPage() {
       header: ({ column }) => (
         <Button variant="ghost" onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')} className="-ml-4">
           Name
-          <svg className="ml-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className="ml-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
           </svg>
         </Button>
@@ -111,7 +111,7 @@ function CategoriesPage() {
       header: ({ column }) => (
         <Button variant="ghost" onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')} className="-ml-4">
           Created
-          <svg className="ml-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className="ml-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
           </svg>
         </Button>
@@ -142,7 +142,7 @@ function CategoriesPage() {
 
   return (
     <DashboardLayout>
-      <div className="flex flex-col gap-6 p-6">
+      <div className="flex flex-col gap-6 p-4 sm:p-6">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-semibold leading-tight">Categories</h1>
@@ -155,7 +155,7 @@ function CategoriesPage() {
             <div className="flex flex-col items-center gap-3">
               <div className="skeleton h-8 w-32" />
               <div className="skeleton h-4 w-48" />
-              <p className="text-sm text-muted-foreground">Loading categories...</p>
+              <p className="text-sm text-muted-foreground">Loading categories…</p>
             </div>
           </div>
         )}
@@ -177,7 +177,7 @@ function CategoriesPage() {
             onImportCsv={() => setImportOpen(true)}
             search={search}
             onSearchChange={setSearch}
-            total={categories.length}
+            total={total}
             page={page}
             totalPages={totalPages}
             onPageChange={setPage}

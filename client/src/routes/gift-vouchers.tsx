@@ -4,10 +4,11 @@ import { GIFT_VOUCHER_STATUS, USER_ROLE, type GiftVoucherStatus, type IssuedGift
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { useAuth } from '@/context/AuthContext';
 import { useGiftVoucherSummary, useGiftVouchers } from '@/hooks/useGiftVouchers';
-import { useDebouncedValue } from '@/hooks/useDebouncedValue';
+import { useListParams } from '@/hooks/useListParams';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { ErrorNotice, errorMessage } from '@/components/ui/notice';
 import { IssueVoucherForm } from '@/components/gift-vouchers/IssueVoucherForm';
 import { IssuedVoucherDialog } from '@/components/gift-vouchers/IssuedVoucherDialog';
 import { CheckBalanceCard } from '@/components/gift-vouchers/CheckBalanceCard';
@@ -23,21 +24,23 @@ const LIMIT = 20;
 function GiftVouchersPage() {
   const { user } = useAuth();
   const isAdmin = user?.role === USER_ROLE.ADMIN;
-  const [status, setStatus] = useState<GiftVoucherStatus | undefined>();
-  const [search, setSearch] = useState('');
-  const debouncedSearch = useDebouncedValue(search, 350);
-  const [page, setPage] = useState(1);
+  // Status, search and page live in the URL.
+  const list = useListParams({ status: '' });
+  const { page, setPage, searchText: search, setSearchText: setSearch, query: debouncedSearch } = list;
+  const status = (list.params.status || undefined) as GiftVoucherStatus | undefined;
+  const setStatus = (next: GiftVoucherStatus | undefined) => list.update({ status: next ?? '' });
   const [issued, setIssued] = useState<IssuedGiftVoucherResponse | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
 
-  const { data, isLoading } = useGiftVouchers({ page, limit: LIMIT, status, search: debouncedSearch || undefined });
+  const { data, isLoading, isError, error } = useGiftVouchers({ page, limit: LIMIT, status, search: debouncedSearch || undefined });
   const { data: summary } = useGiftVoucherSummary(isAdmin);
   const vouchers = data?.items ?? [];
   const totalPages = Math.max(1, Math.ceil((data?.total ?? 0) / LIMIT));
+  const filtered = Boolean(status || debouncedSearch);
 
   return (
     <DashboardLayout>
-      <div className="flex flex-col gap-6 p-6">
+      <div className="flex flex-col gap-6 p-4 sm:p-6">
         <div>
           <h1 className="text-2xl font-semibold leading-tight">Gift vouchers</h1>
           <p className="mt-1 text-sm text-muted-foreground">Sell vouchers at the till, check balances, and see what is still owed</p>
@@ -61,18 +64,35 @@ function GiftVouchersPage() {
           <section className="rounded-xl border bg-card">
             <div className="flex flex-wrap items-center gap-2 border-b px-4 py-3">
               <h2 className="mr-auto text-sm font-semibold">Vouchers</h2>
-              <Input value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-                placeholder="Last 4, name, phone…" className="h-9 w-48" />
-              <div className="flex flex-wrap gap-1">
-                <FilterButton active={!status} onClick={() => { setStatus(undefined); setPage(1); }}>All</FilterButton>
+              <Input type="search" aria-label="Search vouchers" value={search} onChange={(e) => setSearch(e.target.value)}
+                placeholder="Last 4, name, phone…" className="h-9 w-48" spellCheck={false} autoComplete="off" />
+              <div className="flex flex-wrap gap-1" role="group" aria-label="Filter by status">
+                <FilterButton active={!status} onClick={() => setStatus(undefined)}>All</FilterButton>
                 {Object.values(GIFT_VOUCHER_STATUS).map((s) => (
-                  <FilterButton key={s} active={status === s} onClick={() => { setStatus(s); setPage(1); }}>{STATUS_LABELS[s].label}</FilterButton>
+                  <FilterButton key={s} active={status === s} onClick={() => setStatus(s)}>{STATUS_LABELS[s].label}</FilterButton>
                 ))}
               </div>
             </div>
             <div className="divide-y">
               {isLoading && <p className="p-4 text-sm text-muted-foreground">Loading vouchers…</p>}
-              {!isLoading && vouchers.length === 0 && <p className="p-4 text-sm text-muted-foreground">No vouchers yet.</p>}
+              {isError && (
+                <div className="p-4">
+                  <ErrorNotice>{errorMessage(error, 'Vouchers couldn’t be loaded. Check your connection, then refresh the page.')}</ErrorNotice>
+                </div>
+              )}
+              {!isLoading && !isError && vouchers.length === 0 && (
+                filtered ? (
+                  <div className="flex flex-wrap items-center gap-2 p-4 text-sm text-muted-foreground">
+                    <span>No vouchers match this {status && debouncedSearch ? 'filter and search' : status ? 'filter' : 'search'}.</span>
+                    <Button size="sm" variant="outline" className="h-8"
+                      onClick={() => { setSearch(''); list.update({ status: '', q: '' }); }}>
+                      Clear filters
+                    </Button>
+                  </div>
+                ) : (
+                  <p className="p-4 text-sm text-muted-foreground">No vouchers yet. Sell one with the form on this page.</p>
+                )
+              )}
               {vouchers.map((voucher) => (
                 <button key={voucher.id} type="button" onClick={() => setOpenId(voucher.id)}
                   className="grid w-full gap-1 px-4 py-3 text-left hover:bg-muted/40 md:grid-cols-[1fr_auto] md:items-center">
@@ -124,5 +144,5 @@ function Stat({ label, value, hint }: { label: string; value: string; hint: stri
 }
 
 function FilterButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
-  return <Button size="sm" variant={active ? 'default' : 'ghost'} className="h-8" onClick={onClick}>{children}</Button>;
+  return <Button size="sm" variant={active ? 'default' : 'ghost'} className="h-8" aria-pressed={active} onClick={onClick}>{children}</Button>;
 }

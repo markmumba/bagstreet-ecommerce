@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { ErrorNotice, errorMessage } from '@/components/ui/notice';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { SALE_METHOD_LABELS, kes } from './voucher-format';
 
@@ -38,7 +39,7 @@ export function IssueVoucherForm({ onIssued }: { onIssued: (voucher: IssuedGiftV
       setForm(EMPTY);
       onIssued(voucher);
     } catch (err: any) {
-      setError(err?.message || 'Could not issue the voucher');
+      setError(errorMessage(err, 'The voucher couldn’t be issued. Check your connection and try again.'));
     }
   };
 
@@ -50,11 +51,15 @@ export function IssueVoucherForm({ onIssued }: { onIssued: (voucher: IssuedGiftV
         <div className="space-y-2">
           <Label htmlFor="voucher-amount">Amount (KES)</Label>
           <Input id="voucher-amount" type="number" inputMode="numeric" min={100} max={200000} step={1}
-            value={form.amount} onChange={set('amount')} placeholder="e.g. 5000" required />
+            value={form.amount} onChange={set('amount')} placeholder="e.g. 5000" required
+            aria-describedby="voucher-amount-hint" aria-invalid={form.amount !== '' && !amountValid ? true : undefined} />
+          <p id="voucher-amount-hint" className={form.amount !== '' && !amountValid ? 'text-xs text-destructive' : 'text-xs text-muted-foreground'}>
+            Whole shillings, from {kes(100)} to {kes(200_000)}.
+          </p>
           <div className="flex flex-wrap gap-2">
             {QUICK_AMOUNTS.map((value) => (
               <Button key={value} type="button" size="sm" variant={amount === value ? 'default' : 'outline'}
-                onClick={() => setForm((f) => ({ ...f, amount: String(value) }))}>
+                aria-pressed={amount === value} onClick={() => setForm((f) => ({ ...f, amount: String(value) }))}>
                 {kes(value)}
               </Button>
             ))}
@@ -75,7 +80,7 @@ export function IssueVoucherForm({ onIssued }: { onIssued: (voucher: IssuedGiftV
           <div className="space-y-2">
             <Label htmlFor="voucher-reference">Transaction code</Label>
             <Input id="voucher-reference" value={form.reference} onChange={(e) => setForm((f) => ({ ...f, reference: e.target.value.toUpperCase() }))}
-              placeholder="Optional" maxLength={100} />
+              placeholder="Optional" maxLength={100} spellCheck={false} autoComplete="off" />
           </div>
         </div>
         <div className="grid grid-cols-2 gap-3">
@@ -91,18 +96,18 @@ export function IssueVoucherForm({ onIssued }: { onIssued: (voucher: IssuedGiftV
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-2">
             <Label htmlFor="voucher-phone">Their phone</Label>
-            <Input id="voucher-phone" value={form.phone} onChange={set('phone')} placeholder="Optional" maxLength={30} />
+            <Input id="voucher-phone" type="tel" inputMode="tel" autoComplete="off" value={form.phone} onChange={set('phone')} placeholder="Optional" maxLength={30} />
           </div>
           <div className="space-y-2">
             <Label htmlFor="voucher-email">Their email</Label>
-            <Input id="voucher-email" type="email" value={form.email} onChange={set('email')} placeholder="Optional" maxLength={200} />
+            <Input id="voucher-email" type="email" autoComplete="off" spellCheck={false} value={form.email} onChange={set('email')} placeholder="Optional" maxLength={200} />
           </div>
         </div>
         <div className="space-y-2">
           <Label htmlFor="voucher-message">Message on the card</Label>
           <Textarea id="voucher-message" rows={2} value={form.message} onChange={set('message')} placeholder="Optional" maxLength={300} />
         </div>
-        {error && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>}
+        <ErrorNotice>{error}</ErrorNotice>
         <Button type="submit" disabled={!amountValid || issue.isPending}>
           {issue.isPending ? 'Issuing…' : amountValid ? `Issue ${kes(amount)} voucher` : 'Issue voucher'}
         </Button>

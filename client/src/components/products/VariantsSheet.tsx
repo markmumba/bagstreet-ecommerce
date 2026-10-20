@@ -21,6 +21,15 @@ import {
 } from '@/hooks/useVariants';
 import { formatDate, formatMoney } from '@/lib/format';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { ErrorNotice, errorMessage } from '@/components/ui/notice';
+import { toast } from '@/lib/toast';
 
 interface VariantsSheetProps {
   open: boolean;
@@ -58,6 +67,7 @@ export function VariantsSheet({ open, onOpenChange, product }: VariantsSheetProp
 
   const [form, setForm] = useState<NewVariantForm>(emptyForm);
   const [error, setError] = useState('');
+  const [adjustError, setAdjustError] = useState('');
 
   // Adjust stock dialog state
   const [adjustingVariant, setAdjustingVariant] = useState<ProductVariantResponse | null>(null);
@@ -73,7 +83,7 @@ export function VariantsSheet({ open, onOpenChange, product }: VariantsSheetProp
     e.preventDefault();
     setError('');
     if (!form.size.trim() && !form.color.trim()) {
-      setError('Provide at least a size or color');
+      setError('Enter a size, a colour or both.');
       return;
     }
     try {
@@ -86,16 +96,20 @@ export function VariantsSheet({ open, onOpenChange, product }: VariantsSheetProp
         is_active: true,
       });
       setForm(emptyForm);
-    } catch (err: any) {
-      setError(err?.message || 'Failed to create variant');
+    } catch (err) {
+      setError(errorMessage(err, 'Could not add the variant. Check your connection and try again.'));
     }
   };
 
   const handleToggleActive = async (variant: ProductVariantResponse) => {
-    await updateMutation.mutateAsync({
-      variantId: variant.id,
-      data: { is_active: !variant.is_active },
-    });
+    try {
+      await updateMutation.mutateAsync({
+        variantId: variant.id,
+        data: { is_active: !variant.is_active },
+      });
+    } catch (err) {
+      toast.error(errorMessage(err, 'Could not change the variant status. Try again.'));
+    }
   };
 
   const [deleteTarget, setDeleteTarget] = useState<ProductVariantResponse | null>(null);
@@ -104,10 +118,10 @@ export function VariantsSheet({ open, onOpenChange, product }: VariantsSheetProp
   const handleAdjustSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!adjustingVariant) return;
-    setError('');
+    setAdjustError('');
     const delta = parseInt(adjustForm.delta, 10);
     if (isNaN(delta) || delta === 0) {
-      setError('Delta must be a non-zero integer');
+      setAdjustError('Enter a whole number other than 0, e.g. 10 to add or -5 to remove.');
       return;
     }
     try {
@@ -121,13 +135,13 @@ export function VariantsSheet({ open, onOpenChange, product }: VariantsSheetProp
       });
       setAdjustingVariant(null);
       setAdjustForm(emptyAdjust);
-    } catch (err: any) {
-      setError(err?.message || 'Failed to adjust stock');
+    } catch (err) {
+      setAdjustError(errorMessage(err, 'Could not adjust the stock. Check your connection and try again.'));
     }
   };
 
   const variantLabel = (v: ProductVariantResponse) =>
-    [v.size, v.color].filter(Boolean).join(' / ') || v.sku.slice(0, 8);
+    [v.size, v.color].filter(Boolean).join(' / ') || v.sku;
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -139,18 +153,16 @@ export function VariantsSheet({ open, onOpenChange, product }: VariantsSheetProp
           </SheetDescription>
         </SheetHeader>
 
-        {error && <p className="text-xs text-destructive mb-2">{error}</p>}
-
         {/* Stock history panel */}
         {historyVariant && (
           <div className="mb-6 border rounded p-4 bg-muted/30">
             <div className="flex items-center justify-between mb-3">
               <h4 className="text-sm font-semibold">
-                Stock History — {variantLabel(historyVariant)}
+                Stock history — {variantLabel(historyVariant)}
               </h4>
-              <Button size="sm" variant="ghost" onClick={() => setHistoryVariant(null)}>✕</Button>
+              <Button size="sm" variant="ghost" aria-label="Close stock history" onClick={() => setHistoryVariant(null)}>✕</Button>
             </div>
-            {historyLoading && <p className="text-xs text-muted-foreground">Loading...</p>}
+            {historyLoading && <p className="text-xs text-muted-foreground">Loading…</p>}
             {!historyLoading && history.length === 0 && (
               <p className="text-xs text-muted-foreground">No movements recorded yet.</p>
             )}
@@ -192,49 +204,57 @@ export function VariantsSheet({ open, onOpenChange, product }: VariantsSheetProp
           <div className="mb-6 border rounded p-4 bg-muted/30">
             <div className="flex items-center justify-between mb-3">
               <h4 className="text-sm font-semibold">
-                Adjust Stock — {variantLabel(adjustingVariant)}
-                <span className="font-normal text-muted-foreground ml-2">
+                Adjust stock — {variantLabel(adjustingVariant)}
+                <span className="font-normal text-muted-foreground ml-2 tabular-nums">
                   (current: {adjustingVariant.stock})
                 </span>
               </h4>
-              <Button size="sm" variant="ghost" onClick={() => { setAdjustingVariant(null); setError(''); }}>✕</Button>
+              <Button size="sm" variant="ghost" aria-label="Close stock adjustment" onClick={() => { setAdjustingVariant(null); setAdjustError(''); }}>✕</Button>
             </div>
             <form onSubmit={handleAdjustSubmit} className="space-y-3">
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
-                  <Label className="text-xs">Delta <span className="text-muted-foreground">(+/−)</span></Label>
+                  <Label htmlFor="adjust-delta" className="text-xs">Change in stock</Label>
                   <Input
+                    id="adjust-delta"
                     type="number"
-                    placeholder="+10 or −5"
+                    step="1"
+                    placeholder="e.g. 10 or -5"
                     value={adjustForm.delta}
                     onChange={(e) => setAdjustForm(f => ({ ...f, delta: e.target.value }))}
                     disabled={adjustMutation.isPending}
                   />
                 </div>
                 <div className="space-y-1">
-                  <Label className="text-xs">Reason</Label>
-                  <select
-                    className="w-full h-10 border rounded px-3 text-sm bg-background"
+                  <Label htmlFor="adjust-reason" className="text-xs">Reason</Label>
+                  <Select
                     value={adjustForm.reason}
-                    onChange={(e) => setAdjustForm(f => ({ ...f, reason: e.target.value as AdjustForm['reason'] }))}
+                    onValueChange={(value) => setAdjustForm(f => ({ ...f, reason: value as AdjustForm['reason'] }))}
                     disabled={adjustMutation.isPending}
                   >
-                    <option value="ADMIN_ADJUSTMENT">Admin Adjustment</option>
-                    <option value="RESTOCK">Restock</option>
-                  </select>
+                    <SelectTrigger id="adjust-reason">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="ADMIN_ADJUSTMENT">Admin adjustment</SelectItem>
+                      <SelectItem value="RESTOCK">Restock</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
               <div className="space-y-1">
-                <Label className="text-xs">Note (optional)</Label>
+                <Label htmlFor="adjust-note" className="text-xs">Note (optional)</Label>
                 <Input
+                  id="adjust-note"
                   placeholder="e.g. Damaged units removed"
                   value={adjustForm.note}
                   onChange={(e) => setAdjustForm(f => ({ ...f, note: e.target.value }))}
                   disabled={adjustMutation.isPending}
                 />
               </div>
+              <ErrorNotice>{adjustError}</ErrorNotice>
               <Button type="submit" size="sm" disabled={adjustMutation.isPending}>
-                {adjustMutation.isPending ? 'Saving...' : 'Apply Adjustment'}
+                {adjustMutation.isPending ? 'Saving…' : 'Apply adjustment'}
               </Button>
             </form>
           </div>
@@ -242,7 +262,7 @@ export function VariantsSheet({ open, onOpenChange, product }: VariantsSheetProp
 
         {isLoading && (
           <div className="flex items-center justify-center py-8">
-            <div className="h-6 w-6 animate-spin rounded-full border-4 border-primary border-r-transparent" />
+            <div role="status" aria-label="Loading variants" className="h-6 w-6 animate-spin rounded-full border-4 border-primary border-r-transparent" />
           </div>
         )}
 
@@ -271,18 +291,18 @@ export function VariantsSheet({ open, onOpenChange, product }: VariantsSheetProp
                   const isOut = v.stock === 0;
                   return (
                     <tr key={v.id} className="border-b last:border-0">
-                      <td className="py-2 pr-3 font-mono text-xs">{v.sku.slice(0, 8)}</td>
+                      <td className="py-2 pr-3 font-mono text-xs break-all">{v.sku}</td>
                       <td className="py-2 pr-3 text-xs">
                         {[v.size, v.color].filter(Boolean).join(' / ') || '—'}
                       </td>
-                      <td className="py-2 pr-3">
-                        <span className={isOut ? 'text-destructive font-medium' : isLow ? 'text-amber-600 font-medium' : ''}>
+                      <td className="py-2 pr-3 tabular-nums">
+                        <span className={isOut ? 'text-destructive font-medium' : isLow ? 'text-[var(--color-warning-text)] font-medium' : ''}>
                           {v.stock}
                         </span>
                         {isOut && <span className="ml-1 text-xs text-destructive">(out)</span>}
-                        {isLow && !isOut && <span className="ml-1 text-xs text-amber-600">(low)</span>}
+                        {isLow && !isOut && <span className="ml-1 text-xs text-[var(--color-warning-text)]">(low)</span>}
                       </td>
-                      <td className="py-2 pr-3 text-xs text-muted-foreground">{threshold}</td>
+                      <td className="py-2 pr-3 text-xs text-muted-foreground tabular-nums">{threshold}</td>
                       <td className="py-2 pr-3 text-xs">
                         {v.price_override != null
                           ? formatMoney(v.price_override)
@@ -290,11 +310,20 @@ export function VariantsSheet({ open, onOpenChange, product }: VariantsSheetProp
                       </td>
                       <td className="py-2 pr-3">
                         <Badge
+                          asChild
                           variant={v.is_active ? 'default' : 'secondary'}
-                          className="cursor-pointer text-xs"
-                          onClick={() => handleToggleActive(v)}
+                          className="cursor-pointer text-xs focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
                         >
-                          {v.is_active ? 'Active' : 'Inactive'}
+                          <button
+                            type="button"
+                            aria-pressed={v.is_active}
+                            aria-label={`Active: ${variantLabel(v)}`}
+                            title={v.is_active ? 'Click to mark inactive' : 'Click to mark active'}
+                            onClick={() => handleToggleActive(v)}
+                            disabled={updateMutation.isPending}
+                          >
+                            {v.is_active ? 'Active' : 'Inactive'}
+                          </button>
                         </Badge>
                       </td>
                       <td className="py-2">
@@ -303,7 +332,7 @@ export function VariantsSheet({ open, onOpenChange, product }: VariantsSheetProp
                             size="sm"
                             variant="outline"
                             className="h-7 px-2 text-xs"
-                            onClick={() => { setAdjustingVariant(v); setAdjustForm(emptyAdjust); setError(''); }}
+                            onClick={() => { setAdjustingVariant(v); setAdjustForm(emptyAdjust); setAdjustError(''); }}
                           >
                             Adjust
                           </Button>
@@ -335,14 +364,14 @@ export function VariantsSheet({ open, onOpenChange, product }: VariantsSheetProp
         )}
 
         <div className="border-t pt-4">
-          <h3 className="text-sm font-semibold mb-3">Add Variant</h3>
+          <h3 className="text-sm font-semibold mb-3">Add variant</h3>
           <form onSubmit={handleCreate} className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
                 <Label htmlFor="v-size" className="text-xs">Size</Label>
                 <Input
                   id="v-size"
-                  placeholder="38, S, M, One Size..."
+                  placeholder="e.g. 38, S or One size"
                   value={form.size}
                   onChange={(e) => setForm(f => ({ ...f, size: e.target.value }))}
                   disabled={createMutation.isPending}
@@ -352,7 +381,7 @@ export function VariantsSheet({ open, onOpenChange, product }: VariantsSheetProp
                 <Label htmlFor="v-color" className="text-xs">Color</Label>
                 <Input
                   id="v-color"
-                  placeholder="Black, Tan..."
+                  placeholder="e.g. Black or Tan"
                   value={form.color}
                   onChange={(e) => setForm(f => ({ ...f, color: e.target.value }))}
                   disabled={createMutation.isPending}
@@ -396,9 +425,9 @@ export function VariantsSheet({ open, onOpenChange, product }: VariantsSheetProp
                 />
               </div>
             </div>
-            {error && <p className="text-xs text-destructive">{error}</p>}
+            <ErrorNotice>{error}</ErrorNotice>
             <Button type="submit" size="sm" disabled={createMutation.isPending}>
-              {createMutation.isPending ? 'Adding...' : 'Add Variant'}
+              {createMutation.isPending ? 'Adding…' : 'Add variant'}
             </Button>
           </form>
         </div>

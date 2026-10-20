@@ -5,6 +5,7 @@ import { apiClient } from '@/services/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { ErrorNotice } from '@/components/ui/notice';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { ShoppingBag } from 'lucide-react';
 
@@ -26,11 +27,11 @@ function ResetPasswordPage() {
     setError(null);
 
     if (password !== confirm) {
-      setError('Passwords do not match');
+      setError('The passwords don’t match. Type the same password in both fields.');
       return;
     }
     if (password.length < 8) {
-      setError('Password must be at least 8 characters');
+      setError('Use a password of at least 8 characters.');
       return;
     }
 
@@ -39,7 +40,7 @@ function ResetPasswordPage() {
       await apiClient.post('/api/auth/reset-password', { token, password });
       navigate({ to: '/login', search: { reset: '1' } });
     } catch (err: any) {
-      setError(err?.message || 'Invalid or expired reset link');
+      setError(err?.message || 'This reset link is invalid or has expired. Request a new one from the sign-in page.');
     } finally {
       setSubmitting(false);
     }
@@ -50,9 +51,17 @@ function ResetPasswordPage() {
       <div className="flex min-h-screen items-center justify-center bg-muted/40 px-4">
         <Card className="w-full max-w-sm">
           <CardHeader>
-            <CardTitle>Invalid Link</CardTitle>
+            <CardTitle>Invalid link</CardTitle>
             <CardDescription>This reset link is missing or invalid.</CardDescription>
           </CardHeader>
+          <CardContent className="flex flex-col gap-2">
+            <Button asChild className="w-full">
+              <Link to="/forgot-password">Request a new link</Link>
+            </Button>
+            <Link to="/login" className="block text-center text-sm text-muted-foreground hover:text-foreground">
+              Back to sign in
+            </Link>
+          </CardContent>
         </Card>
       </div>
     );
@@ -66,7 +75,7 @@ function ResetPasswordPage() {
             <ShoppingBag className="h-6 w-6" />
           </div>
           <h1 className="text-2xl font-bold tracking-tight">Bagstreet</h1>
-          <p className="text-sm text-muted-foreground">Admin Dashboard</p>
+          <p className="text-sm text-muted-foreground">Admin dashboard</p>
         </div>
 
         <Card>
@@ -77,10 +86,12 @@ function ResetPasswordPage() {
           <CardContent>
             <form onSubmit={handleSubmit} className="flex flex-col gap-4">
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="password">New Password</Label>
+                <Label htmlFor="password">New password</Label>
                 <Input
                   id="password"
+                  name="new-password"
                   type="password"
+                  autoComplete="new-password"
                   placeholder="Min 8 characters"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
@@ -89,10 +100,12 @@ function ResetPasswordPage() {
                 />
               </div>
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="confirm">Confirm Password</Label>
+                <Label htmlFor="confirm">Confirm password</Label>
                 <Input
                   id="confirm"
+                  name="confirm-password"
                   type="password"
+                  autoComplete="new-password"
                   placeholder="Repeat password"
                   value={confirm}
                   onChange={(e) => setConfirm(e.target.value)}
@@ -100,11 +113,7 @@ function ResetPasswordPage() {
                 />
               </div>
 
-              {error && (
-                <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                  {error}
-                </p>
-              )}
+              <ErrorNotice>{error}</ErrorNotice>
 
               <Button type="submit" className="w-full" disabled={submitting}>
                 {submitting ? 'Saving…' : 'Set new password'}

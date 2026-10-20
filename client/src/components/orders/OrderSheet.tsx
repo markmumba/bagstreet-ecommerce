@@ -248,7 +248,9 @@ export function OrderSheet({ order, open, onOpenChange }: OrderSheetProps) {
                   onChange={(e) => setWriteOffNote(e.target.value)}
                   placeholder="e.g. goods delivered, chargeback lost, customer unreachable…"
                   rows={3}
+                  aria-describedby="write-off-note-hint"
                 />
+                <p id="write-off-note-hint" className="text-xs text-muted-foreground">At least 3 characters.</p>
                 <div className="flex gap-2">
                   <Button
                     size="sm"
@@ -331,7 +333,7 @@ export function OrderSheet({ order, open, onOpenChange }: OrderSheetProps) {
                       {item.variant_sku && (
                         <p className="text-xs font-mono text-muted-foreground/70">SKU: {item.variant_sku}</p>
                       )}
-                      <p className="text-xs text-muted-foreground mt-0.5">
+                      <p className="text-xs text-muted-foreground mt-0.5 tabular-nums">
                         {item.quantity} × {formatMoney(item.unit_price)}
                       </p>
                     </div>

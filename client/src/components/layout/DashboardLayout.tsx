@@ -109,7 +109,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   if (isLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-solid border-primary border-r-transparent" />
+        <div role="status" aria-label="Loading" className="h-8 w-8 animate-spin rounded-full border-4 border-solid border-primary border-r-transparent" />
       </div>
     );
   }
@@ -119,7 +119,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   if (isManager && !isManagerAllowedPage) {
     return (
       <div className="flex min-h-screen items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-solid border-primary border-r-transparent" />
+        <div role="status" aria-label="Loading" className="h-8 w-8 animate-spin rounded-full border-4 border-solid border-primary border-r-transparent" />
       </div>
     );
   }
@@ -142,6 +142,12 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
 
   return (
     <SidebarProvider>
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-3 focus:z-[200] focus:rounded-lg focus:bg-primary focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-primary-foreground focus:outline-none focus:ring-[3px] focus:ring-ring/50"
+      >
+        Skip to content
+      </a>
       <div className="flex min-h-screen w-full bg-background">
         <Sidebar>
           <SidebarContent>
@@ -186,7 +192,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
         <main className="flex-1 flex flex-col min-w-0">
           {/* Top Bar */}
           <header className="sticky top-0 z-40 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
-            <div className="flex h-14 items-center gap-4 px-6">
+            <div className="flex h-14 items-center gap-4 px-4 sm:px-6">
               <SidebarTrigger />
               <div className="flex-1" />
               <div className="flex items-center gap-3">
@@ -196,8 +202,8 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                     ref={accountButtonRef}
                     type="button"
                     onClick={() => setAccountMenuOpen((open) => !open)}
-                    className="ui-press flex h-9 items-center gap-2 rounded-full border border-border bg-card px-1.5 pr-2 text-sm hover:bg-accent focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/15"
-                    aria-haspopup="menu"
+                    className="ui-press flex h-9 items-center gap-2 rounded-full border border-border bg-card px-1.5 pr-2 text-sm hover:bg-accent focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                    aria-controls="account-menu"
                     aria-expanded={accountMenuOpen}
                     aria-label="Open account menu"
                   >
@@ -210,7 +216,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                   <div
                     inert={!accountMenuOpen}
                     data-state={accountMenuOpen ? 'open' : 'closed'}
-                    role="menu"
+                    id="account-menu"
                     className="ui-menu absolute right-0 top-11 z-[100] w-64 overflow-hidden rounded-xl border border-border bg-background shadow-[var(--shadow-dropdown)]"
                   >
                     <div className="border-b border-border px-4 py-3">
@@ -222,9 +228,8 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                       {user?.role === USER_ROLE.ADMIN && (
                         <button
                           type="button"
-                          role="menuitem"
                           onClick={handleSettings}
-                          className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-accent hover:text-accent-foreground"
+                          className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
                         >
                           <Settings className="h-4 w-4" strokeWidth={1.5} />
                           Settings
@@ -232,9 +237,8 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                       )}
                       <button
                         type="button"
-                        role="menuitem"
                         onClick={handleLogout}
-                        className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-destructive transition-colors hover:bg-destructive/10"
+                        className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-destructive transition-colors hover:bg-destructive/10 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-destructive/40"
                       >
                         <LogOut className="h-4 w-4" strokeWidth={1.5} />
                         Logout
@@ -247,7 +251,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
           </header>
 
           {/* Page Content */}
-          <div className="flex-1">{children}</div>
+          <div id="main-content" tabIndex={-1} className="flex-1 outline-none">{children}</div>
         </main>
       </div>
     </SidebarProvider>

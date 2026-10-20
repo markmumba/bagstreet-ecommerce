@@ -107,7 +107,7 @@ export function CategoryDialog({ open, onOpenChange, category }: CategoryDialogP
               id="name"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Electronics, Clothing, Books..."
+              placeholder="e.g. Handbags"
               required
               maxLength={100}
               disabled={isLoading}
@@ -115,13 +115,13 @@ export function CategoryDialog({ open, onOpenChange, category }: CategoryDialogP
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="parent">Parent Category</Label>
+            <Label htmlFor="parent">Parent category</Label>
             <Select
               value={parentId}
               onValueChange={setParentId}
               disabled={isLoading}
             >
-              <SelectTrigger>
+              <SelectTrigger id="parent">
                 <SelectValue placeholder="None (top-level)" />
               </SelectTrigger>
               <SelectContent>
@@ -141,7 +141,7 @@ export function CategoryDialog({ open, onOpenChange, category }: CategoryDialogP
               id="description"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="Describe this category..."
+              placeholder="Describe this category…"
               rows={4}
               maxLength={500}
               disabled={isLoading}

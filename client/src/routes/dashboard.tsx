@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { ErrorNotice } from '@/components/ui/notice';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { apiClient } from '@/services/api';
@@ -126,7 +127,7 @@ function LaunchMetricsCard({ metrics }: { metrics: LaunchMetrics }) {
   return (
     <Card>
       <CardHeader className="pb-0">
-        <CardTitle className="text-base">Launch metrics</CardTitle>
+        <h2 data-slot="card-title" className="leading-none font-semibold text-base">Launch metrics</h2>
         <p className="text-sm text-muted-foreground">The PRD's success targets for the first 90 days. Platform share of all orders is tracked by hand.</p>
       </CardHeader>
       <CardContent>
@@ -268,9 +269,9 @@ function OrderQueueCard({
   return (
     <Card>
       <CardHeader className="pb-0">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <CardTitle className="text-base">{title}</CardTitle>
+        <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+          <div className="min-w-0">
+            <h2 data-slot="card-title" className="leading-none font-semibold text-base">{title}</h2>
             <p className="mt-1 text-sm text-muted-foreground">{description}</p>
           </div>
           <Button asChild variant="outline" size="sm">
@@ -322,9 +323,9 @@ function StockRiskCard({ risks }: { risks: DashboardStockRisk[] }) {
   return (
     <Card>
       <CardHeader className="pb-0">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <CardTitle className="text-base">Stock Risks</CardTitle>
+        <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+          <div className="min-w-0">
+            <h2 data-slot="card-title" className="leading-none font-semibold text-base">Stock risks</h2>
             <p className="mt-1 text-sm text-muted-foreground">Variants that can block future sales.</p>
           </div>
           <Button asChild variant="outline" size="sm">
@@ -387,7 +388,7 @@ function TopProductsCard({ products }: { products: DashboardTopProduct[] }) {
   return (
     <Card>
       <CardHeader className="pb-0">
-        <CardTitle className="text-base">Top Sellers</CardTitle>
+        <h2 data-slot="card-title" className="leading-none font-semibold text-base">Top sellers</h2>
         <p className="text-sm text-muted-foreground">Paid order volume from the last 30 days.</p>
       </CardHeader>
       <CardContent>
@@ -450,7 +451,7 @@ function OperationsBrief({ overview }: { overview: DashboardOverview }) {
   return (
     <Card>
       <CardHeader className="pb-0">
-        <CardTitle className="text-base">Needs Attention</CardTitle>
+        <h2 data-slot="card-title" className="leading-none font-semibold text-base">Needs attention</h2>
         <p className="text-sm text-muted-foreground">
           {totalActions === 0 ? 'No urgent operational work right now.' : `${numberFormatter.format(totalActions)} item${totalActions === 1 ? '' : 's'} to review.`}
         </p>
@@ -482,12 +483,12 @@ function OperationsBrief({ overview }: { overview: DashboardOverview }) {
 function DashboardSkeleton() {
   return (
     <DashboardLayout>
-      <div className="flex flex-col gap-6 p-6">
+      <div className="flex flex-col gap-6 p-4 sm:p-6">
         <div className="space-y-2">
           <div className="skeleton h-8 w-64" />
           <div className="skeleton h-4 w-80" />
         </div>
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+        <div className="grid grid-cols-[minmax(0,1fr)] gap-4 md:grid-cols-2 xl:grid-cols-5">
           {Array.from({ length: 5 }).map((_, index) => (
             <Card key={index}>
               <CardContent>
@@ -518,7 +519,7 @@ function DashboardPage() {
       <div className="flex flex-col gap-6 p-4 sm:p-6">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div>
-            <h1 className="text-2xl font-semibold leading-tight text-pretty">Merchant Dashboard</h1>
+            <h1 className="text-2xl font-semibold leading-tight text-pretty">Merchant dashboard</h1>
             <p className="mt-1 text-sm text-muted-foreground">
               Revenue, fulfillment work, payment follow-up, and stock risk in one place.
             </p>
@@ -539,44 +540,44 @@ function DashboardPage() {
         {dashboardQuery.isError || !overview ? (
           <Card>
             <CardContent>
-              <div className="rounded-lg border border-[var(--color-danger-border)] bg-[var(--color-danger-bg)] px-4 py-3 text-sm text-[var(--color-danger-text)]">
-                Dashboard data could not be loaded. Refresh the page or sign in again.
-              </div>
+              <ErrorNotice>
+                Dashboard data could not be loaded. Press Refresh to try again, or sign in again if it keeps failing.
+              </ErrorNotice>
             </CardContent>
           </Card>
         ) : (
           <>
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+            <div className="grid grid-cols-[minmax(0,1fr)] gap-4 md:grid-cols-2 xl:grid-cols-5">
               <KpiCard
-                title="Paid Today"
+                title="Paid today"
                 value={formatCurrency(overview.summary.paid_revenue_today)}
                 detail={`${numberFormatter.format(overview.summary.paid_orders_today)} paid order${overview.summary.paid_orders_today === 1 ? '' : 's'}`}
                 icon={Banknote}
                 tone="success"
               />
               <KpiCard
-                title="Paid Last 7 Days"
+                title="Paid last 7 days"
                 value={formatCurrency(overview.summary.paid_revenue_7d)}
                 detail={`${formatCurrency(overview.summary.paid_revenue_30d)} in 30 days`}
                 icon={WalletCards}
                 tone="neutral"
               />
               <KpiCard
-                title="To Fulfill"
+                title="To fulfill"
                 value={numberFormatter.format(overview.summary.orders_to_fulfill)}
                 detail="Paid orders not received"
                 icon={PackageCheck}
                 tone={overview.summary.orders_to_fulfill > 0 ? 'warning' : 'success'}
               />
               <KpiCard
-                title="Payment Follow-up"
+                title="Payment follow-up"
                 value={numberFormatter.format(overview.summary.unpaid_pending_orders + overview.summary.failed_payment_orders)}
                 detail={`${overview.summary.failed_payment_orders} failed, ${overview.summary.unpaid_pending_orders} unpaid`}
                 icon={CreditCard}
                 tone={overview.summary.failed_payment_orders > 0 ? 'danger' : overview.summary.unpaid_pending_orders > 0 ? 'warning' : 'success'}
               />
               <KpiCard
-                title="Stock Risk"
+                title="Stock risk"
                 value={numberFormatter.format(overview.summary.low_stock_variants + overview.summary.out_of_stock_variants)}
                 detail={`${overview.summary.out_of_stock_variants} out, ${overview.summary.low_stock_variants} low`}
                 icon={AlertTriangle}
@@ -586,14 +587,14 @@ function DashboardPage() {
 
             <LaunchMetricsCard metrics={overview.launch_metrics} />
 
-            <div className="grid gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(340px,1fr)]">
+            <div className="grid grid-cols-[minmax(0,1fr)] gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(340px,1fr)]">
               <RevenueChart data={overview.revenue_trend} />
               <OperationsBrief overview={overview} />
             </div>
 
-            <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(340px,0.8fr)]">
+            <div className="grid grid-cols-[minmax(0,1fr)] gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(340px,0.8fr)]">
               <OrderQueueCard
-                title="Fulfillment Queue"
+                title="Fulfillment queue"
                 description="Oldest paid orders that still need manual progress."
                 items={overview.fulfillment_queue}
                 emptyMessage="No paid orders are waiting for fulfillment."
@@ -601,9 +602,9 @@ function DashboardPage() {
               <OrderStatusChart data={overview.status_counts} />
             </div>
 
-            <div className="grid gap-4 xl:grid-cols-2">
+            <div className="grid grid-cols-[minmax(0,1fr)] gap-4 xl:grid-cols-2">
               <OrderQueueCard
-                title="Payment Follow-up"
+                title="Payment follow-up"
                 description="Pending checkout and failed payment orders to review."
                 items={overview.payment_issues}
                 emptyMessage="No payment follow-up needed."
@@ -611,25 +612,25 @@ function DashboardPage() {
               <StockRiskCard risks={overview.stock_risks} />
             </div>
 
-            <div className="grid gap-4 xl:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
+            <div className="grid grid-cols-[minmax(0,1fr)] gap-4 xl:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
               <TopProductsCard products={overview.top_products} />
               <Card>
                 <CardHeader className="pb-0">
-                  <CardTitle className="text-base">Catalog Health</CardTitle>
+                  <h2 data-slot="card-title" className="leading-none font-semibold text-base">Catalog health</h2>
                   <p className="text-sm text-muted-foreground">A quick read on sellable products and inventory exposure.</p>
                 </CardHeader>
                 <CardContent>
                   <div className="grid gap-3 sm:grid-cols-3">
                     <div className="rounded-lg border border-border px-4 py-3">
-                      <p className="text-xs text-muted-foreground">Active Products</p>
+                      <p className="text-xs text-muted-foreground">Active products</p>
                       <p className="mt-1 text-xl font-semibold tabular-nums">{numberFormatter.format(overview.summary.active_products)}</p>
                     </div>
                     <div className="rounded-lg border border-border px-4 py-3">
-                      <p className="text-xs text-muted-foreground">Low Stock</p>
+                      <p className="text-xs text-muted-foreground">Low stock</p>
                       <p className="mt-1 text-xl font-semibold text-[var(--color-warning-text)] tabular-nums">{numberFormatter.format(overview.summary.low_stock_variants)}</p>
                     </div>
                     <div className="rounded-lg border border-border px-4 py-3">
-                      <p className="text-xs text-muted-foreground">Out Of Stock</p>
+                      <p className="text-xs text-muted-foreground">Out of stock</p>
                       <p className="mt-1 text-xl font-semibold text-[var(--color-danger-text)] tabular-nums">{numberFormatter.format(overview.summary.out_of_stock_variants)}</p>
                     </div>
                   </div>

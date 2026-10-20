@@ -36,6 +36,8 @@ import { Plus, Users } from 'lucide-react';
 import { formatDate } from '@/lib/format';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { toast } from '@/lib/toast';
+import { ErrorNotice, errorMessage } from '@/components/ui/notice';
+import { useListParams } from '@/hooks/useListParams';
 
 export const Route = createFileRoute('/users')({
   component: UsersPage,
@@ -51,21 +53,13 @@ function UsersPage() {
   const [editingUser, setEditingUser] = useState<UserResponse | null>(null);
   const [sorting, setSorting] = useState<SortingState>([]);
 
-  // Server-side filter state
-  const [search, setSearch] = useState('');
-  const [debouncedSearch, setDebouncedSearch] = useState('');
-  const [roleFilter, setRoleFilter] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
-  const [page, setPage] = useState(1);
-
-  // Debounce search
-  useEffect(() => {
-    const t = setTimeout(() => { setDebouncedSearch(search); setPage(1); }, 350);
-    return () => clearTimeout(t);
-  }, [search]);
-
-  // Reset page on filter change
-  useEffect(() => { setPage(1); }, [roleFilter, statusFilter]);
+  // Search, filters and page live in the URL.
+  const list = useListParams({ role: '', status: '' });
+  const { page, setPage, searchText: search, setSearchText: setSearch, query: debouncedSearch } = list;
+  const roleFilter = String(list.params.role ?? '');
+  const statusFilter = String(list.params.status ?? '');
+  const setRoleFilter = (role: string) => list.update({ role });
+  const setStatusFilter = (status: string) => list.update({ status });
 
   const { data: res, isLoading, error } = useUsers({
     page,
@@ -76,6 +70,12 @@ function UsersPage() {
   });
 
   const users: UserResponse[] = res?.items ?? [];
+  const hasFilters = Boolean(debouncedSearch || roleFilter || statusFilter);
+
+  const clearFilters = () => {
+    setSearch('');
+    list.update({ q: '', role: '', status: '' });
+  };
   const total = res?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / LIMIT));
 
@@ -143,7 +143,12 @@ function UsersPage() {
       header: () => <div className="text-right">Actions</div>,
       cell: ({ row }) => (
         <div className="flex justify-end gap-2">
-          <Button variant="ghost" size="sm" onClick={() => handleEdit(row.original)}>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => handleEdit(row.original)}
+            aria-label={`Edit ${row.original.full_name || row.original.email}`}
+          >
             Edit
           </Button>
           <Button
@@ -151,6 +156,7 @@ function UsersPage() {
             size="sm"
             onClick={() => handleDelete(row.original)}
             disabled={deleteMutation.isPending}
+            aria-label={`Delete ${row.original.full_name || row.original.email}`}
             className="hover:bg-destructive/10 hover:text-destructive"
           >
             Delete
@@ -171,7 +177,7 @@ function UsersPage() {
 
   return (
     <DashboardLayout>
-      <div className="flex flex-col gap-6 p-6">
+      <div className="flex flex-col gap-6 p-4 sm:p-6">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-semibold leading-tight">Users</h1>
@@ -190,9 +196,7 @@ function UsersPage() {
         )}
 
         {error && (
-          <div className="rounded-xl border border-destructive/50 bg-destructive/10 p-4">
-            <p className="text-sm font-medium text-destructive">Failed to load users</p>
-          </div>
+          <ErrorNotice>{errorMessage(error, 'Users could not be loaded. Refresh the page to try again.')}</ErrorNotice>
         )}
 
         {!isLoading && !error && (
@@ -200,13 +204,15 @@ function UsersPage() {
             {/* Toolbar */}
             <div className="flex flex-wrap items-center gap-3">
               <Input
+                type="search"
+                aria-label="Search users by name or email"
                 placeholder="Search name or email…"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 className="h-9 w-full max-w-[240px]"
               />
               <Select value={roleFilter} onValueChange={(v) => setRoleFilter(v === 'all' ? '' : v)}>
-                <SelectTrigger className="w-36">
+                <SelectTrigger className="w-36" aria-label="Filter by role">
                   <SelectValue placeholder="All roles" />
                 </SelectTrigger>
                 <SelectContent>
@@ -217,7 +223,7 @@ function UsersPage() {
                 </SelectContent>
               </Select>
               <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v === 'all' ? '' : v)}>
-                <SelectTrigger className="w-36">
+                <SelectTrigger className="w-36" aria-label="Filter by status">
                   <SelectValue placeholder="All statuses" />
                 </SelectTrigger>
                 <SelectContent>
@@ -231,7 +237,7 @@ function UsersPage() {
               </div>
               <Button onClick={() => { setEditingUser(null); setDialogOpen(true); }}>
                 <Plus className="h-4 w-4" />
-                New User
+                New user
               </Button>
             </div>
 
@@ -264,13 +270,27 @@ function UsersPage() {
                       <TableCell colSpan={columns.length} className="h-[200px] text-center text-muted-foreground">
                         <div className="flex flex-col items-center gap-3">
                           <Users className="h-6 w-6" strokeWidth={1.5} />
-                          <div>
-                            <p className="font-medium text-foreground">No users found</p>
-                            <p className="mt-1 text-sm text-muted-foreground">Invite a staff member to manage the admin.</p>
-                          </div>
-                          <Button onClick={() => { setEditingUser(null); setDialogOpen(true); }}>
-                            Invite user
-                          </Button>
+                          {hasFilters ? (
+                            <>
+                              <div>
+                                <p className="font-medium text-foreground">No users match these filters</p>
+                                <p className="mt-1 text-sm text-muted-foreground">Try a different search, or clear the filters to see everyone.</p>
+                              </div>
+                              <Button variant="outline" onClick={clearFilters}>
+                                Clear filters
+                              </Button>
+                            </>
+                          ) : (
+                            <>
+                              <div>
+                                <p className="font-medium text-foreground">No users yet</p>
+                                <p className="mt-1 text-sm text-muted-foreground">Invite a staff member to manage the admin.</p>
+                              </div>
+                              <Button onClick={() => { setEditingUser(null); setDialogOpen(true); }}>
+                                Invite user
+                              </Button>
+                            </>
+                          )}
                         </div>
                       </TableCell>
                     </TableRow>

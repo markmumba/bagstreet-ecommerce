@@ -5,6 +5,7 @@ import { useAuth } from '@/context/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { ErrorNotice } from '@/components/ui/notice';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { ShoppingBag } from 'lucide-react';
 import { USER_ROLE } from 'shared';
@@ -41,7 +42,7 @@ function LoginPage() {
       const authUser = await login(email, password);
       navigate({ to: authUser.role === USER_ROLE.MANAGER ? '/orders' : '/dashboard' });
     } catch (err: any) {
-      setError(err?.message || 'Invalid email or password');
+      setError(err?.message || 'Check your email and password, then try again.');
     } finally {
       setSubmitting(false);
     }
@@ -50,7 +51,7 @@ function LoginPage() {
   if (isLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-solid border-primary border-r-transparent" />
+        <div role="status" aria-label="Loading" className="h-8 w-8 animate-spin rounded-full border-4 border-solid border-primary border-r-transparent" />
       </div>
     );
   }
@@ -64,7 +65,7 @@ function LoginPage() {
             <ShoppingBag className="h-6 w-6" />
           </div>
           <h1 className="text-2xl font-bold tracking-tight">Bagstreet</h1>
-          <p className="text-sm text-muted-foreground">Admin Dashboard</p>
+          <p className="text-sm text-muted-foreground">Admin dashboard</p>
         </div>
 
         {activated && (
@@ -89,8 +90,11 @@ function LoginPage() {
                 <Label htmlFor="email">Email</Label>
                 <Input
                   id="email"
+                  name="email"
                   type="email"
-                  placeholder="admin@example.com"
+                  autoComplete="email"
+                  spellCheck={false}
+                  placeholder="you@example.com"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
@@ -101,8 +105,9 @@ function LoginPage() {
                 <Label htmlFor="password">Password</Label>
                 <Input
                   id="password"
+                  name="password"
                   type="password"
-                  placeholder="••••••••"
+                  autoComplete="current-password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
@@ -115,11 +120,7 @@ function LoginPage() {
                 </Link>
               </div>
 
-              {error && (
-                <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                  {error}
-                </p>
-              )}
+              <ErrorNotice>{error}</ErrorNotice>
 
               <Button type="submit" className="w-full" disabled={submitting}>
                 {submitting ? 'Signing in…' : 'Sign in'}

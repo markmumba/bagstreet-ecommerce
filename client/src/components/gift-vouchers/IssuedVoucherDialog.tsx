@@ -59,6 +59,7 @@ export function IssuedVoucherDialog({ voucher, onClose, replaced = false }: { vo
       window.setTimeout(() => setCopied(false), 2000);
     } catch {
       setCopied(false);
+      toast.error('Copying isn’t allowed here. Select the code and copy it by hand.');
     }
   };
 
@@ -89,6 +90,7 @@ export function IssuedVoucherDialog({ voucher, onClose, replaced = false }: { vo
             </Button>
           </div>
           <Button onClick={onClose}>Done</Button>
+          <span role="status" aria-live="polite" className="sr-only">{copied ? 'Code copied' : ''}</span>
         </DialogFooter>
       </DialogContent>
     </Dialog>

@@ -7,7 +7,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from 'recharts';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { formatCompact, formatMoney, formatShortDate } from '@/lib/format';
 
 interface Props {
@@ -30,7 +30,7 @@ export function RevenueChart({ data }: Props) {
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle className="table-header">Revenue - Last 30 Days</CardTitle>
+        <h2 data-slot="card-title" className="leading-none font-semibold table-header">Revenue — last 30 days</h2>
       </CardHeader>
       <CardContent>
         <ResponsiveContainer width="100%" height={220}>

@@ -1,5 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router';
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import type { ColumnDef } from '@tanstack/react-table';
 import { useProducts, useDeleteProduct, useToggleFeatured, useImportProductsCsv } from '@/hooks/useProducts';
 import { useSetProductSale } from '@/hooks/usePromotions';
@@ -19,9 +19,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { AlertTriangle, ArrowUpDown, Boxes, Check, CheckCircle2, Copy, ImageIcon, MoreHorizontal, Pencil, Star, Tag, Trash2, X, XCircle } from 'lucide-react';
+import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, Boxes, Check, CheckCircle2, Copy, ImageIcon, MoreHorizontal, Pencil, Star, Tag, Trash2, X, XCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { formatDate, formatMoney } from '@/lib/format';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { ErrorNotice, errorMessage } from '@/components/ui/notice';
+import { useListParams } from '@/hooks/useListParams';
 
 export const Route = createFileRoute('/products')({
   component: ProductsPage,
@@ -38,14 +42,17 @@ const CATEGORY_STYLES: Record<string, { dot: string; label: string }> = {
 };
 
 function SortHeader({ column, label, className }: { column: any; label: string; className?: string }) {
+  const sorted = column.getIsSorted() as false | 'asc' | 'desc';
+  const Icon = sorted === 'asc' ? ArrowUp : sorted === 'desc' ? ArrowDown : ArrowUpDown;
   return (
     <Button
+      type="button"
       variant="ghost"
-      onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
-      className={cn('-ml-3 h-8 px-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground', className)}
+      onClick={() => column.toggleSorting(sorted === 'asc')}
+      className={cn('-ml-3 h-8 px-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground', sorted && 'text-foreground', className)}
     >
       {label}
-      <ArrowUpDown className="h-3.5 w-3.5" strokeWidth={1.5} />
+      <Icon className="h-3.5 w-3.5" strokeWidth={1.5} aria-hidden="true" />
     </Button>
   );
 }
@@ -95,6 +102,7 @@ function StockIndicator({ product }: { product: Product }) {
         <div className="text-[11px] text-muted-foreground">{variantNote}</div>
       </div>
       <span
+        aria-hidden="true"
         className={cn(
           'h-2.5 w-2.5 shrink-0 rounded-full ring-4',
           isAttention
@@ -103,6 +111,7 @@ function StockIndicator({ product }: { product: Product }) {
         )}
         title={isAttention ? 'Needs stock attention' : 'Stock healthy'}
       />
+      <span className="sr-only">{isAttention ? 'Needs stock attention' : 'Stock healthy'}</span>
     </div>
   );
 }
@@ -123,14 +132,9 @@ function ProductsPage() {
   } | null>(null);
   const [copiedSku, setCopiedSku] = useState<string | null>(null);
 
-  const [search, setSearch] = useState('');
-  const [debouncedSearch, setDebouncedSearch] = useState('');
-  const [page, setPage] = useState(1);
-
-  useEffect(() => {
-    const t = setTimeout(() => { setDebouncedSearch(search); setPage(1); }, 350);
-    return () => clearTimeout(t);
-  }, [search]);
+  // Search and page live in the URL.
+  const list = useListParams({});
+  const { page, setPage, searchText: search, setSearchText: setSearch, query: debouncedSearch } = list;
 
   const { data: res, isLoading, error } = useProducts({
     search: debouncedSearch || undefined,
@@ -179,9 +183,13 @@ function ProductsPage() {
 
   const submitSale = async () => {
     if (!saleProduct) return;
+    if (!saleForm.sale_price.trim()) {
+      setSaleError('Enter a sale price lower than the regular price.');
+      return;
+    }
     const salePrice = Number(saleForm.sale_price);
     if (!Number.isFinite(salePrice) || salePrice < 0) {
-      setSaleError('Sale price must be a non-negative number.');
+      setSaleError('Sale price must be zero or more.');
       return;
     }
     if (salePrice >= saleProduct.price) {
@@ -198,8 +206,8 @@ function ProductsPage() {
         },
       });
       setSaleProduct(null);
-    } catch (error: any) {
-      setSaleError(error?.message || 'Failed to update sale');
+    } catch (error) {
+      setSaleError(errorMessage(error, 'Could not save the sale. Check your connection and try again.'));
     }
   };
 
@@ -208,8 +216,8 @@ function ProductsPage() {
     try {
       await setProductSaleMutation.mutateAsync({ id: saleProduct.id, data: { sale_price: null } });
       setSaleProduct(null);
-    } catch (error: any) {
-      setSaleError(error?.message || 'Failed to remove sale');
+    } catch (error) {
+      setSaleError(errorMessage(error, 'Could not remove the sale. Check your connection and try again.'));
     }
   };
 
@@ -236,10 +244,9 @@ function ProductsPage() {
         });
       }
     } catch (error: unknown) {
-      const errorMessage = (error as { message?: string })?.message || 'Failed to delete product';
       setRemoveResult({
         action: 'error',
-        message: errorMessage,
+        message: errorMessage(error, 'Could not remove the product. Check your connection and try again.'),
       });
     }
   };
@@ -277,6 +284,9 @@ function ProductsPage() {
                 <img
                   src={product.image_url}
                   alt={product.name}
+                  width={44}
+                  height={44}
+                  loading="lazy"
                   className={cn('h-full w-full object-cover', !product.is_active && 'grayscale opacity-70')}
                 />
               ) : (
@@ -325,6 +335,7 @@ function ProductsPage() {
     },
     {
       accessorKey: 'category_id',
+      enableSorting: false,
       header: 'Category',
       cell: ({ row }) => {
         const product = row.original;
@@ -352,6 +363,7 @@ function ProductsPage() {
     },
     {
       accessorKey: 'total_stock',
+      enableSorting: false,
       header: () => <div className="text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">Inventory</div>,
       cell: ({ row }) => {
         return <StockIndicator product={row.original} />;
@@ -359,6 +371,7 @@ function ProductsPage() {
     },
     {
       accessorKey: 'is_active',
+      enableSorting: false,
       header: 'Status',
       cell: ({ row }) => {
         return <StatusIndicator active={row.original.is_active} />;
@@ -383,7 +396,10 @@ function ProductsPage() {
         const product = row.original;
         return (
           <button
+            type="button"
             title={product.is_featured ? 'Unfeature' : 'Feature'}
+            aria-label={`Feature ${product.name} on the storefront`}
+            aria-pressed={product.is_featured}
             onClick={() => toggleFeaturedMutation.mutate({ id: product.id, is_featured: !product.is_featured })}
             disabled={toggleFeaturedMutation.isPending}
             className={cn(
@@ -456,7 +472,7 @@ function ProductsPage() {
 
   return (
     <DashboardLayout>
-      <div className="flex flex-col gap-6 p-6">
+      <div className="flex flex-col gap-6 p-4 sm:p-6">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-semibold leading-tight">Products</h1>
@@ -471,7 +487,7 @@ function ProductsPage() {
             <div className="flex flex-col items-center gap-3">
               <div className="skeleton h-8 w-32" />
               <div className="skeleton h-4 w-48" />
-              <p className="text-sm text-muted-foreground">Loading products...</p>
+              <p className="text-sm text-muted-foreground">Loading products…</p>
             </div>
           </div>
         )}
@@ -544,41 +560,44 @@ function ProductsPage() {
           </DialogHeader>
 
           <div className="space-y-3">
-            <div>
-              <label className="text-xs font-medium">Sale price</label>
-              <input
+            <div className="space-y-1.5">
+              <Label htmlFor="sale-price">Sale price</Label>
+              <Input
+                id="sale-price"
                 type="number"
+                inputMode="decimal"
                 min="0"
                 value={saleForm.sale_price}
                 onChange={(e) => setSaleForm((f) => ({ ...f, sale_price: e.target.value }))}
-                className="mt-1 h-10 w-full rounded-md border bg-background px-3 text-sm"
-                placeholder={saleProduct ? String(saleProduct.price) : ''}
+                placeholder={saleProduct ? `e.g. ${Math.max(0, Math.round(saleProduct.price * 0.8))}` : ''}
+                aria-describedby="sale-price-hint"
               />
+              {saleProduct && (
+                <p id="sale-price-hint" className="text-xs text-muted-foreground">
+                  Regular price {formatPrice(saleProduct.price)}. The sale price must be lower.
+                </p>
+              )}
             </div>
-            <div>
-              <label className="text-xs font-medium">Ends at</label>
-              <input
+            <div className="space-y-1.5">
+              <Label htmlFor="sale-ends-at">Ends on (optional)</Label>
+              <Input
+                id="sale-ends-at"
                 type="date"
                 value={saleForm.sale_ends_at}
                 onChange={(e) => setSaleForm((f) => ({ ...f, sale_ends_at: e.target.value }))}
-                className="mt-1 h-10 w-full rounded-md border bg-background px-3 text-sm"
               />
             </div>
-            {saleError && (
-              <p className="rounded-xl bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                {saleError}
-              </p>
-            )}
+            <ErrorNotice>{saleError}</ErrorNotice>
           </div>
 
           <DialogFooter>
             {saleProduct?.sale_price != null && (
               <Button variant="outline" onClick={removeSale} disabled={setProductSaleMutation.isPending}>
-                Remove Sale
+                Remove sale
               </Button>
             )}
-            <Button onClick={submitSale} disabled={setProductSaleMutation.isPending || !saleForm.sale_price}>
-              {setProductSaleMutation.isPending ? 'Saving...' : 'Save Sale'}
+            <Button onClick={submitSale} disabled={setProductSaleMutation.isPending}>
+              {setProductSaleMutation.isPending ? 'Saving…' : 'Save sale'}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -611,7 +630,7 @@ function ProductsPage() {
                   Cancel
                 </Button>
                 <Button type="button" variant="destructive" onClick={confirmRemoveProduct} disabled={deleteMutation.isPending}>
-                  {deleteMutation.isPending ? 'Removing...' : 'Remove product'}
+                  {deleteMutation.isPending ? 'Removing…' : 'Remove product'}
                 </Button>
               </DialogFooter>
             </>

@@ -64,7 +64,7 @@ function SettingsPage() {
 
   return (
     <DashboardLayout>
-      <div className="flex flex-col gap-6 p-6">
+      <div className="flex flex-col gap-6 p-4 sm:p-6">
         <div>
           <h1 className="text-2xl font-semibold leading-tight">Settings</h1>
           <p className="mt-1 text-sm text-muted-foreground">Manage account and shop operations</p>
@@ -115,12 +115,12 @@ function SettingsPage() {
                   disabled={managersLoading || updateHandover.isPending}
                 >
                   <SelectTrigger id="handover-manager">
-                    <SelectValue placeholder={managersLoading ? 'Loading managers...' : 'Select manager'} />
+                    <SelectValue placeholder={managersLoading ? 'Loading managers…' : 'Select manager'} />
                   </SelectTrigger>
                   <SelectContent>
                     {managers.map((manager) => (
                       <SelectItem key={manager.id} value={manager.id}>
-                        {manager.full_name} - {manager.email}
+                        {manager.full_name} ({manager.email})
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -135,7 +135,7 @@ function SettingsPage() {
                 onClick={handleSaveHandover}
                 disabled={!canSaveHandover || handoverLoading || updateHandover.isPending}
               >
-                {updateHandover.isPending ? 'Saving...' : 'Save'}
+                {updateHandover.isPending ? 'Saving…' : 'Save'}
               </Button>
             </div>
 

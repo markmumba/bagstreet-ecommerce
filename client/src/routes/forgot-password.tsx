@@ -4,6 +4,7 @@ import { apiClient } from '@/services/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { ErrorNotice } from '@/components/ui/notice';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { ShoppingBag } from 'lucide-react';
 
@@ -39,7 +40,7 @@ function ForgotPasswordPage() {
             <ShoppingBag className="h-6 w-6" />
           </div>
           <h1 className="text-2xl font-bold tracking-tight">Bagstreet</h1>
-          <p className="text-sm text-muted-foreground">Admin Dashboard</p>
+          <p className="text-sm text-muted-foreground">Admin dashboard</p>
         </div>
 
         <Card>
@@ -52,7 +53,7 @@ function ForgotPasswordPage() {
           <CardContent>
             {submitted ? (
               <div className="space-y-4">
-                <p className="rounded-xl border border-[var(--color-success-border)] bg-[var(--color-success-bg)] px-4 py-3 text-sm text-[var(--color-success-text)]">
+                <p role="status" className="rounded-xl border border-[var(--color-success-border)] bg-[var(--color-success-bg)] px-4 py-3 text-sm text-[var(--color-success-text)]">
                   If that email is registered you will receive a reset link shortly.
                 </p>
                 <Link to="/login" className="block text-center text-sm text-muted-foreground hover:text-foreground">
@@ -65,8 +66,11 @@ function ForgotPasswordPage() {
                   <Label htmlFor="email">Email</Label>
                   <Input
                     id="email"
+                    name="email"
                     type="email"
-                    placeholder="admin@example.com"
+                    autoComplete="email"
+                    spellCheck={false}
+                    placeholder="you@example.com"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     required
@@ -75,11 +79,7 @@ function ForgotPasswordPage() {
                   />
                 </div>
 
-                {error && (
-                  <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                    {error}
-                  </p>
-                )}
+                <ErrorNotice>{error}</ErrorNotice>
 
                 <Button type="submit" className="w-full" disabled={submitting}>
                   {submitting ? 'Sending…' : 'Send reset link'}

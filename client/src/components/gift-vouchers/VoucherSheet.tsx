@@ -5,6 +5,8 @@ import { useAdjustGiftVoucher, useGiftVoucher, useReplaceGiftVoucherCode, useVoi
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { ErrorNotice, errorMessage } from '@/components/ui/notice';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { SALE_METHOD_LABELS, STATUS_LABELS, formatDate, kes } from './voucher-format';
 import { formatDateTime } from '@/lib/format';
@@ -34,7 +36,7 @@ export function VoucherSheet({ voucherId, isAdmin, onClose }: { voucherId: strin
       setNewCode(await replaceCode.mutateAsync(voucherId));
       setAction(null);
     } catch (err: any) {
-      setReplaceError(err?.message || 'Could not issue a new code');
+      setReplaceError(errorMessage(err, 'A new code couldn’t be issued. Check your connection and try again.'));
     }
   };
 
@@ -84,7 +86,7 @@ export function VoucherSheet({ voucherId, isAdmin, onClose }: { voucherId: strin
             </dl>
 
             {isAdmin && !voucher.voided_at && !action && (
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 <Button variant="outline" size="sm" onClick={() => setAction('replace')}>New code</Button>
                 <Button variant="outline" size="sm" onClick={() => setAction('adjust')}>Correct balance</Button>
                 <Button variant="outline" size="sm" className="text-destructive" onClick={() => setAction('void')}>Cancel voucher</Button>
@@ -93,10 +95,10 @@ export function VoucherSheet({ voucherId, isAdmin, onClose }: { voucherId: strin
             {action === 'replace' && (
               <div className="flex flex-col gap-2 rounded-xl border bg-muted/20 p-3">
                 <p className="text-sm">For a lost or exposed code: the voucher keeps its balance and expiry, the old code stops working, and the new one is shown once.</p>
-                {replaceError && <p className="text-sm text-destructive">{replaceError}</p>}
+                <ErrorNotice>{replaceError}</ErrorNotice>
                 <div className="flex justify-end gap-2">
                   <Button variant="ghost" size="sm" onClick={() => setAction(null)}>Cancel</Button>
-                  <Button size="sm" onClick={confirmReplace} disabled={replaceCode.isPending}>Issue new code</Button>
+                  <Button size="sm" onClick={confirmReplace} disabled={replaceCode.isPending}>{replaceCode.isPending ? 'Issuing…' : 'Issue new code'}</Button>
                 </div>
               </div>
             )}
@@ -145,17 +147,20 @@ function VoidForm({ id, balance, onDone }: { id: string; balance: number; onDone
       await voidVoucher.mutateAsync({ id, reason: reason.trim() });
       onDone();
     } catch (err: any) {
-      setError(err?.message || 'Could not cancel the voucher');
+      setError(errorMessage(err, 'The voucher couldn’t be cancelled. Check your connection and try again.'));
     }
   };
   return (
     <form onSubmit={submit} className="flex flex-col gap-2 rounded-xl border border-destructive/30 bg-destructive/5 p-3">
       <p className="text-sm">Cancelling removes the {kes(balance)} balance for good. Use it for a lost or misused code.</p>
-      <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Why (required)" maxLength={300} />
-      {error && <p className="text-sm text-destructive">{error}</p>}
+      <Label htmlFor="void-voucher-reason">Why it’s being cancelled</Label>
+      <Input id="void-voucher-reason" value={reason} onChange={(e) => setReason(e.target.value)}
+        placeholder="e.g. code shared publicly…" maxLength={300} aria-describedby="void-voucher-reason-hint" />
+      <p id="void-voucher-reason-hint" className="text-xs text-muted-foreground">Required, at least 3 characters.</p>
+      <ErrorNotice>{error}</ErrorNotice>
       <div className="flex justify-end gap-2">
         <Button type="button" variant="ghost" size="sm" onClick={onDone}>Keep it</Button>
-        <Button type="submit" variant="destructive" size="sm" disabled={reason.trim().length < 3 || voidVoucher.isPending}>Cancel voucher</Button>
+        <Button type="submit" variant="destructive" size="sm" disabled={reason.trim().length < 3 || voidVoucher.isPending}>{voidVoucher.isPending ? 'Cancelling…' : 'Cancel voucher'}</Button>
       </div>
     </form>
   );
@@ -175,21 +180,28 @@ function AdjustForm({ id, balance, onDone }: { id: string; balance: number; onDo
       await adjust.mutateAsync({ id, delta: amount, reason: reason.trim() });
       onDone();
     } catch (err: any) {
-      setError(err?.message || 'Could not change the balance');
+      setError(errorMessage(err, 'The balance couldn’t be changed. Check your connection and try again.'));
     }
   };
   return (
     <form onSubmit={submit} className="flex flex-col gap-2 rounded-xl border bg-muted/20 p-3">
-      <p className="text-xs text-muted-foreground">Add (e.g. 500) or take off (e.g. −500). The reason goes in the history and the audit log.</p>
-      <div className="grid grid-cols-2 gap-2">
-        <Input type="number" value={delta} onChange={(e) => setDelta(e.target.value)} placeholder="Amount" />
-        <p className="self-center text-sm text-muted-foreground">New balance: {valid ? kes(balance + amount) : '—'}</p>
+      <p id="adjust-voucher-hint" className="text-xs text-muted-foreground">Add (e.g. 500) or take off (e.g. -500). The reason goes in the history and the audit log.</p>
+      <div className="grid grid-cols-2 items-end gap-2">
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="adjust-voucher-amount">Amount (KES)</Label>
+          <Input id="adjust-voucher-amount" type="number" inputMode="decimal" value={delta} onChange={(e) => setDelta(e.target.value)}
+            placeholder="e.g. 500" aria-describedby="adjust-voucher-hint" />
+        </div>
+        <p className="pb-2 text-sm tabular-nums text-muted-foreground" aria-live="polite">New balance: {valid ? kes(balance + amount) : '—'}</p>
       </div>
-      <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Why (required)" maxLength={300} />
-      {error && <p className="text-sm text-destructive">{error}</p>}
+      <Label htmlFor="adjust-voucher-reason">Why it’s being corrected</Label>
+      <Input id="adjust-voucher-reason" value={reason} onChange={(e) => setReason(e.target.value)}
+        placeholder="e.g. counted twice at the till…" maxLength={300} aria-describedby="adjust-voucher-reason-hint" />
+      <p id="adjust-voucher-reason-hint" className="text-xs text-muted-foreground">Required, at least 3 characters.</p>
+      <ErrorNotice>{error}</ErrorNotice>
       <div className="flex justify-end gap-2">
         <Button type="button" variant="ghost" size="sm" onClick={onDone}>Cancel</Button>
-        <Button type="submit" size="sm" disabled={!valid || reason.trim().length < 3 || adjust.isPending}>Save</Button>
+        <Button type="submit" size="sm" disabled={!valid || reason.trim().length < 3 || adjust.isPending}>{adjust.isPending ? 'Saving…' : 'Save'}</Button>
       </div>
     </form>
   );

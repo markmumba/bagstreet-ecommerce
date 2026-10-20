@@ -3,6 +3,7 @@ import { ImagePlus, Megaphone, Trash2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { useStorefrontHeroSettings, useUpdateStorefrontHero } from '@/hooks/useSettings';
 import { ErrorNotice, SuccessNotice, errorMessage } from '@/components/ui/notice';
@@ -105,30 +106,30 @@ export function StorefrontHeroCard() {
               {image ? 'Discard new photo' : 'Remove photo'}
             </Button>
           )}
-          {image && <span className="truncate text-xs text-muted-foreground">{image.name}</span>}
+          {image && <span className="min-w-0 max-w-full flex-1 truncate text-xs text-muted-foreground" title={image.name}>{image.name}</span>}
         </div>
         <p className="text-xs text-muted-foreground">
           Use a landscape photo at least 2000px wide. Phones show the centre of the image, so keep the subject in the middle.
         </p>
-        {fileError && <p className="rounded-xl bg-destructive/10 px-3 py-2 text-sm text-destructive">{fileError}</p>}
+        <ErrorNotice>{fileError}</ErrorNotice>
 
         <div className="space-y-2">
-          <label className="text-sm font-medium" htmlFor="hero-eyebrow">Small label</label>
-          <Input id="hero-eyebrow" value={eyebrow} maxLength={60} onChange={(e) => setEyebrow(e.target.value)} placeholder="The New Season" />
+          <Label htmlFor="hero-eyebrow">Small label</Label>
+          <Input id="hero-eyebrow" value={eyebrow} maxLength={60} onChange={(e) => setEyebrow(e.target.value)} placeholder="e.g. The new season" />
         </div>
         <div className="space-y-2">
-          <label className="text-sm font-medium" htmlFor="hero-title">Headline</label>
+          <Label htmlFor="hero-title">Headline</Label>
           <Textarea id="hero-title" rows={2} value={title} maxLength={120} onChange={(e) => setTitle(e.target.value)} />
           <p className="text-xs text-muted-foreground">Put the second part on a new line to show it in italics.</p>
         </div>
         <div className="space-y-2">
-          <label className="text-sm font-medium" htmlFor="hero-subtitle">Supporting text</label>
+          <Label htmlFor="hero-subtitle">Supporting text</Label>
           <Textarea id="hero-subtitle" rows={2} value={subtitle} maxLength={240} onChange={(e) => setSubtitle(e.target.value)} />
         </div>
 
         <div className="flex justify-end">
           <Button type="button" onClick={onSave} disabled={isLoading || update.isPending}>
-            {update.isPending ? 'Saving...' : 'Save campaign'}
+            {update.isPending ? 'Saving…' : 'Save campaign'}
           </Button>
         </div>
 
