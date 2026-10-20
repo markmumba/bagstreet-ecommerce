@@ -28,11 +28,14 @@ export function useSeo({
   description = DEFAULT_DESCRIPTION,
   image,
   canonicalPath,
+  jsonLd,
 }: {
   title?: string;
   description?: string;
   image?: string;
   canonicalPath?: string;
+  /** Structured data (schema.org) for this page; removed when the page unmounts. */
+  jsonLd?: Record<string, unknown> | null;
 }) {
   useEffect(() => {
     const fullTitle = title.includes(SITE_NAME) ? title : `${title} - ${SITE_NAME}`;
@@ -53,4 +56,16 @@ export function useSeo({
     }
     upsertCanonical(canonical);
   }, [title, description, image, canonicalPath]);
+
+  const jsonLdText = jsonLd ? JSON.stringify(jsonLd) : null;
+  useEffect(() => {
+    if (!jsonLdText) return;
+    const script = document.createElement('script');
+    script.type = 'application/ld+json';
+    script.dataset.seo = 'page';
+    // Escape "<" so review text can't close the script element.
+    script.textContent = jsonLdText.replace(/</g, '\\u003c');
+    document.head.appendChild(script);
+    return () => script.remove();
+  }, [jsonLdText]);
 }

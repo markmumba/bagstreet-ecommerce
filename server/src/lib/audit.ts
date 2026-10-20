@@ -34,7 +34,11 @@ export type AuditAction =
     | 'GIFT_VOUCHER_ISSUED'
     | 'GIFT_VOUCHER_VOIDED'
     | 'GIFT_VOUCHER_ADJUSTED'
-    | 'GIFT_VOUCHER_CODE_REPLACED';
+    | 'GIFT_VOUCHER_CODE_REPLACED'
+    | 'REVIEW_APPROVED'
+    | 'REVIEW_REJECTED'
+    | 'REVIEW_REPLIED'
+    | 'REVIEW_REPLY_REMOVED';
 
 export async function createAuditLog(data: {
     actor?: AuthUser | null;

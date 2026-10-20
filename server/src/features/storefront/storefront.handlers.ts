@@ -3,6 +3,7 @@ import { success } from '@server/lib/response';
 import { NotFoundError, ValidationError } from '@server/lib/errors';
 import { cartQuoteSchema } from '../quote/quote';
 import { quoteOrder } from '../quote/quote.queries';
+import { reviewsQueries } from '../reviews/reviews.queries';
 import { assertCanTryVoucherCode, recordVoucherCodeResult } from '../gift-vouchers/voucher-guard';
 import { getOptionalUser } from '@server/lib/hono';
 import { categoriesQueries } from '../categories/categories.queries';
@@ -22,6 +23,8 @@ function toProductResponse(product: any): ProductResponse {
     }));
 
     return {
+        rating_average: product.rating_average ?? null,
+        rating_count: product.rating_count ?? 0,
         id: product.id.toString(),
         category_id: product.category_id,
         name: product.name,
@@ -94,9 +97,14 @@ async function attachImages(products: any[]) {
         imagesByProductId.set(image.product_id, existing);
     }
 
+    // Approved review ratings for the listing cards.
+    const ratings = await reviewsQueries.summaries(productIds);
+
     return products.map((product) => ({
         ...product,
         images: imagesByProductId.get(Number(product.id)) ?? [],
+        rating_average: ratings.get(Number(product.id))?.average ?? null,
+        rating_count: ratings.get(Number(product.id))?.count ?? 0,
     }));
 }
 

@@ -31,6 +31,7 @@ import { Route as OrdersIndexRouteImport } from './routes/orders/index'
 import { Route as GiftVouchersIndexRouteImport } from './routes/gift-vouchers.index'
 import { Route as ShopCategorySlugRouteImport } from './routes/shop/$categorySlug'
 import { Route as ProductsProductIdRouteImport } from './routes/products/$productId'
+import { Route as OrdersReviewRouteImport } from './routes/orders/review'
 import { Route as OrdersConfirmReceivedRouteImport } from './routes/orders/confirm-received'
 import { Route as OrdersOrderIdRouteImport } from './routes/orders/$orderId'
 import { Route as GiftVouchersBalanceRouteImport } from './routes/gift-vouchers.balance'
@@ -145,6 +146,11 @@ const ProductsProductIdRoute = ProductsProductIdRouteImport.update({
   path: '/products/$productId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const OrdersReviewRoute = OrdersReviewRouteImport.update({
+  id: '/review',
+  path: '/review',
+  getParentRoute: () => OrdersRoute,
+} as any)
 const OrdersConfirmReceivedRoute = OrdersConfirmReceivedRouteImport.update({
   id: '/confirm-received',
   path: '/confirm-received',
@@ -182,6 +188,7 @@ export interface FileRoutesByFullPath {
   '/gift-vouchers/balance': typeof GiftVouchersBalanceRoute
   '/orders/$orderId': typeof OrdersOrderIdRoute
   '/orders/confirm-received': typeof OrdersConfirmReceivedRoute
+  '/orders/review': typeof OrdersReviewRoute
   '/products/$productId': typeof ProductsProductIdRoute
   '/shop/$categorySlug': typeof ShopCategorySlugRoute
   '/gift-vouchers/': typeof GiftVouchersIndexRoute
@@ -208,6 +215,7 @@ export interface FileRoutesByTo {
   '/gift-vouchers/balance': typeof GiftVouchersBalanceRoute
   '/orders/$orderId': typeof OrdersOrderIdRoute
   '/orders/confirm-received': typeof OrdersConfirmReceivedRoute
+  '/orders/review': typeof OrdersReviewRoute
   '/products/$productId': typeof ProductsProductIdRoute
   '/shop/$categorySlug': typeof ShopCategorySlugRoute
   '/gift-vouchers': typeof GiftVouchersIndexRoute
@@ -236,6 +244,7 @@ export interface FileRoutesById {
   '/gift-vouchers/balance': typeof GiftVouchersBalanceRoute
   '/orders/$orderId': typeof OrdersOrderIdRoute
   '/orders/confirm-received': typeof OrdersConfirmReceivedRoute
+  '/orders/review': typeof OrdersReviewRoute
   '/products/$productId': typeof ProductsProductIdRoute
   '/shop/$categorySlug': typeof ShopCategorySlugRoute
   '/gift-vouchers/': typeof GiftVouchersIndexRoute
@@ -265,6 +274,7 @@ export interface FileRouteTypes {
     | '/gift-vouchers/balance'
     | '/orders/$orderId'
     | '/orders/confirm-received'
+    | '/orders/review'
     | '/products/$productId'
     | '/shop/$categorySlug'
     | '/gift-vouchers/'
@@ -291,6 +301,7 @@ export interface FileRouteTypes {
     | '/gift-vouchers/balance'
     | '/orders/$orderId'
     | '/orders/confirm-received'
+    | '/orders/review'
     | '/products/$productId'
     | '/shop/$categorySlug'
     | '/gift-vouchers'
@@ -318,6 +329,7 @@ export interface FileRouteTypes {
     | '/gift-vouchers/balance'
     | '/orders/$orderId'
     | '/orders/confirm-received'
+    | '/orders/review'
     | '/products/$productId'
     | '/shop/$categorySlug'
     | '/gift-vouchers/'
@@ -506,6 +518,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ProductsProductIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/orders/review': {
+      id: '/orders/review'
+      path: '/review'
+      fullPath: '/orders/review'
+      preLoaderRoute: typeof OrdersReviewRouteImport
+      parentRoute: typeof OrdersRoute
+    }
     '/orders/confirm-received': {
       id: '/orders/confirm-received'
       path: '/confirm-received'
@@ -533,12 +552,14 @@ declare module '@tanstack/react-router' {
 interface OrdersRouteChildren {
   OrdersOrderIdRoute: typeof OrdersOrderIdRoute
   OrdersConfirmReceivedRoute: typeof OrdersConfirmReceivedRoute
+  OrdersReviewRoute: typeof OrdersReviewRoute
   OrdersIndexRoute: typeof OrdersIndexRoute
 }
 
 const OrdersRouteChildren: OrdersRouteChildren = {
   OrdersOrderIdRoute: OrdersOrderIdRoute,
   OrdersConfirmReceivedRoute: OrdersConfirmReceivedRoute,
+  OrdersReviewRoute: OrdersReviewRoute,
   OrdersIndexRoute: OrdersIndexRoute,
 }
 

@@ -118,6 +118,19 @@ export const emailPreviews: EmailPreview[] = [
         },
     },
     {
+        filename: 'review-invite',
+        template: 'review-invite',
+        label: 'Review invitation',
+        vars: {
+            title: 'How was your Bagstreet order BS-1A2B3C4D?',
+            preheader: 'A short review helps other customers choose.',
+            name: 'Amani',
+            orderRef: 'BS-1A2B3C4D',
+            products: 'Coach Terri Shoulder Bag and Cashmere Wrap Scarf',
+            reviewUrl: 'https://example.com/orders/review?order_id=preview&token=preview-only-not-a-real-token',
+        },
+    },
+    {
         filename: 'customer-account-setup',
         template: 'customer-account-setup',
         label: 'Customer account setup',

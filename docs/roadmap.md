@@ -92,7 +92,7 @@ Decisions: valid **1 year**, disclosed in the terms of sale and on the voucher (
 - [ ] Sales reports: revenue by date range, top products (monthly CSV exports already exist)
 - [ ] Wishlist
 - [ ] Returns request flow (refunds are recorded today; there is no customer return request)
-- [ ] Product reviews
+- [x] Product reviews (agreed 20 Oct 2026): verified buyers only, approved by staff before they show, invitation email 5 days after the order is received, one public reply per review, stars on shop cards from 3 reviews, `aggregateRating` on the product page. `bun run test:reviews`
 - [ ] Better recommendations (the product page shows same-category items today)
 - [ ] Google sign-in
 - [ ] Order tracking, only if dispatch stops being manual

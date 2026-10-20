@@ -12,6 +12,7 @@ import staffAlert from './templates/staff-alert.html' with { type: 'text' };
 import orderExpired from './templates/order-expired.html' with { type: 'text' };
 import giftVoucher from './templates/gift-voucher.html' with { type: 'text' };
 import giftVoucherReceipt from './templates/gift-voucher-receipt.html' with { type: 'text' };
+import reviewInvite from './templates/review-invite.html' with { type: 'text' };
 
 // Text imports embed the templates in production bundles as well as loading them in dev.
 const templates = {
@@ -29,6 +30,7 @@ const templates = {
     'order-expired': orderExpired,
     'gift-voucher': giftVoucher,
     'gift-voucher-receipt': giftVoucherReceipt,
+    'review-invite': reviewInvite,
 };
 
 export type EmailTemplateName = Exclude<keyof typeof templates, 'email-layout'>;

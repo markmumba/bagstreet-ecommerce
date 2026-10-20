@@ -88,3 +88,15 @@ _Avoid_: Voucher order (ambiguous with an **Order** paid by voucher)
 
 **Voucher liability**:
 The unspent value of all live **Gift vouchers**: money the shop has taken but still owes in goods. A voucher sale adds to it; it becomes revenue only when spent.
+
+## Reviews
+
+**Product review**:
+A customer's 1–5 star rating and words about one product they bought, written against the **Order** it came in. It shows on the shop only after staff approve it; an edit sends it back for approval. Negative reviews are approved like any other: staff hold one back only for abuse, personal details or being off-topic, and record why.
+_Avoid_: Rating (only the stars), testimonial (about the shop, not a product)
+
+**Verified buyer**:
+Someone whose **Order** for the product has been received. Only verified buyers can write a **Product review**, and every published review shows that it is from one.
+
+**Review invitation**:
+The one email sent about 5 days after an **Order** is received, with a link to review what was bought. Never sent for a **Voucher purchase**, more than once per order, or to anyone who has unsubscribed. No reward is offered for reviewing.

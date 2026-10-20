@@ -353,6 +353,24 @@ export async function sendGiftVoucherReceiptEmail(to: string, name: string, orde
     await send(to, `Receipt: Bagstreet gift voucher ${orderRef}`, html, text);
 }
 
+/** Asks a customer to review what they bought, a few days after the order was received. */
+export async function sendReviewInviteEmail(to: string, name: string, orderRef: string, productNames: string[], reviewUrl: string) {
+    if (!emailDeliveryConfigured()) {
+        console.log(`[DEV] Review invitation for ${name} <${to}> - ${orderRef}`);
+        return;
+    }
+    const products = productNames.length === 1
+        ? productNames[0]!
+        : productNames.length === 2 ? `${productNames[0]} and ${productNames[1]}` : `${productNames[0]} and the rest of your order`;
+    const html = await renderEmail('review-invite', {
+        title: `How was your Bagstreet order ${orderRef}?`,
+        preheader: 'A short review helps other customers choose.',
+        name, orderRef, products, reviewUrl,
+    });
+    const text = `Hi ${name},\n\nWe hope you're enjoying ${products}. A short review helps other customers choose, and helps us know what to keep and what to improve.\n\nWrite a review:\n${reviewUrl}\n\nReviews show your first name and last initial only. This is the only time we'll ask about this order.`;
+    await send(to, `How was your Bagstreet order ${orderRef}?`, html, text);
+}
+
 /** A staff alert that needs someone to act (a held or reversed payment, a refund owed). */
 export async function sendStaffAlertEmail(to: string, name: string, eyebrow: string, heading: string, message: string, linkPath: string) {
     const actionUrl = buildAdminUrl(linkPath);

@@ -14,6 +14,7 @@ const notificationTargets = new Set([
     '/dashboard',
     '/orders',
     '/gift-vouchers',
+    '/reviews',
     '/reconciliation',
     '/products',
     '/categories',

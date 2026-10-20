@@ -8,7 +8,7 @@ import {
   Phone,
   ShoppingBag,
 } from 'lucide-react';
-import { PAYMENT_STATUS } from 'shared';
+import { ORDER_STATUS, PAYMENT_STATUS } from 'shared';
 import { PaymentReceipt } from '@/components/orders/PaymentReceipt';
 import { useAuth } from '@/context/AuthContext';
 import { useOrder } from '@/hooks/useOrders';
@@ -90,6 +90,7 @@ function OrderDetailPage() {
   const addressLines = getAddressLines(order.shipping_address);
   const orderNumber = formatOrderNumber(order.id, order.order_number);
   const hasReceipt = order.payment_status === PAYMENT_STATUS.PAID;
+  const canReview = order.status === ORDER_STATUS.DELIVERED && order.order_source !== 'GIFT_VOUCHER';
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-24 sm:px-6 lg:px-8">
@@ -124,6 +125,18 @@ function OrderDetailPage() {
           <div className="border-b border-border px-5 py-4">
             <h2 className="text-lg font-semibold">Items</h2>
           </div>
+          {canReview && (
+            <div className="flex flex-col gap-3 border-b border-border bg-surface px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-sm text-foreground-muted">How did your pieces turn out? Other customers would love to know.</p>
+              <Link
+                to="/orders/review"
+                search={{ order_id: getOrderRouteRef(order) }}
+                className="ui-press inline-flex h-10 shrink-0 items-center justify-center bg-espresso px-5 text-label-caps text-background hover:bg-espresso-hover"
+              >
+                Review your items
+              </Link>
+            </div>
+          )}
           <div className="divide-y divide-border">
             {order.items.map((item) => (
               <div key={item.id} className="grid gap-4 px-5 py-5 sm:grid-cols-[1fr_auto]">
