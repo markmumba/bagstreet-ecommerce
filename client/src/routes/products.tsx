@@ -305,7 +305,7 @@ function ProductsPage() {
                     'ui-press inline-flex items-center gap-1 rounded px-1 py-0.5 hover:bg-muted focus:opacity-100',
                     isCopied
                       ? 'bg-[var(--color-success-bg)] text-[var(--color-success-text)] opacity-100'
-                      : 'opacity-0 group-hover:opacity-100'
+                      : 'reveal-on-hover'
                   )}
                 >
                   {isCopied ? (
@@ -419,7 +419,8 @@ function ProductsPage() {
               size="sm"
               onClick={() => handleEdit(product)}
               title="Edit"
-              className="h-8 w-8 px-0 opacity-0 transition-opacity group-hover:opacity-100 group-hover/actions:opacity-100 focus:opacity-100"
+              aria-label={`Edit ${product.name}`}
+              className="h-8 w-8 px-0 reveal-on-hover"
             >
               <Pencil className="h-4 w-4" />
             </Button>
@@ -428,7 +429,8 @@ function ProductsPage() {
               size="sm"
               onClick={() => handleSaleClick(product)}
               title="Sale"
-              className="h-8 w-8 px-0 opacity-0 transition-opacity group-hover:opacity-100 group-hover/actions:opacity-100 focus:opacity-100"
+              aria-label={`Set a sale price for ${product.name}`}
+              className="h-8 w-8 px-0 reveal-on-hover"
             >
               <Tag className="h-4 w-4" />
             </Button>
@@ -438,11 +440,12 @@ function ProductsPage() {
               onClick={() => handleRemoveClick(product)}
               disabled={deleteMutation.isPending}
               title="Remove"
-              className="h-8 w-8 px-0 opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100 group-hover/actions:opacity-100 focus:opacity-100"
+              aria-label={`Remove ${product.name}`}
+              className="h-8 w-8 px-0 reveal-on-hover hover:bg-destructive/10 hover:text-destructive"
             >
               <Trash2 className="h-4 w-4" />
             </Button>
-            <span className="flex h-8 w-8 items-center justify-center text-muted-foreground transition-opacity group-hover:hidden group-hover/actions:hidden">
+            <span aria-hidden="true" className="hover-hint flex h-8 w-8 items-center justify-center text-muted-foreground transition-opacity group-hover:hidden group-hover/actions:hidden">
               <MoreHorizontal className="h-4 w-4" strokeWidth={1.7} />
             </span>
           </div>

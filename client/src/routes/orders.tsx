@@ -122,7 +122,10 @@ function SourceChip({ source }: { source?: OrderResponse['order_source'] }) {
 }
 
 function copyOrderRef(order: OrderResponse) {
-  navigator.clipboard?.writeText(formatOrderRef(order)).catch(() => undefined);
+  const ref = formatOrderRef(order);
+  navigator.clipboard?.writeText(ref)
+    .then(() => toast.success(`Copied ${ref}`))
+    .catch(() => toast.error('Copying isn’t allowed here. Select the order number instead.'));
 }
 
 function addressLine(address: OrderResponse['shipping_address']) {
@@ -328,11 +331,12 @@ function OrdersPage() {
               <button
                 type="button"
                 title="Copy order ref"
+                aria-label={`Copy order number ${formatOrderRef(order)}`}
                 onClick={(e) => {
                   e.stopPropagation();
                   copyOrderRef(order);
                 }}
-                className="rounded p-0.5 opacity-0 transition-opacity hover:bg-muted group-hover:opacity-100 focus:opacity-100"
+                className="rounded p-0.5 reveal-on-hover hover:bg-muted"
               >
                 <Copy className="h-3 w-3" strokeWidth={1.8} />
               </button>
@@ -442,7 +446,8 @@ function OrdersPage() {
             variant="ghost"
             size="sm"
             title="View order"
-            className="h-8 w-8 px-0 opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100"
+            aria-label={`View order ${formatOrderRef(row.original)}`}
+            className="h-8 w-8 px-0 reveal-on-hover"
             onClick={(e) => { e.stopPropagation(); openOrder(row.original); }}
           >
             <Eye className="h-4 w-4" strokeWidth={1.7} />

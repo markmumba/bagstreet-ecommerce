@@ -416,7 +416,8 @@ export function ProductDialog({ open, onOpenChange, product }: ProductDialogProp
                       <button
                         type="button"
                         onClick={() => makePrimaryImage(index)}
-                        className="absolute left-1.5 top-1.5 rounded-md bg-background/95 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground opacity-0 shadow-sm transition hover:text-foreground group-hover:opacity-100 focus:opacity-100"
+                        aria-label={`Make photo ${index + 1} the main photo`}
+                        className="absolute left-1.5 top-1.5 rounded-md bg-background/95 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground shadow-sm reveal-on-hover hover:text-foreground"
                         disabled={isLoading}
                       >
                         Make main

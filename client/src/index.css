@@ -226,3 +226,19 @@
   from { background-position: 200% 0; }
   to { background-position: -200% 0; }
 }
+
+/*
+ * Row actions (copy, view, edit…): always visible on touch screens, where there is no hover.
+ * With a mouse they stay out of the way until the row is hovered or a control is focused.
+ */
+@media (hover: hover) {
+  .reveal-on-hover { opacity: 0; transition: opacity 150ms ease-out; }
+  .group:hover .reveal-on-hover,
+  .group:focus-within .reveal-on-hover,
+  .reveal-on-hover:focus-visible { opacity: 1; }
+}
+
+/* Hints that only make sense with a mouse (e.g. "…" standing in for hover-revealed actions). */
+@media (hover: none) {
+  .hover-hint { display: none !important; }
+}

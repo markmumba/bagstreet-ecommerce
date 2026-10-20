@@ -66,19 +66,19 @@ This is roadmap item #7. Create one shared formatter module using `Intl.NumberFo
 
 ## 2. The till on a tablet
 
-- [ ] `components/orders/WalkInSaleDialog.tsx:161, :172`: at 768px the voucher, payment and customer fields sit below the item list in an inner scroll area about 400px tall. I confirmed this in the browser. On narrow screens, stack the cart and payment above the catalogue, or give them a fixed footer.
-- [ ] `WalkInSaleDialog.tsx:96-99`: Esc, tapping outside or Cancel throws away the whole cart without asking.
-- [ ] `WalkInSaleDialog.tsx:306`: `Number(v) || 1` turns an emptied quantity box into 1, so typing "3" gives "13".
-- [ ] `WalkInSaleDialog.tsx:449-451`: while saving, only a spinner shows. Change the label to "Recording sale…".
-- [ ] `WalkInSaleDialog.tsx:436-440`: the error sits far from the submit button and has no `role="alert"`.
-- [ ] `WalkInSaleDialog.tsx:405-421`: the phone field has no `type="tel"`. No field has `autoComplete`, and the email field doesn't turn off spellcheck.
-- [ ] `WalkInSaleDialog.tsx:351`: the voucher code field doesn't turn off spellcheck.
+- [x] `components/orders/WalkInSaleDialog.tsx:161, :172`: at 768px the voucher, payment and customer fields sit below the item list in an inner scroll area about 400px tall. I confirmed this in the browser. On narrow screens, stack the cart and payment above the catalogue, or give them a fixed footer.
+- [x] `WalkInSaleDialog.tsx:96-99`: Esc, tapping outside or Cancel throws away the whole cart without asking.
+- [x] `WalkInSaleDialog.tsx:306`: `Number(v) || 1` turns an emptied quantity box into 1, so typing "3" gives "13".
+- [x] `WalkInSaleDialog.tsx:449-451`: while saving, only a spinner shows. Change the label to "Recording sale…".
+- [x] `WalkInSaleDialog.tsx:436-440`: the error sits far from the submit button and has no `role="alert"`.
+- [x] `WalkInSaleDialog.tsx:405-421`: the phone field has no `type="tel"`. No field has `autoComplete`, and the email field doesn't turn off spellcheck.
+- [x] `WalkInSaleDialog.tsx:351`: the voucher code field doesn't turn off spellcheck.
 - **Buttons that only appear on hover** are invisible on touch screens and have no `aria-label`:
-  - [ ] `routes/orders.tsx:319-329`: Copy order reference, which also gives no "copied" feedback;
-  - [ ] `routes/orders.tsx:432-440`: View order;
-  - [ ] `routes/products.tsx:429-456`: Edit, Sale and Remove;
-  - [ ] `components/products/ProductDialog.tsx:412-419`: "Make main", which doesn't say which image it applies to.
-- [ ] `components/orders/PaymentStatusChip.tsx:33`: the "Needs review" and "Reversed" explanations exist only in `title`, so touch and screen-reader users never see them.
+  - [x] `routes/orders.tsx:319-329`: Copy order reference, which also gives no "copied" feedback;
+  - [x] `routes/orders.tsx:432-440`: View order;
+  - [x] `routes/products.tsx:429-456`: Edit, Sale and Remove;
+  - [x] `components/products/ProductDialog.tsx:412-419`: "Make main", which doesn't say which image it applies to.
+- [x] `components/orders/PaymentStatusChip.tsx:33`: the "Needs review" and "Reversed" explanations exist only in `title`, so touch and screen-reader users never see them.
 
 ---
 

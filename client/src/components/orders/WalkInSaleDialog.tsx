@@ -26,6 +26,8 @@ import {
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 import { formatMoney as formatKes } from '@/lib/format';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { ErrorNotice } from '@/components/ui/notice';
 
 type CartItem = WalkInCatalogItemResponse & { quantity: number };
 
@@ -92,9 +94,18 @@ export function WalkInSaleDialog({ open, onOpenChange, onCreated }: WalkInSaleDi
     voucherLookup.reset();
   };
 
+  // Esc, a tap outside or Cancel would throw away the cart: ask first when there's something in it.
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
   const close = (nextOpen: boolean) => {
-    if (!nextOpen && !createSale.isPending) reset();
-    onOpenChange(nextOpen);
+    if (nextOpen) return onOpenChange(true);
+    if (createSale.isPending) return;
+    if (cart.length > 0) return setConfirmDiscard(true);
+    reset();
+    onOpenChange(false);
+  };
+  const discard = async () => {
+    reset();
+    onOpenChange(false);
   };
 
   const addItem = (item: WalkInCatalogItemResponse) => {
@@ -113,13 +124,23 @@ export function WalkInSaleDialog({ open, onOpenChange, onCreated }: WalkInSaleDi
 
   const updateQuantity = (variantId: string, quantity: number) => {
     setCart((current) =>
-      current
-        .map((item) =>
-          item.variant_id === variantId
-            ? { ...item, quantity: Math.min(item.stock, Math.max(1, quantity)) }
-            : item
-        )
-        .filter((item) => item.quantity > 0)
+      current.map((item) =>
+        item.variant_id === variantId
+          ? { ...item, quantity: Math.min(item.stock, Math.max(1, quantity)) }
+          : item
+      )
+    );
+  };
+
+  /** While typing, the box may be empty (0); it becomes at least 1 when the field is left. */
+  const typeQuantity = (variantId: string, raw: string) => {
+    const digits = raw.replace(/\D/g, '');
+    setCart((current) =>
+      current.map((item) =>
+        item.variant_id === variantId
+          ? { ...item, quantity: digits === '' ? 0 : Math.min(item.stock, Number(digits)) }
+          : item
+      )
     );
   };
 
@@ -138,7 +159,7 @@ export function WalkInSaleDialog({ open, onOpenChange, onCreated }: WalkInSaleDi
       const res = await createSale.mutateAsync({
         items: cart.map((item) => ({
           variant_id: Number(item.variant_id),
-          quantity: item.quantity,
+          quantity: Math.max(1, item.quantity),
         })),
         payment_method: paymentMethod,
         customer_name: customerName.trim() || undefined,
@@ -157,7 +178,7 @@ export function WalkInSaleDialog({ open, onOpenChange, onCreated }: WalkInSaleDi
 
   return (
     <Dialog open={open} onOpenChange={close}>
-      <DialogContent className="max-h-[92vh] overflow-hidden p-0 sm:max-w-[980px]">
+      <DialogContent className="flex max-h-[92vh] flex-col overflow-hidden p-0 sm:max-w-[980px]">
         <DialogHeader className="border-b px-6 py-5">
           <DialogTitle className="flex items-center gap-2 text-xl">
             <ShoppingBag className="h-5 w-5" strokeWidth={1.8} />
@@ -168,8 +189,10 @@ export function WalkInSaleDialog({ open, onOpenChange, onCreated }: WalkInSaleDi
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid max-h-[calc(92vh-150px)] overflow-hidden lg:grid-cols-[1fr_380px]">
-          <section className="min-h-0 border-b p-6 lg:border-b-0 lg:border-r">
+        {/* Below lg the whole body scrolls as one page (catalogue, then cart and payment); on wide
+            screens the two columns scroll on their own. */}
+        <div className="grid min-h-0 flex-1 overflow-y-auto lg:grid-cols-[1fr_380px] lg:overflow-hidden">
+          <section className="border-b p-4 sm:p-6 lg:min-h-0 lg:border-b-0 lg:border-r">
             <Label htmlFor="walk-in-search">Find item</Label>
             <div className="relative mt-2">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" strokeWidth={1.8} />
@@ -177,16 +200,16 @@ export function WalkInSaleDialog({ open, onOpenChange, onCreated }: WalkInSaleDi
                 id="walk-in-search"
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search by product name or SKU..."
+                placeholder="Search by product name or SKU…"
                 className="pl-9"
               />
             </div>
 
-            <div className="mt-4 max-h-[52vh] space-y-2 overflow-y-auto pr-1">
+            <div className="mt-4 max-h-[40vh] space-y-2 overflow-y-auto overscroll-contain pr-1 lg:max-h-[52vh]">
               {catalogQuery.isLoading && (
                 <div className="flex h-32 items-center justify-center text-sm text-muted-foreground">
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Loading inventory
+                  Loading inventory…
                 </div>
               )}
 
@@ -254,7 +277,7 @@ export function WalkInSaleDialog({ open, onOpenChange, onCreated }: WalkInSaleDi
             </div>
           </section>
 
-          <section className="min-h-0 overflow-y-auto p-6">
+          <section className="p-4 sm:p-6 lg:min-h-0 lg:overflow-y-auto">
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="font-semibold">Sale cart</h3>
@@ -301,8 +324,9 @@ export function WalkInSaleDialog({ open, onOpenChange, onCreated }: WalkInSaleDi
                           <Minus className="h-3.5 w-3.5" />
                         </Button>
                         <Input
-                          value={item.quantity}
-                          onChange={(event) => updateQuantity(item.variant_id, Number(event.target.value) || 1)}
+                          value={item.quantity === 0 ? '' : item.quantity}
+                          onChange={(event) => typeQuantity(item.variant_id, event.target.value)}
+                          onBlur={() => updateQuantity(item.variant_id, item.quantity)}
                           className="h-8 w-12 border-0 px-1 text-center tabular-nums"
                           inputMode="numeric"
                           aria-label={`${item.product_name} quantity`}
@@ -348,7 +372,7 @@ export function WalkInSaleDialog({ open, onOpenChange, onCreated }: WalkInSaleDi
                 ) : (
                   <div className="flex gap-2">
                     <Input id="walk-in-voucher" value={voucherCode} onChange={(e) => setVoucherCode(e.target.value.toUpperCase())}
-                      placeholder="Optional: BGST-…" className="font-mono" maxLength={40} autoComplete="off" />
+                      placeholder="Optional: BGST-…" className="font-mono" maxLength={40} autoComplete="off" spellCheck={false} />
                     <Button type="button" variant="outline" disabled={!voucherCode.trim() || voucherLookup.isPending}
                       onClick={() => voucherLookup.mutate(voucherCode.trim())}>
                       Apply
@@ -404,9 +428,11 @@ export function WalkInSaleDialog({ open, onOpenChange, onCreated }: WalkInSaleDi
                   <Label htmlFor="walk-in-phone">Phone</Label>
                   <Input
                     id="walk-in-phone"
+                    type="tel"
+                    autoComplete="off"
                     value={customerPhone}
                     onChange={(event) => setCustomerPhone(event.target.value)}
-                    placeholder="Optional"
+                    placeholder="Optional, e.g. 0712 345 678"
                   />
                 </div>
                 <div className="space-y-2">
@@ -414,6 +440,8 @@ export function WalkInSaleDialog({ open, onOpenChange, onCreated }: WalkInSaleDi
                   <Input
                     id="walk-in-email"
                     type="email"
+                    autoComplete="off"
+                    spellCheck={false}
                     value={customerEmail}
                     onChange={(event) => setCustomerEmail(event.target.value)}
                     placeholder="Optional"
@@ -432,25 +460,42 @@ export function WalkInSaleDialog({ open, onOpenChange, onCreated }: WalkInSaleDi
                 />
               </div>
 
-              {error && (
-                <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                  {error}
-                </div>
-              )}
             </div>
           </section>
         </div>
 
-        <DialogFooter className="border-t px-6 py-4">
-          <Button variant="outline" onClick={() => close(false)} disabled={createSale.isPending}>
-            Cancel
-          </Button>
-          <Button onClick={completeSale} disabled={cart.length === 0 || createSale.isPending}>
-            {createSale.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Complete sale
-          </Button>
+        {/* Always visible: what to take at the counter, any error, and the buttons. */}
+        <DialogFooter className="flex-col gap-3 border-t px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+          <div className="min-w-0 sm:mr-auto">
+            {cart.length > 0 && (
+              <p className="text-sm">
+                <span className="text-muted-foreground">{voucher ? 'Take at the counter' : 'Total'} </span>
+                <span className="font-semibold tabular-nums">{formatMoney(voucher ? takeAtCounter : total)}</span>
+              </p>
+            )}
+            <ErrorNotice className="mt-2 sm:mt-1">{error}</ErrorNotice>
+          </div>
+          <div className="flex gap-2 sm:justify-end">
+            <Button variant="outline" onClick={() => close(false)} disabled={createSale.isPending}>
+              Cancel
+            </Button>
+            <Button onClick={completeSale} disabled={cart.length === 0 || createSale.isPending}>
+              {createSale.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />}
+              {createSale.isPending ? 'Recording sale…' : 'Complete sale'}
+            </Button>
+          </div>
         </DialogFooter>
       </DialogContent>
+      <ConfirmDialog
+        open={confirmDiscard}
+        onOpenChange={setConfirmDiscard}
+        title="Discard this sale?"
+        description={`The ${itemCount} item${itemCount === 1 ? '' : 's'} in the cart will be cleared. Nothing has been recorded yet.`}
+        confirmLabel="Discard sale"
+        pendingLabel="Discarding…"
+        destructive
+        onConfirm={discard}
+      />
     </Dialog>
   );
 }
