@@ -250,3 +250,57 @@
 @media (hover: none) {
   .hover-hint { display: none !important; }
 }
+
+/*
+ * A table value that is also a shortcut (price → sale, stock → sizes): reads as plain data,
+ * shows it can be clicked on hover and keyboard focus.
+ */
+.cell-action {
+  display: inline-flex;
+  border-radius: 0.375rem;
+  padding: 0.125rem 0.375rem;
+  text-align: right;
+  transition: background-color 120ms ease-out;
+}
+.cell-action:hover { background: var(--muted); }
+.cell-action:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+
+/* Row selection checkbox: same look in every browser and theme. */
+.select-box {
+  appearance: none;
+  flex-shrink: 0;
+  display: inline-grid;
+  place-content: center;
+  width: 1rem;
+  height: 1rem;
+  border: 1.5px solid var(--color-border-strong, var(--border));
+  border-radius: 0.25rem;
+  background: var(--card);
+  cursor: pointer;
+  vertical-align: middle;
+  transition: background-color 100ms ease-out, border-color 100ms ease-out;
+}
+.select-box:hover { border-color: var(--primary); }
+.select-box:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.select-box:disabled { cursor: default; opacity: 0.4; }
+.select-box:checked,
+.select-box:indeterminate { background: var(--primary); border-color: var(--primary); }
+.select-box:checked::after {
+  content: '';
+  width: 0.55rem;
+  height: 0.3rem;
+  margin-top: -0.12rem;
+  border-left: 2px solid var(--primary-foreground);
+  border-bottom: 2px solid var(--primary-foreground);
+  transform: rotate(-45deg);
+}
+.select-box:indeterminate::after {
+  content: '';
+  width: 0.5rem;
+  height: 2px;
+  background: var(--primary-foreground);
+}
+
+/* Horizontal chip rows scroll by swipe or trackpad without a scrollbar bar under them. */
+.no-scrollbar { scrollbar-width: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }

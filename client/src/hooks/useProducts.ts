@@ -8,12 +8,22 @@ export const productKeys = {
   list: (params?: ProductListParams) => [...productKeys.lists(), params] as const,
   details: () => [...productKeys.all, 'detail'] as const,
   detail: (id: string) => [...productKeys.details(), id] as const,
+  viewCounts: (params?: Pick<ProductListParams, 'search' | 'categoryId'>) => [...productKeys.all, 'view-counts', params] as const,
 };
 
 export function useProducts(params?: ProductListParams) {
   return useQuery({
     queryKey: productKeys.list(params),
     queryFn: () => productsService.getAll(params),
+    staleTime: 1000 * 60 * 2,
+  });
+}
+
+/** How many products each saved view (needs restock, on sale…) holds for a search and category. */
+export function useProductViewCounts(params?: Pick<ProductListParams, 'search' | 'categoryId'>) {
+  return useQuery({
+    queryKey: productKeys.viewCounts(params),
+    queryFn: () => productsService.getViewCounts(params),
     staleTime: 1000 * 60 * 2,
   });
 }
@@ -33,7 +43,7 @@ export function useCreateProduct() {
   return useMutation({
     mutationFn: (data: FormData) => productsService.create(data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: productKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: productKeys.all });
     },
   });
 }
@@ -46,7 +56,7 @@ export function useUpdateProduct() {
       productsService.update(id, data),
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: productKeys.detail(variables.id) });
-      queryClient.invalidateQueries({ queryKey: productKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: productKeys.all });
     },
   });
 }
@@ -58,7 +68,7 @@ export function useUpdateProductForm() {
     mutationFn: ({ id, data }: { id: string; data: FormData }) =>
       productsService.updateForm(id, data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: productKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: productKeys.all });
     },
   });
 }
@@ -69,7 +79,7 @@ export function useDeleteProduct() {
   return useMutation({
     mutationFn: (id: string) => productsService.delete(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: productKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: productKeys.all });
     },
   });
 }
@@ -81,7 +91,7 @@ export function useToggleFeatured() {
     mutationFn: ({ id, is_featured }: { id: string; is_featured: boolean }) =>
       productsService.toggleFeatured(id, is_featured),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: productKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: productKeys.all });
     },
   });
 }

@@ -17,4 +17,5 @@ export const updateProductSchema = z.object({
     sale_price: z.number().min(0).nullable().optional(),
     sale_ends_at: z.string().datetime().nullable().optional(),
     is_featured: z.boolean().optional(),
+    is_active: z.boolean().optional(),
 })

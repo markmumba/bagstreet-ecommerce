@@ -1,8 +1,9 @@
 import type { AppContext } from '@server/lib/hono';
-import { productsQueries } from "./products.queries";
+import { productsQueries, type AdminProductFilters } from "./products.queries";
 import { ordersQueries } from "../orders/orders.queries";
 import { categoriesQueries } from "../categories/categories.queries";
-import type { ProductDeleteResponse, ProductRequest, ProductResponse, ProductUpdateRequest } from "shared/dist";
+import { PRODUCT_LIST_SORTS, PRODUCT_LIST_VIEWS } from "shared/dist";
+import type { ProductDeleteResponse, ProductListSort, ProductListView, ProductRequest, ProductResponse, ProductUpdateRequest } from "shared/dist";
 import { success, paginated } from "@server/lib/response";
 import { BadRequestError, ConflictError, InternalServerError, NotFoundError, ValidationError } from "@server/lib/errors";
 import { createProductSchema, updateProductSchema } from "./products.schema";
@@ -112,40 +113,45 @@ function parseOptionalDate(value: string | undefined): string | null {
     return parsed.toISOString();
 }
 
+function adminListFilters(c: AppContext): AdminProductFilters {
+    const categoryParam = c.req.query('categoryId');
+    const categoryId = categoryParam ? parseInt(categoryParam, 10) : null;
+    const view = c.req.query('view');
+    const sort = c.req.query('sort');
+    if (categoryId != null && !(categoryId > 0)) throw new BadRequestError('categoryId must be a category id');
+    if (view && !(PRODUCT_LIST_VIEWS as readonly string[]).includes(view)) throw new BadRequestError(`view must be one of ${PRODUCT_LIST_VIEWS.join(', ')}`);
+    if (sort && !(PRODUCT_LIST_SORTS as readonly string[]).includes(sort)) throw new BadRequestError(`sort must be one of ${PRODUCT_LIST_SORTS.join(', ')}`);
+    return {
+        search: c.req.query('searchTerm') ?? '',
+        categoryId,
+        view: (view as ProductListView | undefined) ?? null,
+        sort: (sort as ProductListSort | undefined) ?? 'name_asc',
+    };
+}
+
 export const productsHandlers = {
+    /** The admin products list. Query: page, limit, searchTerm (name or SKU), categoryId, view, sort. */
     list: async (c: AppContext) => {
-        const pageParam = c.req.query('page');
-        const limitParam = c.req.query('limit');
-        const categoryParameter = c.req.query('categoryId');
-        const searchParam = c.req.query('searchTerm');
-        const status = c.req.query('status');
+        const page = parseInt(c.req.query('page') ?? '1', 10);
+        const limit = parseInt(c.req.query('limit') ?? '10', 10);
+        if (!(page >= 1)) throw new BadRequestError('Page must be greater than 0');
+        if (!(limit >= 1 && limit <= 100)) throw new BadRequestError('Limit must be between 1 and 100');
 
-        const page = pageParam ? parseInt(pageParam, 10) : 1;
-        const limit = limitParam ? parseInt(limitParam, 10) : 10;
-        const categoryId = categoryParameter ? parseInt(categoryParameter, 10) : null;
-        const searchTerm = searchParam ?? '';
-        const productStatus = status === 'true' ? true : status === 'false' ? false : null;
-
-        if (page < 1) {
-            throw new BadRequestError('Page must be greater than 0');
-        }
-        if (limit < 1 || limit > 100) {
-            throw new BadRequestError('Limit must be between 1 and 100');
-        }
-
-        const [products, total] = await Promise.all([
-            productsQueries.findAll(page, limit, categoryId, searchTerm, productStatus),
-            productsQueries.countAll(categoryId, searchTerm, productStatus)
-        ]);
-
-        const imageRows = await productsQueries.findImagesByProductIds(products.map((product) => Number(product.id)));
+        const { rows, total } = await productsQueries.listForAdmin(adminListFilters(c), page, limit);
+        const imageRows = await productsQueries.findImagesByProductIds(rows.map((product) => Number(product.id)));
         const imagesByProductId = groupImagesByProductId(imageRows);
-        const response: ProductResponse[] = products.map((product) => toProductResponse({
+        const response: ProductResponse[] = rows.map((product) => toProductResponse({
             ...product,
             images: imagesByProductId.get(Number(product.id)) ?? [],
         }));
 
         return paginated(c, response, page, limit, total);
+    },
+
+    /** How many products each saved view holds, for the same searchTerm and categoryId as the list. */
+    viewCounts: async (c: AppContext) => {
+        const { search, categoryId } = adminListFilters(c);
+        return success(c, await productsQueries.adminViewCounts({ search, categoryId }));
     },
 
     get: async (c: AppContext) => {
@@ -363,7 +369,7 @@ export const productsHandlers = {
             if (isActiveStr !== null) updateData.is_active = isActiveStr === 'true';
 
             if (imageFiles.length > 0) {
-                const existingProduct = await productsQueries.findById(id);
+                const existingProduct = await productsQueries.findByIdAnyStatus(id);
                 if (!existingProduct) throw new NotFoundError('Product', id);
                 const oldImages = await productsQueries.findImagesByProductId(id);
                 const uploadedImages = [];
@@ -394,7 +400,7 @@ export const productsHandlers = {
             updateData = validated.data!;
         }
 
-        const existingProduct = await productsQueries.findById(id);
+        const existingProduct = await productsQueries.findByIdAnyStatus(id);
         if (!existingProduct) throw new NotFoundError('Product', id);
 
         const updatedProduct = await productsQueries.update(id, updateData);

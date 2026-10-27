@@ -1,12 +1,15 @@
 import { apiClient } from './api';
-import type { ProductDeleteResponse, ProductResponse, ProductUpdateRequest } from 'shared';
+import type { ProductDeleteResponse, ProductResponse, ProductUpdateRequest, ProductListSort, ProductListView, ProductViewCounts } from 'shared';
 import type { ImportReport } from '@/components/import/CsvImportDialog';
 
 export interface ProductListParams {
+  /** Matches the name or SKU. */
   search?: string;
   page?: number;
   limit?: number;
-  status?: string;
+  categoryId?: string;
+  view?: ProductListView;
+  sort?: ProductListSort;
 }
 
 export const productsService = {
@@ -15,8 +18,17 @@ export const productsService = {
     if (params?.search) query.searchTerm = params.search;
     if (params?.page) query.page = params.page;
     if (params?.limit) query.limit = params.limit;
-    if (params?.status != null) query.status = params.status;
+    if (params?.categoryId) query.categoryId = params.categoryId;
+    if (params?.view) query.view = params.view;
+    if (params?.sort) query.sort = params.sort;
     return apiClient.getPage<ProductResponse>('/api/products', query);
+  },
+
+  getViewCounts: async (params?: Pick<ProductListParams, 'search' | 'categoryId'>) => {
+    const query: Record<string, unknown> = {};
+    if (params?.search) query.searchTerm = params.search;
+    if (params?.categoryId) query.categoryId = params.categoryId;
+    return apiClient.get<ProductViewCounts>('/api/products/view-counts', query);
   },
 
   getById: async (id: string) => {

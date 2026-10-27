@@ -1,16 +1,15 @@
 import { createFileRoute } from '@tanstack/react-router';
-import { useState } from 'react';
-import type { ColumnDef } from '@tanstack/react-table';
-import { useProducts, useDeleteProduct, useToggleFeatured, useImportProductsCsv } from '@/hooks/useProducts';
+import { useEffect, useState } from 'react';
+import { PRODUCT_LIST_SORTS, PRODUCT_LIST_VIEWS, type CategoryResponse, type ProductListSort, type ProductListView, type ProductResponse } from 'shared';
+import { useProducts, useProductViewCounts, useDeleteProduct, useToggleFeatured, useUpdateProduct, useImportProductsCsv } from '@/hooks/useProducts';
 import { useSetProductSale } from '@/hooks/usePromotions';
 import { useCategoryOptions } from '@/hooks/useCategories';
 import { ProductDialog } from '@/components/products/ProductDialog';
-import { ProductsDataTable } from '@/components/products/ProductsDataTable';
+import { ProductsDataTable, type ProductRowActions } from '@/components/products/ProductsDataTable';
 import { VariantsSheet } from '@/components/products/VariantsSheet';
 import { PairingsSheet } from '@/components/products/PairingsSheet';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { CsvImportDialog } from '@/components/import/CsvImportDialog';
-import type { ProductResponse, CategoryResponse } from 'shared';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -20,9 +19,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, Boxes, Check, CheckCircle2, Copy, ImageIcon, Link2, MoreHorizontal, Pencil, Star, Tag, Trash2, X, XCircle } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { AlertTriangle, CheckCircle2, Eye, EyeOff, Plus, Star, StarOff, Tag, Upload, X, XCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { formatDate, formatMoney } from '@/lib/format';
+import { formatMoney } from '@/lib/format';
+import { toast } from '@/lib/toast';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ErrorNotice, errorMessage } from '@/components/ui/notice';
@@ -35,87 +36,19 @@ export const Route = createFileRoute('/products')({
 type Product = ProductResponse;
 
 const LIMIT = 20;
-const CATEGORY_STYLES: Record<string, { dot: string; label: string }> = {
-  Handbags: { dot: 'bg-[#9f3f46]', label: 'text-[#6f2c31]' },
-  Shoes: { dot: 'bg-[#7f5af0]', label: 'text-[#5940a8]' },
-  Scarves: { dot: 'bg-[#0f9f6e]', label: 'text-[#08724f]' },
-  Accessories: { dot: 'bg-[#64748b]', label: 'text-[#475569]' },
-};
 
-function SortHeader({ column, label, className }: { column: any; label: string; className?: string }) {
-  const sorted = column.getIsSorted() as false | 'asc' | 'desc';
-  const Icon = sorted === 'asc' ? ArrowUp : sorted === 'desc' ? ArrowDown : ArrowUpDown;
-  return (
-    <Button
-      type="button"
-      variant="ghost"
-      onClick={() => column.toggleSorting(sorted === 'asc')}
-      className={cn('-ml-3 h-8 px-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground', sorted && 'text-foreground', className)}
-    >
-      {label}
-      <Icon className="h-3.5 w-3.5" strokeWidth={1.5} aria-hidden="true" />
-    </Button>
-  );
-}
+const VIEWS: { value: '' | ProductListView; label: string }[] = [
+  { value: '', label: 'All' },
+  { value: 'restock', label: 'Needs restock' },
+  { value: 'sale', label: 'On sale' },
+  { value: 'featured', label: 'Featured' },
+  { value: 'hidden', label: 'Hidden' },
+];
 
-function CategoryChip({ name }: { name: string }) {
-  const style = CATEGORY_STYLES[name] ?? { dot: 'bg-muted-foreground', label: 'text-foreground' };
-  return (
-    <span className="inline-flex max-w-full items-center gap-2 rounded-full border border-border bg-background px-2.5 py-1 text-xs font-medium">
-      <span className={cn('h-2 w-2 shrink-0 rounded-full', style.dot)} />
-      <span className={cn('truncate', style.label)}>{name}</span>
-    </span>
-  );
-}
-
-function StatusIndicator({ active }: { active: boolean }) {
-  return (
-    <span
-      className={cn(
-        'inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-xs font-medium',
-        active
-          ? 'bg-[var(--color-success-bg)] text-[var(--color-success-text)]'
-          : 'bg-muted text-muted-foreground'
-      )}
-    >
-      {active ? <Check className="h-3 w-3" strokeWidth={2} /> : <X className="h-3 w-3" strokeWidth={2} />}
-      {active ? 'Active' : 'Inactive'}
-    </span>
-  );
-}
-
-function StockIndicator({ product }: { product: Product }) {
-  const stockLevel = product.total_stock ?? product.stock;
-  const stockStatus = product.stock_status ?? (stockLevel === 0 ? 'out' : stockLevel < 10 ? 'low' : 'high');
-  const isAttention = stockStatus === 'out' || stockStatus === 'low';
-  const variantNote = product.out_of_stock_variant_count
-    ? `${product.out_of_stock_variant_count} out`
-    : product.low_stock_variant_count
-    ? `${product.low_stock_variant_count} low`
-    : 'healthy';
-
-  return (
-    <div className="flex items-center justify-end gap-3">
-      <div className="min-w-0 text-right">
-        <div className={cn('font-medium tabular-nums', isAttention ? 'text-[var(--color-danger-text)]' : 'text-foreground')}>
-          {stockLevel}
-        </div>
-        <div className="text-[11px] text-muted-foreground">{variantNote}</div>
-      </div>
-      <span
-        aria-hidden="true"
-        className={cn(
-          'h-2.5 w-2.5 shrink-0 rounded-full ring-4',
-          isAttention
-            ? 'bg-[var(--color-danger-text)] ring-[var(--color-danger-bg)]'
-            : 'bg-[var(--color-success-text)] ring-[var(--color-success-bg)]'
-        )}
-        title={isAttention ? 'Needs stock attention' : 'Stock healthy'}
-      />
-      <span className="sr-only">{isAttention ? 'Needs stock attention' : 'Stock healthy'}</span>
-    </div>
-  );
-}
+const asView = (value: unknown): ProductListView | undefined =>
+  (PRODUCT_LIST_VIEWS as readonly unknown[]).includes(value) ? value as ProductListView : undefined;
+const asSort = (value: unknown): ProductListSort =>
+  (PRODUCT_LIST_SORTS as readonly unknown[]).includes(value) ? value as ProductListSort : 'name_asc';
 
 function ProductsPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -133,61 +66,112 @@ function ProductsPage() {
     action: 'deleted' | 'deactivated' | 'error';
     message: string;
   } | null>(null);
-  const [copiedSku, setCopiedSku] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkSaleOpen, setBulkSaleOpen] = useState(false);
+  const [bulkSaleForm, setBulkSaleForm] = useState({ percent: '', ends_at: '' });
+  const [bulkSaleError, setBulkSaleError] = useState('');
+  const [bulkBusy, setBulkBusy] = useState(false);
 
-  // Search and page live in the URL.
-  const list = useListParams({});
+  // Search, view, category, sort and page live in the URL.
+  const list = useListParams({ view: '', category: '', sort: 'name_asc' });
   const { page, setPage, searchText: search, setSearchText: setSearch, query: debouncedSearch } = list;
+  const view = asView(list.params.view);
+  const sort = asSort(list.params.sort);
+  const categoryId = String(list.params.category ?? '') || undefined;
 
   const { data: res, isLoading, error } = useProducts({
     search: debouncedSearch || undefined,
+    categoryId,
+    view,
+    sort,
     page,
     limit: LIMIT,
   });
+  const { data: counts } = useProductViewCounts({ search: debouncedSearch || undefined, categoryId });
 
   const products: Product[] = res?.items ?? [];
   const total = res?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / LIMIT));
+  const isFiltered = Boolean(debouncedSearch || view || categoryId);
+
+  // A selection only means something for the rows on screen.
+  useEffect(() => setSelectedIds(new Set()), [page, view, categoryId, debouncedSearch, sort]);
+  const selected = products.filter((p) => selectedIds.has(p.id));
 
   const { data: categories } = useCategoryOptions();
   const deleteMutation = useDeleteProduct();
   const toggleFeaturedMutation = useToggleFeatured();
+  const updateMutation = useUpdateProduct();
   const importMutation = useImportProductsCsv();
   const setProductSaleMutation = useSetProductSale();
+
+  const getCategoryName = (id: string) =>
+    categories?.find((c: CategoryResponse) => c.id === String(id))?.name || '—';
 
   const handleCreate = () => {
     setEditingProduct(null);
     setDialogOpen(true);
   };
 
-  const handleEdit = (product: Product) => {
-    setEditingProduct(product);
-    setDialogOpen(true);
+  const actions: ProductRowActions = {
+    edit: (product) => {
+      setEditingProduct(product);
+      setDialogOpen(true);
+    },
+    openStock: (product) => {
+      setVariantsProduct(product);
+      setVariantsSheetOpen(true);
+    },
+    openPairings: (product) => {
+      setPairingsProduct(product);
+      setPairingsSheetOpen(true);
+    },
+    openSale: (product) => {
+      setSaleProduct(product);
+      setSaleForm({
+        sale_price: product.sale_price != null ? String(product.sale_price) : '',
+        sale_ends_at: product.sale_ends_at ? product.sale_ends_at.slice(0, 10) : '',
+      });
+      setSaleError('');
+    },
+    toggleFeatured: (product) =>
+      toggleFeaturedMutation.mutate({ id: product.id, is_featured: !product.is_featured }, {
+        onSuccess: () => toast.success(product.is_featured ? `${product.name} removed from featured` : `${product.name} featured on the homepage`),
+        onError: (err) => toast.error(errorMessage(err, 'Couldn’t change featured. Try again.')),
+      }),
+    toggleVisible: (product) =>
+      updateMutation.mutate({ id: product.id, data: { is_active: !product.is_active } }, {
+        onSuccess: () => toast.success(product.is_active ? `${product.name} hidden from the shop` : `${product.name} is back in the shop`),
+        onError: (err) => toast.error(errorMessage(err, 'Couldn’t change visibility. Try again.')),
+      }),
+    copySku: (product) => {
+      navigator.clipboard?.writeText(product.sku)
+        .then(() => toast.success(`Copied ${product.sku}`))
+        .catch(() => toast.error('Copying isn’t allowed here. Select the SKU instead.'));
+    },
+    remove: (product) => {
+      setRemoveProduct(product);
+      setRemoveResult(null);
+    },
   };
 
-  const handleOpenVariants = (product: Product) => {
-    setVariantsProduct(product);
-    setVariantsSheetOpen(true);
+  /** Runs one change per selected product; reports how many worked. */
+  const runBulk = async (label: string, change: (product: Product) => Promise<unknown>, targets: Product[] = selected) => {
+    if (targets.length === 0) return;
+    setBulkBusy(true);
+    const results = await Promise.allSettled(targets.map(change));
+    setBulkBusy(false);
+    const failed = results.filter((r) => r.status === 'rejected').length;
+    if (failed === 0) {
+      toast.success(`${label}: ${targets.length} product${targets.length === 1 ? '' : 's'}`);
+      setSelectedIds(new Set());
+    } else {
+      toast.error(`${label}: ${failed} of ${targets.length} didn’t save. Try those again.`);
+    }
   };
 
-  const handleOpenPairings = (product: Product) => {
-    setPairingsProduct(product);
-    setPairingsSheetOpen(true);
-  };
-
-  const handleRemoveClick = (product: Product) => {
-    setRemoveProduct(product);
-    setRemoveResult(null);
-  };
-
-  const handleSaleClick = (product: Product) => {
-    setSaleProduct(product);
-    setSaleForm({
-      sale_price: product.sale_price != null ? String(product.sale_price) : '',
-      sale_ends_at: product.sale_ends_at ? product.sale_ends_at.slice(0, 10) : '',
-    });
-    setSaleError('');
-  };
+  const allFeatured = selected.length > 0 && selected.every((p) => p.is_featured);
+  const allHidden = selected.length > 0 && selected.every((p) => !p.is_active);
 
   const submitSale = async () => {
     if (!saleProduct) return;
@@ -229,6 +213,21 @@ function ProductsPage() {
     }
   };
 
+  /** Percent off each selected product's regular price, rounded to whole shillings. */
+  const submitBulkSale = async () => {
+    const percent = Number(bulkSaleForm.percent);
+    if (!bulkSaleForm.percent.trim() || !Number.isFinite(percent) || percent <= 0 || percent >= 100) {
+      setBulkSaleError('Enter a discount between 1 and 99 percent.');
+      return;
+    }
+    const endsAt = bulkSaleForm.ends_at ? new Date(bulkSaleForm.ends_at).toISOString() : null;
+    setBulkSaleOpen(false);
+    await runBulk(`${percent}% off`, (product) => setProductSaleMutation.mutateAsync({
+      id: product.id,
+      data: { sale_price: Math.max(0, Math.round(product.price * (1 - percent / 100))), sale_ends_at: endsAt },
+    }));
+  };
+
   const closeRemoveDialog = () => {
     if (deleteMutation.isPending) return;
     setRemoveProduct(null);
@@ -243,7 +242,7 @@ function ProductsPage() {
       if (result.action === 'deactivated') {
         setRemoveResult({
           action: 'deactivated',
-          message: `"${removeProduct.name}" has order history, so it was deactivated instead of permanently deleted.`,
+          message: `"${removeProduct.name}" has order history, so it was hidden from the shop instead of permanently deleted.`,
         });
       } else {
         setRemoveResult({
@@ -261,287 +260,132 @@ function ProductsPage() {
 
   const formatPrice = (price: number) => formatMoney(price);
 
-  const getCategoryName = (categoryId: string) => {
-    const category = categories?.find((c: CategoryResponse) => c.id === String(categoryId));
-    return category?.name || '—';
-  };
-
-  const handleCopySku = async (sku: string) => {
-    try {
-      await navigator.clipboard?.writeText(sku);
-      setCopiedSku(sku);
-      window.setTimeout(() => {
-        setCopiedSku((current) => (current === sku ? null : current));
-      }, 1600);
-    } catch {
-      setCopiedSku(null);
-    }
-  };
-
-  const columns: ColumnDef<Product>[] = [
-    {
-      accessorKey: 'name',
-      header: ({ column }) => <SortHeader column={column} label="Product" />,
-      cell: ({ row }) => {
-        const product = row.original;
-        const isCopied = copiedSku === product.sku;
-        return (
-          <div className="group flex min-w-0 items-center gap-3">
-            <div className="h-11 w-11 shrink-0 overflow-hidden rounded-md bg-muted ring-1 ring-border">
-              {product.image_url ? (
-                <img
-                  src={product.image_url}
-                  alt={product.name}
-                  width={44}
-                  height={44}
-                  loading="lazy"
-                  className={cn('h-full w-full object-cover', !product.is_active && 'grayscale opacity-70')}
-                />
-              ) : (
-                <div className="flex h-full w-full items-center justify-center text-muted-foreground">
-                  <ImageIcon className="h-5 w-5" strokeWidth={1.5} />
-                </div>
-              )}
-            </div>
-            <div className="min-w-0">
-              <div className="flex min-w-0 items-center gap-2">
-                <span className="truncate font-medium text-foreground">{product.name}</span>
-                {product.sale_price != null && (
-                  <span className="shrink-0 rounded-full bg-[var(--color-warning-bg)] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--color-warning-text)]">
-                    Sale
-                  </span>
-                )}
-              </div>
-              <div className="mt-1 flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground">
-                <span className="truncate font-mono">{product.sku}</span>
-                <button
-                  type="button"
-                  title={isCopied ? 'SKU copied' : 'Copy SKU'}
-                  aria-label={isCopied ? `Copied ${product.sku}` : `Copy SKU ${product.sku}`}
-                  onClick={() => handleCopySku(product.sku)}
-                  className={cn(
-                    'ui-press inline-flex items-center gap-1 rounded px-1 py-0.5 hover:bg-muted focus:opacity-100',
-                    isCopied
-                      ? 'bg-[var(--color-success-bg)] text-[var(--color-success-text)] opacity-100'
-                      : 'reveal-on-hover'
-                  )}
-                >
-                  {isCopied ? (
-                    <>
-                      <Check className="h-3 w-3" strokeWidth={2} />
-                      <span className="text-[10px] font-medium">Copied</span>
-                    </>
-                  ) : (
-                    <Copy className="h-3 w-3" strokeWidth={1.8} />
-                  )}
-                </button>
-              </div>
-            </div>
-          </div>
-        );
-      },
-    },
-    {
-      accessorKey: 'category_id',
-      enableSorting: false,
-      header: 'Category',
-      cell: ({ row }) => {
-        const product = row.original;
-        return <CategoryChip name={getCategoryName(product.category_id)} />;
-      },
-    },
-    {
-      accessorKey: 'price',
-      header: ({ column }) => <SortHeader column={column} label="Price" className="ml-auto" />,
-      cell: ({ row }) => {
-        const product = row.original;
-        return (
-          <div className="text-right font-medium tabular-nums">
-            {product.sale_price != null ? (
-              <div>
-                <span>{formatPrice(product.sale_price)}</span>
-                <span className="ml-2 text-xs text-muted-foreground line-through">{formatPrice(product.price)}</span>
-              </div>
-            ) : (
-              formatPrice(product.price)
-            )}
-          </div>
-        );
-      },
-    },
-    {
-      accessorKey: 'total_stock',
-      enableSorting: false,
-      header: () => <div className="text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">Inventory</div>,
-      cell: ({ row }) => {
-        return <StockIndicator product={row.original} />;
-      },
-    },
-    {
-      accessorKey: 'is_active',
-      enableSorting: false,
-      header: 'Status',
-      cell: ({ row }) => {
-        return <StatusIndicator active={row.original.is_active} />;
-      },
-    },
-    {
-      accessorKey: 'created_at',
-      header: ({ column }) => <SortHeader column={column} label="Created" />,
-      cell: ({ row }) => {
-        const product = row.original;
-        return (
-          <div className="text-sm text-muted-foreground">
-            {formatDate(product.created_at)}
-          </div>
-        );
-      },
-    },
-    {
-      id: 'is_featured',
-      header: () => <div className="text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground">Feature</div>,
-      cell: ({ row }) => {
-        const product = row.original;
-        return (
-          <button
-            type="button"
-            title={product.is_featured ? 'Unfeature' : 'Feature'}
-            aria-label={`Feature ${product.name} on the storefront`}
-            aria-pressed={product.is_featured}
-            onClick={() => toggleFeaturedMutation.mutate({ id: product.id, is_featured: !product.is_featured })}
-            disabled={toggleFeaturedMutation.isPending}
-            className={cn(
-              'mx-auto flex h-8 w-8 items-center justify-center rounded-md transition-colors',
-              product.is_featured
-                ? 'text-[var(--color-warning-text)]'
-                : 'text-muted-foreground opacity-35 hover:bg-muted hover:text-[var(--color-warning-text)] hover:opacity-100'
-            )}
-          >
-            <Star className={cn('h-4 w-4', product.is_featured && 'fill-current')} strokeWidth={1.7} />
-          </button>
-        );
-      },
-    },
-    {
-      id: 'actions',
-      header: () => <div className="text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">Actions</div>,
-      cell: ({ row }) => {
-        const product = row.original;
-        return (
-          <div className="group/actions flex min-w-[210px] justify-end gap-1">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => handleOpenVariants(product)}
-              className="h-8"
-            >
-              <Boxes className="h-4 w-4" />
-              Variants
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => handleEdit(product)}
-              title="Edit"
-              aria-label={`Edit ${product.name}`}
-              className="h-8 w-8 px-0 reveal-on-hover"
-            >
-              <Pencil className="h-4 w-4" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => handleOpenPairings(product)}
-              title="Goes well with"
-              aria-label={`Choose what goes well with ${product.name}`}
-              className="h-8 w-8 px-0 reveal-on-hover"
-            >
-              <Link2 className="h-4 w-4" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => handleSaleClick(product)}
-              title="Sale"
-              aria-label={`Set a sale price for ${product.name}`}
-              className="h-8 w-8 px-0 reveal-on-hover"
-            >
-              <Tag className="h-4 w-4" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => handleRemoveClick(product)}
-              disabled={deleteMutation.isPending}
-              title="Remove"
-              aria-label={`Remove ${product.name}`}
-              className="h-8 w-8 px-0 reveal-on-hover hover:bg-destructive/10 hover:text-destructive"
-            >
-              <Trash2 className="h-4 w-4" />
-            </Button>
-            <span aria-hidden="true" className="hover-hint flex h-8 w-8 items-center justify-center text-muted-foreground transition-opacity group-hover:hidden group-hover/actions:hidden">
-              <MoreHorizontal className="h-4 w-4" strokeWidth={1.7} />
-            </span>
-          </div>
-        );
-      },
-    },
-  ];
-
   return (
     <DashboardLayout>
-      <div className="flex flex-col gap-6 p-4 sm:p-6">
-        <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-5 p-4 sm:p-6">
+        <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <h1 className="text-2xl font-semibold leading-tight">Products</h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              Manage your product inventory and listings
+              What's in the shop, what it costs, and what needs restocking
             </p>
+          </div>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => setImportOpen(true)}>
+              <Upload className="h-4 w-4" />
+              Import CSV
+            </Button>
+            <Button onClick={handleCreate}>
+              <Plus className="h-4 w-4" />
+              New product
+            </Button>
           </div>
         </div>
 
-        {isLoading && (
-          <div className="rounded-xl border bg-card p-6">
-            <div className="flex flex-col items-center gap-3">
-              <div className="skeleton h-8 w-32" />
-              <div className="skeleton h-4 w-48" />
-              <p className="text-sm text-muted-foreground">Loading products…</p>
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <Input
+              type="search"
+              aria-label="Search products by name or SKU"
+              autoComplete="off"
+              spellCheck={false}
+              placeholder="Search name or SKU…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="h-9 w-full sm:w-64"
+            />
+            <Select value={categoryId ?? 'all'} onValueChange={(v) => list.update({ category: v === 'all' ? '' : v })}>
+              <SelectTrigger className="h-9 w-full sm:w-44" aria-label="Category">
+                <SelectValue placeholder="All categories" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All categories</SelectItem>
+                {categories?.map((c: CategoryResponse) => (
+                  <SelectItem key={c.id} value={c.id}>{c.parent_name ? `${c.parent_name} › ${c.name}` : c.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Selecting swaps the views for bulk actions in the same spot, so rows never move under the pointer. */}
+          {selected.length > 0 ? (
+            <div role="region" aria-label="Bulk actions" className="flex h-9 items-center gap-1 no-scrollbar overflow-x-auto whitespace-nowrap rounded-full border border-primary/30 bg-primary/5 pl-4 pr-1">
+              <span className="mr-auto pr-2 text-sm font-medium tabular-nums">{selected.length} selected</span>
+              <Button variant="ghost" size="sm" className="h-7 shrink-0 rounded-full" disabled={bulkBusy}
+                onClick={() => runBulk(allFeatured ? 'Removed from featured' : 'Featured', (p) => toggleFeaturedMutation.mutateAsync({ id: p.id, is_featured: !allFeatured }))}>
+                {allFeatured ? <StarOff className="h-4 w-4" /> : <Star className="h-4 w-4" />}
+                {allFeatured ? 'Remove from featured' : 'Feature'}
+              </Button>
+              <Button variant="ghost" size="sm" className="h-7 shrink-0 rounded-full" disabled={bulkBusy}
+                onClick={() => { setBulkSaleForm({ percent: '', ends_at: '' }); setBulkSaleError(''); setBulkSaleOpen(true); }}>
+                <Tag className="h-4 w-4" />
+                Put on sale
+              </Button>
+              <Button variant="ghost" size="sm" className="h-7 shrink-0 rounded-full" disabled={bulkBusy}
+                onClick={() => runBulk(allHidden ? 'Back in the shop' : 'Hidden from the shop', (p) => updateMutation.mutateAsync({ id: p.id, data: { is_active: allHidden } }))}>
+                {allHidden ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+                {allHidden ? 'Show in shop' : 'Hide from shop'}
+              </Button>
+              <Button variant="ghost" size="sm" className="h-7 w-7 shrink-0 rounded-full px-0" aria-label="Clear selection" onClick={() => setSelectedIds(new Set())}>
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+          ) : (
+            <div role="group" aria-label="Show" className="-mx-1 flex h-9 items-center gap-1.5 no-scrollbar overflow-x-auto px-1">
+              {VIEWS.map((v) => {
+                const active = (view ?? '') === v.value;
+                const count = counts ? counts[v.value || 'all'] : undefined;
+                const urgent = v.value === 'restock' && (count ?? 0) > 0;
+                return (
+                  <button
+                    key={v.value || 'all'}
+                    type="button"
+                    aria-pressed={active}
+                    onClick={() => list.update({ view: v.value })}
+                    className={cn(
+                      'inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1 text-sm transition-colors focus-visible:outline-2 focus-visible:outline-ring',
+                      active ? 'border-foreground/20 bg-foreground text-background' : 'border-border text-muted-foreground hover:bg-muted hover:text-foreground',
+                    )}
+                  >
+                    {v.label}
+                    {count != null && (
+                      <span className={cn('tabular-nums', !active && urgent && 'font-semibold text-[var(--color-danger-text)]', !active && !urgent && 'text-muted-foreground/80')}>
+                        {count}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {error ? (
+          <ErrorNotice>{errorMessage(error, 'Couldn’t load products. Check your connection and refresh.')}</ErrorNotice>
+        ) : (
+          <ProductsDataTable
+            products={products}
+            isLoading={isLoading}
+            categoryName={getCategoryName}
+            sort={sort}
+            onSortChange={(next) => list.update({ sort: next })}
+            selectedIds={selectedIds}
+            onSelectionChange={setSelectedIds}
+            actions={actions}
+            isFiltered={isFiltered}
+            onClearFilters={() => { setSearch(''); list.update({ view: '', category: '', q: '' }); }}
+            onCreateNew={handleCreate}
+          />
+        )}
+
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between">
+            <p className="text-sm tabular-nums text-muted-foreground">Page {page} of {totalPages} · {total} products</p>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={() => setPage(page - 1)} disabled={page <= 1}>Previous</Button>
+              <Button variant="outline" size="sm" onClick={() => setPage(page + 1)} disabled={page >= totalPages}>Next</Button>
             </div>
           </div>
-        )}
-
-        {error && (
-          <div className="rounded-xl border border-destructive/50 bg-destructive/10 p-4">
-            <p className="text-sm font-medium text-destructive">Failed to load products</p>
-            <p className="text-sm text-destructive/80 mt-1">
-              {(error as { message?: string })?.message || 'An error occurred'}
-            </p>
-          </div>
-        )}
-
-        {!isLoading && !error && (
-          <ProductsDataTable
-            data={products}
-            columns={columns}
-            onCreateNew={handleCreate}
-            onImportCsv={() => setImportOpen(true)}
-            onOpenVariants={handleOpenVariants}
-            onOpenPairings={handleOpenPairings}
-            onEdit={handleEdit}
-            onSale={handleSaleClick}
-            onRemove={handleRemoveClick}
-            onToggleFeatured={(product) => toggleFeaturedMutation.mutate({ id: product.id, is_featured: !product.is_featured })}
-            getCategoryName={getCategoryName}
-            renderCategory={(name) => <CategoryChip name={name} />}
-            renderStock={(product) => <StockIndicator product={product} />}
-            renderStatus={(active) => <StatusIndicator active={active} />}
-            searchValue={search}
-            onSearchChange={setSearch}
-            page={page}
-            totalPages={totalPages}
-            total={total}
-            onPageChange={setPage}
-          />
         )}
       </div>
 
@@ -574,6 +418,39 @@ function ProductsPage() {
         onOpenChange={setPairingsSheetOpen}
         product={pairingsProduct}
       />
+
+      <Dialog open={bulkSaleOpen} onOpenChange={setBulkSaleOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Put {selected.length} product{selected.length === 1 ? '' : 's'} on sale</DialogTitle>
+            <DialogDescription>Each sale price is this much off that product's regular price, rounded to whole shillings.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="bulk-sale-percent">Discount (%)</Label>
+              <Input
+                id="bulk-sale-percent"
+                type="number"
+                inputMode="numeric"
+                min="1"
+                max="99"
+                value={bulkSaleForm.percent}
+                onChange={(e) => { setBulkSaleForm((f) => ({ ...f, percent: e.target.value })); setBulkSaleError(''); }}
+                placeholder="20"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="bulk-sale-ends">Ends on (optional)</Label>
+              <Input id="bulk-sale-ends" type="date" value={bulkSaleForm.ends_at} onChange={(e) => setBulkSaleForm((f) => ({ ...f, ends_at: e.target.value }))} />
+            </div>
+            <ErrorNotice>{bulkSaleError}</ErrorNotice>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setBulkSaleOpen(false)}>Cancel</Button>
+            <Button onClick={submitBulkSale} disabled={bulkBusy}>Put on sale</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={!!saleProduct} onOpenChange={(open) => { if (!open) setSaleProduct(null); }}>
         <DialogContent className="sm:max-w-md">

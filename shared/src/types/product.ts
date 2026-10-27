@@ -77,3 +77,14 @@ export interface ProductResponse {
     updated_at: string,
     variants?: ProductVariantResponse[],
 }
+
+/** Saved views on the admin products list. `restock`: some size is low or sold out. `hidden`: not on the shop. */
+export const PRODUCT_LIST_VIEWS = ['restock', 'sale', 'featured', 'hidden'] as const;
+export type ProductListView = typeof PRODUCT_LIST_VIEWS[number];
+
+/** Admin products list order, applied across every page (not just the one on screen). */
+export const PRODUCT_LIST_SORTS = ['name_asc', 'name_desc', 'price_asc', 'price_desc', 'stock_asc', 'stock_desc', 'newest', 'oldest'] as const;
+export type ProductListSort = typeof PRODUCT_LIST_SORTS[number];
+
+/** How many products each saved view holds, for the current search and category. */
+export type ProductViewCounts = Record<'all' | ProductListView, number>;
