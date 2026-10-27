@@ -5,7 +5,7 @@ import { AlertCircle, Check, Lock } from 'lucide-react';
 import type { ShippingLocationResponse } from 'shared';
 import { POLICY_VERSION } from 'shared';
 import { useCart, useCartQuote, useClearCart } from '@/hooks/useCart';
-import { isAwaitingPrompt, useCompleteDevPayment, useInitiatePayment, usePaymentStatus, usePlaceOrder } from '@/hooks/useOrders';
+import { isAwaitingPrompt, useInitiatePayment, usePaymentStatus, usePlaceOrder } from '@/hooks/useOrders';
 import { useAuth } from '@/context/AuthContext';
 import { useActiveShippingLocations } from '@/hooks/useShipping';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
@@ -61,7 +61,6 @@ function PaymentView({ orderRef, urlToken }: { orderRef: string; urlToken?: stri
   const token = urlToken ?? (stored?.ref === orderRef ? stored.token : undefined);
   const statusQuery = usePaymentStatus(orderRef, token, { watch: true });
   const initiatePayment = useInitiatePayment();
-  const completeDevPayment = useCompleteDevPayment();
   const [actionMessage, setActionMessage] = useState('');
   // M-Pesa: send the prompt to a different number than the one on the order.
   const [otherPhone, setOtherPhone] = useState<string | null>(null);
@@ -104,16 +103,6 @@ function PaymentView({ orderRef, urlToken }: { orderRef: string; urlToken?: stri
     setActionMessage('');
     const res = await statusQuery.refetch();
     if (res.data?.data?.status === 'PENDING') setActionMessage(res.data.message || 'Payment has not been received yet.');
-  };
-
-  const devFinish = async () => {
-    setActionMessage('');
-    try {
-      await completeDevPayment.mutateAsync({ order_ref: orderRef, token });
-      statusQuery.refetch();
-    } catch (err: any) {
-      setActionMessage(err?.message || 'We could not complete the development payment.');
-    }
   };
 
   return (
@@ -213,11 +202,6 @@ function PaymentView({ orderRef, urlToken }: { orderRef: string; urlToken?: stri
               {!awaitingPrompt && (
                 <SecondaryButton onClick={checkAgain} disabled={statusQuery.isFetching}>
                   {statusQuery.isFetching ? 'Checking…' : 'I have paid — check again'}
-                </SecondaryButton>
-              )}
-              {import.meta.env.DEV && (
-                <SecondaryButton onClick={devFinish} disabled={completeDevPayment.isPending}>
-                  {completeDevPayment.isPending ? 'Finishing…' : 'Finish dev order'}
                 </SecondaryButton>
               )}
             </div>
