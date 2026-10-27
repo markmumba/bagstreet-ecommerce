@@ -32,7 +32,7 @@ export const adjustVoucherSchema = z.object({
     reason: z.string().trim().min(3, 'Say why the balance is changing').max(300),
 });
 
-/** Buying a voucher on the storefront: fixed amounts, paid through Pesapal. */
+/** Buying a voucher on the storefront: fixed amounts, paid with M-Pesa. */
 export const purchaseVoucherSchema = z.object({
     amount: z.number().refine((v) => (GIFT_VOUCHER_ONLINE_AMOUNTS as readonly number[]).includes(v),
         `Choose one of ${GIFT_VOUCHER_ONLINE_AMOUNTS.map((a) => `KES ${a.toLocaleString('en-KE')}`).join(', ')}`),

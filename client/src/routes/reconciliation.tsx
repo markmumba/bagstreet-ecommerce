@@ -69,7 +69,7 @@ function ReconciliationPage() {
               Reconciliation
             </h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              Check that orders, Pesapal and your payment records agree.
+              Check that orders, M-Pesa and your payment records agree.
             </p>
           </div>
           <div className="flex items-end gap-2">
@@ -95,7 +95,7 @@ function ReconciliationPage() {
             ['Received', report?.totals.captured],
             ['Refunded', report?.totals.refunded],
             ['Reversed', report?.totals.reversed],
-            ['Pesapal fees', report?.totals.fees],
+            ['M-Pesa charges', report?.totals.fees],
             ['Net', report?.totals.net],
             ['Net after fees', report?.totals.net_after_fees],
           ].map(([label, value]) => (
@@ -144,7 +144,7 @@ function ReconciliationPage() {
             )}
             {report && report.issues.length === 0 && (
               <p className="text-sm text-muted-foreground">
-                Every order with payment activity between {formatDate(report.from)} and {formatDate(report.to)} matches its Pesapal and ledger records.
+                Every order with payment activity between {formatDate(report.from)} and {formatDate(report.to)} matches its M-Pesa and ledger records.
               </p>
             )}
           </CardContent>
@@ -172,7 +172,7 @@ function StatementImport() {
       setMessage(res.message ?? '');
     } catch (err: any) {
       setResult(null);
-      setMessage(errorMessage(err, 'The statement couldn’t be read. Check it’s the CSV export from Pesapal and try again.'));
+      setMessage(errorMessage(err, 'The statement couldn’t be read. Check it’s the CSV export from the M-Pesa org portal and try again.'));
     }
   };
 
@@ -181,12 +181,12 @@ function StatementImport() {
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-lg">
           <FileSpreadsheet className="h-5 w-5 text-muted-foreground" strokeWidth={1.7} />
-          Pesapal statement
+          M-Pesa statement
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
         <p className="text-sm text-muted-foreground">
-          Export your transactions as CSV from the Pesapal merchant dashboard and upload them here. You'll see a
+          Export your transactions as CSV from the M-Pesa org portal and upload them here. You'll see a
           preview first — fees are only recorded when you confirm, and importing the same statement twice is safe.
         </p>
 

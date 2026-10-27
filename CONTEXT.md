@@ -1,6 +1,6 @@
 # Bagstreet
 
-An online and in-store shop selling bags, shoes, scarves and pajamas in Kenya. Customers buy through the storefront and pay via Pesapal; staff run the shop from the admin dashboard.
+An online and in-store shop selling bags, shoes, scarves and pajamas in Kenya. Customers buy through the storefront and pay with M-Pesa; staff run the shop from the admin dashboard.
 
 ## Orders
 

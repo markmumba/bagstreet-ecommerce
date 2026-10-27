@@ -10,12 +10,10 @@ import { giftVoucherOrderOf } from '../gift-vouchers/voucher-sales';
 import { env } from '../../config/env';
 import { applyOrderEvent, orderStateOf } from '../orders/lifecycle/order-lifecycle';
 import { orderAmountDue, summariseOrderPayments } from './order-balance';
-import { customerView, type Actor, type OrderEvent } from '../orders/lifecycle/transitions';
+import { customerView } from '../orders/lifecycle/transitions';
 import type { AuthUser } from '@server/lib/hono';
 import { getOptionalUser } from '@server/lib/hono';
-import { getPesapalTransactionStatus, submitPesapalOrder } from '../../services/pesapal';
-import { normalizeShippingAddress } from '../../lib/shipping-address';
-import { createOrderAccessToken, orderTokenRef, verifyOrderAccessToken } from '../../lib/order-received-token';
+import { orderTokenRef, verifyOrderAccessToken } from '../../lib/order-received-token';
 import { timingSafeEqual } from 'node:crypto';
 import { readJsonColumn } from '../../lib/json-column';
 import { maskPhone, parseStkCallback } from '../../services/mpesa-protocol';
@@ -69,101 +67,9 @@ function orderPaymentSummary(order: any) {
     };
 }
 
-const PAYMENT_PROVIDER: Actor = { kind: 'payment_provider' };
-
 /** What the customer's payment screen should show for an order right now. */
 function paymentScreenStatus(order: { id: number | string; status: string; payment_status: string }): string {
     return customerView(orderStateOf(order)).status;
-}
-
-type PesapalStatus = Awaited<ReturnType<typeof getPesapalTransactionStatus>>;
-type ProviderTransaction = NonNullable<Awaited<ReturnType<typeof paymentsQueries.findProviderTransactionByOrderId>>>;
-
-/** Pesapal's report as an Order event, or null while the payment is still in progress. */
-function pesapalOrderEvent(tx: ProviderTransaction, status: PesapalStatus, description: string | undefined, eventKey: string): OrderEvent | null {
-    switch (description) {
-        case 'COMPLETED':
-            return {
-                type: 'payment_captured',
-                amount: status.amount && status.amount > 0 ? status.amount : parseFloat(tx.amount as any),
-                currency: status.currency ?? tx.currency,
-                reference: status.confirmation_code
-                    ? `pesapal:${status.confirmation_code}`
-                    : `pesapal:${tx.provider_reference}:completed`,
-                transactionId: tx.id,
-            };
-        case 'REVERSED':
-            return { type: 'payment_reversed', reference: `pesapal:${tx.provider_reference}:reversed` };
-        case 'FAILED':
-        case 'INVALID':
-            return { type: 'payment_failed', attemptReference: eventKey, reason: status.description ?? null };
-        default:
-            return null;
-    }
-}
-
-/**
- * Asks Pesapal for the payment's status and applies it to the order through the Order lifecycle.
- * Safe to call repeatedly (IPN, redirect, status polling, expiry job): repeats change nothing.
- */
-export async function processPesapalTransaction(tx: Awaited<ReturnType<typeof paymentsQueries.findProviderTransactionByOrderId>>) {
-    if (!tx?.provider_reference) {
-        return { status: ORDER_STATUS.PENDING, order_id: tx?.order_id };
-    }
-
-    const status = await getPesapalTransactionStatus(tx.provider_reference);
-    const description = status.payment_status_description?.toUpperCase();
-    const eventKey = [
-        tx.provider_reference,
-        description || 'UNKNOWN',
-        status.confirmation_code || status.status_code || status.description || 'NO_DETAIL',
-    ].join(':');
-    // Kept as a record of every distinct report from Pesapal; the lifecycle handles repeats itself.
-    const isNewEvent = await paymentsQueries.createProcessedPaymentEvent({
-        provider: tx.provider,
-        event_key: eventKey,
-        payment_transaction_id: tx.id,
-        raw_payload: status.raw,
-    });
-
-    if (isNewEvent) {
-        await paymentsQueries.updateProviderTransaction(tx.id, {
-            status: description === 'COMPLETED' ? 'COMPLETED'
-                : description === 'REVERSED' ? 'REVERSED'
-                : description === 'FAILED' || description === 'INVALID' ? 'FAILED'
-                : 'PENDING',
-            payment_method: status.payment_method ?? null,
-            confirmation_code: status.confirmation_code ?? null,
-            result_desc: status.description ?? null,
-            raw_payload: status.raw,
-        });
-    }
-
-    const event = pesapalOrderEvent(tx, status, description, eventKey);
-    const order = event
-        ? (await applyOrderEvent(tx.order_id, event, PAYMENT_PROVIDER, {
-            paymentMetadata: {
-                provider: tx.provider,
-                provider_reference: tx.provider_reference,
-                merchant_reference: tx.merchant_reference,
-                payment_method: status.payment_method,
-                payment_account: status.payment_account,
-                event_key: eventKey,
-            },
-        })).order
-        : await ordersQueries.findById(tx.order_id);
-
-    return {
-        status: order ? paymentScreenStatus(order as any) : ORDER_STATUS.PENDING,
-        order_id: tx.order_id,
-        receipt_number: status.confirmation_code,
-        payment_method: status.payment_method,
-    };
-}
-
-/** Checks a payment attempt with whichever provider it was made through. */
-export async function processPaymentTransaction(tx: ProviderTransaction): Promise<{ status: string; order_id?: number; failure_reason?: string | null }> {
-    return tx.provider === MPESA ? processMpesaTransaction(tx) : processPesapalTransaction(tx);
 }
 
 /**
@@ -182,7 +88,6 @@ async function initiateMpesa(c: AppContext, order: any, requestedPhone: string |
                 order_id: order.id,
                 payment_provider: MPESA,
                 payment_reference: latest.provider_reference,
-                payment_redirect_url: null,
                 prompt_phone: maskPhone(phone),
             }, `We've sent a payment request to ${maskPhone(phone)}. Enter your M-Pesa PIN on your phone.`);
         }
@@ -208,7 +113,6 @@ async function initiateMpesa(c: AppContext, order: any, requestedPhone: string |
         order_id: order.id,
         payment_provider: MPESA,
         payment_reference: tx.provider_reference,
-        payment_redirect_url: null,
         prompt_phone: maskPhone(phone),
     }, `We've sent a payment request to ${maskPhone(phone)}. Enter your M-Pesa PIN on your phone.`);
 }
@@ -221,25 +125,8 @@ function isMpesaCallbackSecret(given: string | undefined) {
     return timingSafeEqual(Buffer.from(given), Buffer.from(expected));
 }
 
-async function readPesapalNotification(c: AppContext) {
-    if (c.req.method === 'GET') {
-        return {
-            orderTrackingId: c.req.query('OrderTrackingId') ?? '',
-            orderMerchantReference: c.req.query('OrderMerchantReference') ?? '',
-            orderNotificationType: c.req.query('OrderNotificationType') ?? '',
-        };
-    }
-
-    const body = await c.req.json().catch(() => ({}));
-    return {
-        orderTrackingId: String(body.OrderTrackingId ?? body.orderTrackingId ?? ''),
-        orderMerchantReference: String(body.OrderMerchantReference ?? body.orderMerchantReference ?? ''),
-        orderNotificationType: String(body.OrderNotificationType ?? body.orderNotificationType ?? ''),
-    };
-}
-
 export const paymentsHandlers = {
-    /** Starts (or restarts) payment for an unpaid order with the provider that is switched on. */
+    /** Starts (or restarts) M-Pesa payment for an unpaid order. */
     initiatePayment: async (c: AppContext) => {
         const authUser = getOptionalAuthUser(c);
         const { order_id, order_ref, phone, email, token, pay_phone } = await c.req.json<{
@@ -268,79 +155,25 @@ export const paymentsHandlers = {
             throw new BadRequestError('We have received a payment for this order and our team is checking it. Please don\'t pay again.');
         }
 
-        if (env.PAYMENT_PROVIDER === 'mpesa') return initiateMpesa(c, order, pay_phone);
-
-        const existing = await paymentsQueries.findProviderTransactionByOrderId(order.id, 'pesapal');
-        if (existing?.checkout_url) {
-            return success(c, {
-                order_id: order.id,
-                payment_provider: 'pesapal',
-                payment_reference: existing.provider_reference,
-                payment_redirect_url: existing.checkout_url,
-            }, 'Continue to secure payment');
-        }
-
-        const customerEmail = String((order as any).customer_email ?? email ?? '');
-        if (!customerEmail) throw new BadRequestError('Email is required to start payment');
-
-        const shippingAddress = normalizeShippingAddress(order.shipping_address, {
-            fullName: (order as any).customer_name,
-            phone: (order as any).customer_phone,
-            email: (order as any).customer_email,
-        });
-        const payment = await submitPesapalOrder({
-            orderId: order.id,
-            orderNumber: (order as any).order_number,
-            amount: orderAmountDue(order as any),
-            phone: String((order as any).customer_phone ?? phone ?? ''),
-            email: customerEmail,
-            fullName: String((order as any).customer_name ?? shippingAddress?.full_name ?? 'Customer'),
-            addressLine1: shippingAddress?.address_line1,
-            addressLine2: shippingAddress?.address_line2,
-            city: shippingAddress?.city,
-            state: shippingAddress?.state,
-        });
-
-        const tx = await paymentsQueries.createProviderTransaction({
-            order_id: order.id,
-            provider: 'pesapal',
-            provider_reference: payment.orderTrackingId,
-            merchant_reference: payment.merchantReference,
-            checkout_url: payment.redirectUrl,
-            amount: orderAmountDue(order as any),
-            currency: env.PESAPAL_CURRENCY,
-            status: payment.redirectUrl ? 'PENDING' : 'INITIATED',
-            raw_payload: payment.raw,
-        });
-
-        return success(c, {
-            order_id: order.id,
-            payment_provider: tx.provider,
-            payment_reference: tx.provider_reference,
-            payment_redirect_url: tx.checkout_url,
-        }, tx.checkout_url ? 'Continue to secure payment' : 'Payment is pending');
+        return initiateMpesa(c, order, pay_phone);
     },
 
     /**
-     * Current payment state of an order, checked live with the provider when a payment was started.
-     * Guests prove ownership with the checkout token (or phone/email); never trusts the redirect URL.
+     * Current payment state of an order, checked live with M-Pesa when a payment was started.
+     * Guests prove ownership with the checkout token (or phone/email).
      */
     paymentStatus: async (c: AppContext) => {
         const authUser = getOptionalAuthUser(c);
-        const { order_id, order_ref, order_tracking_id, phone, email, token } = await c.req.json<{
+        const { order_id, order_ref, phone, email, token } = await c.req.json<{
             order_id?: number | string;
             order_ref?: string;
-            order_tracking_id?: string;
             phone?: string;
             email?: string;
             token?: string;
         }>();
 
-        let tx = order_tracking_id
-            ? await paymentsQueries.findProviderTransactionByReference('pesapal', order_tracking_id)
-            : undefined;
-        const order = tx ? await ordersQueries.findById(tx.order_id) : await findOrder(order_id, order_ref);
-        if (!order) throw new NotFoundError('Order', order_ref ?? order_id ?? order_tracking_id ?? 'unknown');
+        const order = await findOrder(order_id, order_ref);
+        if (!order) throw new NotFoundError('Order', order_ref ?? order_id ?? 'unknown');
         if (!canAccessOrder(authUser, order, phone, email, token)) throw new ForbiddenError();
 
         // A voucher purchase: the payment screen says where the voucher was sent.
@@ -348,7 +181,7 @@ export const paymentsHandlers = {
         const respond = (status: string, message: string, current: any = order, extra: Record<string, unknown> = {}) =>
             success(c, {
                 status,
-                payment_provider: tx?.provider ?? env.PAYMENT_PROVIDER,
+                payment_provider: MPESA,
                 ...extra,
                 ...orderPaymentSummary(current),
                 order_source: current.order_source,
@@ -377,18 +210,16 @@ export const paymentsHandlers = {
         if (view.status === 'PAID') return respond(PAYMENT_STATUS.PAID, 'Payment confirmed');
         if (view.status === 'REVIEW') return respond('REVIEW', 'We have received a payment and our team is checking it.');
 
-        tx ??= await paymentsQueries.findProviderTransactionByOrderId(Number(order.id));
+        const tx = await paymentsQueries.findProviderTransactionByOrderId(Number(order.id), MPESA);
         if (!tx) return respond(ORDER_STATUS.PENDING, 'Payment has not been started');
         // M-Pesa: where the last prompt went and when, so the screen can say "check your phone".
-        const promptInfo = tx.provider === MPESA
-            ? { prompt_phone: promptPhoneHint(tx), prompt_sent_at: new Date(tx.created_at).toISOString() }
-            : {};
+        const promptInfo = { prompt_phone: promptPhoneHint(tx), prompt_sent_at: new Date(tx.created_at).toISOString() };
 
-        let result: Awaited<ReturnType<typeof processPaymentTransaction>>;
+        let result: Awaited<ReturnType<typeof processMpesaTransaction>>;
         try {
-            result = await processPaymentTransaction(tx);
+            result = await processMpesaTransaction(tx);
         } catch (err) {
-            console.error(`[${tx.provider}] status check failed:`, err);
+            console.error('[mpesa] status check failed:', err);
             return respond(ORDER_STATUS.PENDING, 'We could not check your payment right now. Please try again shortly.', order, promptInfo);
         }
 
@@ -417,55 +248,6 @@ export const paymentsHandlers = {
         return c.json({ ResultCode: 0, ResultDesc: 'Accepted' });
     },
 
-    pesapalCallback: async (c: AppContext) => {
-        const payload = await readPesapalNotification(c);
-        const tx = payload.orderTrackingId
-            ? await paymentsQueries.findProviderTransactionByReference('pesapal', payload.orderTrackingId)
-            : undefined;
-
-        let redirectStatus = 'pending';
-        let orderId = '';
-        if (tx) {
-            const result = await processPesapalTransaction(tx);
-            redirectStatus = result.status === PAYMENT_STATUS.PAID
-                ? 'paid'
-                : result.status === PAYMENT_STATUS.FAILED
-                ? 'failed'
-                : 'pending';
-            const order = await ordersQueries.findById(tx.order_id);
-            orderId = order ? orderTokenRef(order as any) : String(tx.order_id);
-        }
-
-        // The storefront re-checks the status with this token rather than trusting `payment=`.
-        const redirect = new URL('/checkout', env.STOREFRONT_URL);
-        redirect.searchParams.set('payment', redirectStatus);
-        if (orderId) {
-            redirect.searchParams.set('order_id', orderId);
-            redirect.searchParams.set('token', createOrderAccessToken(orderId));
-        }
-        return c.redirect(redirect.toString());
-    },
-
-    pesapalIpn: async (c: AppContext) => {
-        const payload = await readPesapalNotification(c);
-        const tx = payload.orderTrackingId
-            ? await paymentsQueries.findProviderTransactionByReference('pesapal', payload.orderTrackingId)
-            : undefined;
-
-        if (tx) {
-            await processPesapalTransaction(tx);
-        } else {
-            console.warn('[pesapal] unknown orderTrackingId:', payload.orderTrackingId);
-        }
-
-        return c.json({
-            orderNotificationType: payload.orderNotificationType || 'IPNCHANGE',
-            orderTrackingId: payload.orderTrackingId,
-            orderMerchantReference: payload.orderMerchantReference,
-            status: tx ? 200 : 500,
-        });
-    },
-
     completeDevPayment: async (c: AppContext) => {
         if (env.NODE_ENV === 'production') {
             throw new NotFoundError('Payment route', 'dev-complete');
@@ -483,7 +265,7 @@ export const paymentsHandlers = {
         const result = await applyOrderEvent(Number(order.id), {
             type: 'payment_captured',
             amount: orderAmountDue(order as any),
-            currency: env.PESAPAL_CURRENCY,
+            currency: env.CURRENCY,
             reference: `dev:${order.id}`,
         }, { kind: 'system' });
 

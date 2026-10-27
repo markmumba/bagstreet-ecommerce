@@ -41,7 +41,7 @@ const paymentLabels: Record<WalkInPaymentMethod, string> = {
   [WALK_IN_PAYMENT_METHOD.CASH]: 'Cash',
   [WALK_IN_PAYMENT_METHOD.CARD]: 'Card',
   [WALK_IN_PAYMENT_METHOD.BANK_TRANSFER]: 'Bank transfer',
-  [WALK_IN_PAYMENT_METHOD.PESAPAL]: 'Pesapal',
+  [WALK_IN_PAYMENT_METHOD.MPESA]: 'M-Pesa',
   [WALK_IN_PAYMENT_METHOD.OTHER]: 'Other',
 };
 

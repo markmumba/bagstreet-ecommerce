@@ -56,10 +56,6 @@ function GiftVouchersPage() {
       const order = res.data;
       if (!order) throw new Error('Your voucher could not be ordered. Please try again.');
       savePendingPayment({ ref: order.public_id, token: order.access_token, orderNumber: order.order_number, total: order.amount_due });
-      if (order.payment_redirect_url) {
-        window.location.assign(order.payment_redirect_url);
-        return;
-      }
       navigate({ to: '/checkout', search: { order_id: order.public_id, token: order.access_token } });
     } catch (err: any) {
       setError(err?.message || 'We could not start your purchase. Please try again.');

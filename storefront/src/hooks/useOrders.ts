@@ -57,7 +57,7 @@ export function usePlaceOrder() {
 /** Identifies an order for payment actions: by id or public ref, proven by the checkout token or phone/email. */
 type OrderPaymentAccess = { order_id?: number; order_ref?: string; token?: string; phone?: string; email?: string };
 
-/** Starts payment: M-Pesa sends the PIN prompt (to `pay_phone` if given); Pesapal returns its page. */
+/** Starts payment: M-Pesa sends the PIN prompt (to `pay_phone` if given). */
 export function useInitiatePayment() {
   return useMutation({
     mutationFn: (data: OrderPaymentAccess & { pay_phone?: string }) =>
@@ -87,8 +87,8 @@ export function isAwaitingPrompt(info: PaymentStatusResponse | undefined): boole
 }
 
 /**
- * Live payment status for an order, asked of the server (which checks with M-Pesa or Pesapal) —
- * the checkout page renders from this, never from the `payment=` value in a return URL.
+ * Live payment status for an order, asked of the server (which checks with M-Pesa) —
+ * the checkout page renders from this.
  * Polls while an M-Pesa prompt is waiting on the customer's phone.
  */
 export function usePaymentStatus(orderRef: string | undefined, token: string | undefined, { watch = false } = {}) {

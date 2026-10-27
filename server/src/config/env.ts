@@ -67,8 +67,8 @@ const envSchema = z.object({
     REDIS_REST_TOKEN: z.string().optional(),
     RATE_LIMIT_STORE: z.enum(['memory', 'redis']).default('memory'),
     RUN_MIGRATIONS_ON_STARTUP: z.string().optional().transform((value) => value === undefined ? undefined : value === 'true'),
-    /** Who collects online payments. Pesapal stays wired up but is off until its account is approved. */
-    PAYMENT_PROVIDER: z.enum(['mpesa', 'pesapal']).default('mpesa'),
+    /** Currency every order, payment and ledger entry is in. */
+    CURRENCY: z.string().default('KES'),
     /** Safaricom Daraja — M-Pesa Express (STK Push). */
     MPESA_ENV: z.enum(['sandbox', 'production']).default('sandbox'),
     MPESA_CONSUMER_KEY: z.string().optional(),
@@ -85,14 +85,6 @@ const envSchema = z.object({
     /** Appended to the callback path so only Safaricom (who was given the URL) can reach it. */
     MPESA_CALLBACK_SECRET: z.string().min(16).optional(),
     MPESA_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
-    PESAPAL_ENV: z.enum(['sandbox', 'production']).default('sandbox'),
-    PESAPAL_CONSUMER_KEY: z.string().optional(),
-    PESAPAL_CONSUMER_SECRET: z.string().optional(),
-    PESAPAL_IPN_ID: z.string().optional(),
-    PESAPAL_CALLBACK_URL: z.string().url().optional(),
-    PESAPAL_CANCELLATION_URL: z.string().url().optional(),
-    PESAPAL_CURRENCY: z.string().default('KES'),
-    PESAPAL_TIMEOUT_MS: z.coerce.number().int().positive().default(10_000),
     /** Unpaid online orders are cancelled (stock released) after this many minutes. 0 disables expiry. */
     UNPAID_ORDER_TTL_MINUTES: z.coerce.number().int().min(0).default(45),
     CART_RECOVERY_ENABLED: z.enum(['true', 'false']).default('true').transform(value => value === 'true'),

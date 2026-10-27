@@ -58,7 +58,7 @@ describe('reconcileStatementRows', () => {
     test('different amount → amount_mismatch', () => {
         expect(statement('Tracking ID,Amount\nTRK-2,3000').issues[0]?.kind).toBe('amount_mismatch');
     });
-    test('Pesapal has it, ledger does not → not_in_ledger', () => {
+    test('M-Pesa has it, ledger does not → not_in_ledger', () => {
         const issue = statement('Tracking ID,Amount\nTRK-3,1000').issues[0];
         expect(issue?.kind).toBe('not_in_ledger');
         // Matched rows carry the order id so the admin can open the order.

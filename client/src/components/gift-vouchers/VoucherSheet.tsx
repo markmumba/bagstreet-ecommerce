@@ -67,7 +67,7 @@ export function VoucherSheet({ voucherId, isAdmin, onClose }: { voucherId: strin
               <div><dt className="text-xs text-muted-foreground">Valid until</dt><dd>{formatDate(voucher.expires_at)}</dd></div>
               <div><dt className="text-xs text-muted-foreground">{voucher.sold_via === 'ONLINE' ? 'Bought online' : 'Paid by'}</dt>
                 <dd>{voucher.sold_via === 'ONLINE'
-                  ? `Pesapal · order ${voucher.purchase_order_number ?? voucher.sale_reference ?? ''}`
+                  ? `M-Pesa · order ${voucher.purchase_order_number ?? voucher.sale_reference ?? ''}`
                   : `${SALE_METHOD_LABELS[voucher.sale_payment_method] ?? voucher.sale_payment_method}${voucher.sale_reference ? ` · ${voucher.sale_reference}` : ''}`}</dd></div>
               <div><dt className="text-xs text-muted-foreground">Bought by</dt><dd>{voucher.purchaser_name || '—'}</dd></div>
               <div><dt className="text-xs text-muted-foreground">For</dt><dd>{voucher.recipient_name || '—'}</dd></div>

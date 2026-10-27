@@ -1,7 +1,7 @@
 /**
- * Pesapal statement reconciliation — pure logic (no DB), unit-tested.
+ * M-Pesa statement reconciliation — pure logic (no DB), unit-tested.
  *
- * The statement is the CSV export from the Pesapal merchant dashboard. Its exact column names
+ * The statement is the CSV export from the M-Pesa org portal. Its exact column names
  * aren't fixed here: columns are found by header keywords, and the report says which column was
  * used for what, so a mismatch is visible rather than silently wrong.
  */
@@ -34,7 +34,7 @@ export function detectStatementColumns(headers: string[]): StatementColumns {
         confirmationCode: findColumn(headers, [/confirmation/, /receipt/, /transaction_code/, /mpesa.*code/, /payment.*ref/]),
         amount: findColumn(
             headers,
-            [/^amount$/, /^gross/, /transaction_amount/, /paid_amount/, /amount_paid/, /amount/],
+            [/^paid_in$/, /^amount$/, /^gross/, /transaction_amount/, /paid_amount/, /amount_paid/, /amount/],
             [/fee/, /commission/, /charge/, /net/, /balance/, /settle/],
         ),
         fee: findColumn(headers, [/fee/, /commission/, /charges?$/]),
@@ -48,7 +48,7 @@ export function statementColumnProblems(columns: StatementColumns): string[] {
     const problems: string[] = [];
     if (!columns.amount) problems.push('No amount column found (looked for a header like "Amount").');
     if (!columns.tracking && !columns.merchantReference && !columns.confirmationCode) {
-        problems.push('No reference column found (looked for "Tracking ID", "Merchant Reference" or "Confirmation Code").');
+        problems.push('No reference column found (looked for "Receipt No.", "Merchant Reference" or "Confirmation Code").');
     }
     return problems;
 }
@@ -91,7 +91,7 @@ export function normaliseStatementRows(rows: CsvRow[], columns: StatementColumns
     });
 }
 
-/** A Pesapal transaction we know about, with what the ledger recorded for it. */
+/** An M-Pesa transaction we know about, with what the ledger recorded for it. */
 export interface KnownTransaction {
     transactionId: number;
     orderId: number;
@@ -154,7 +154,7 @@ export function reconcileStatementRows(rows: StatementRow[], known: KnownTransac
         matches.push({ row: row.rowNumber, transactionId: tx.transactionId, orderId: tx.orderId, reference: reference ?? tx.references[0]!, fee: row.fee });
 
         if (tx.capturedAmount === 0) {
-            issues.push({ row: row.rowNumber, kind: 'not_in_ledger', reference, order_id: String(tx.orderId), order_number: tx.orderNumber, statement_amount: row.amount, ledger_amount: 0, message: 'Pesapal received this payment but the order has no payment recorded.' });
+            issues.push({ row: row.rowNumber, kind: 'not_in_ledger', reference, order_id: String(tx.orderId), order_number: tx.orderNumber, statement_amount: row.amount, ledger_amount: 0, message: 'M-Pesa received this payment but the order has no payment recorded.' });
         } else if (Math.abs(tx.capturedAmount - row.amount) > TOLERANCE) {
             issues.push({ row: row.rowNumber, kind: 'amount_mismatch', reference, order_id: String(tx.orderId), order_number: tx.orderNumber, statement_amount: row.amount, ledger_amount: tx.capturedAmount, message: `Statement shows KES ${row.amount.toFixed(2)}, ledger recorded KES ${tx.capturedAmount.toFixed(2)}.` });
         }

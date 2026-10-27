@@ -64,7 +64,7 @@ export const createWalkInSaleSchema = z.object({
         WALK_IN_PAYMENT_METHOD.CASH,
         WALK_IN_PAYMENT_METHOD.CARD,
         WALK_IN_PAYMENT_METHOD.BANK_TRANSFER,
-        WALK_IN_PAYMENT_METHOD.PESAPAL,
+        WALK_IN_PAYMENT_METHOD.MPESA,
         WALK_IN_PAYMENT_METHOD.OTHER,
     ]),
     customer_name: z.string().trim().max(100).optional(),

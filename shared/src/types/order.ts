@@ -52,7 +52,7 @@ export const WALK_IN_PAYMENT_METHOD = {
     CASH: 'CASH',
     CARD: 'CARD',
     BANK_TRANSFER: 'BANK_TRANSFER',
-    PESAPAL: 'PESAPAL',
+    MPESA: 'MPESA',
     OTHER: 'OTHER',
 } as const;
 
@@ -97,7 +97,7 @@ export interface OrderCreateRequest {
     phone: string;
     email?: string;
     discount_code?: string;
-    /** A gift voucher code: pays what it can of the total; Pesapal collects the rest. */
+    /** A gift voucher code: pays what it can of the total; M-Pesa collects the rest. */
     voucher_code?: string;
     notes?: string;
 }
@@ -164,7 +164,6 @@ export interface OrderResponse {
     notes?: string;
     items: OrderItemResponse[];
     payment_provider?: string;
-    payment_redirect_url?: string | null;
     payment_reference?: string | null;
     /** Returned when an online order is placed: lets a guest check or retry payment for it. */
     access_token?: string;
@@ -177,7 +176,6 @@ export interface OrderResponse {
 export interface PaymentRetryResponse {
     payment_provider?: string;
     payment_reference?: string | null;
-    payment_redirect_url?: string | null;
     /** M-Pesa: the masked number the PIN prompt was sent to, e.g. "0712 ••• 678". */
     prompt_phone?: string;
     /** Set instead when the order turned out to be paid already. */
@@ -203,7 +201,7 @@ export interface PaymentStatusResponse {
     payment_status?: string;
     receipt_number?: string;
     payment_method?: string;
-    /** `mpesa` (PIN prompt on the customer's phone) or `pesapal` (hosted payment page). */
+    /** `mpesa`: the PIN prompt goes to the customer's phone. */
     payment_provider?: string;
     /** M-Pesa: masked number the latest prompt went to, and when it was sent. */
     prompt_phone?: string | null;
@@ -254,7 +252,6 @@ export interface DiscountCodeResponse {
 /** How a refund was paid back to the customer. Refunds are recorded after staff send the money. */
 export const REFUND_METHOD = {
     MPESA: 'MPESA',
-    PESAPAL: 'PESAPAL',
     CASH: 'CASH',
     BANK_TRANSFER: 'BANK_TRANSFER',
     OTHER: 'OTHER',
@@ -335,7 +332,7 @@ export interface RecordRefundRequest {
     idempotency_key: string;
 }
 
-/** Something in orders, Pesapal transactions or the ledger that doesn't add up. */
+/** Something in orders, M-Pesa transactions or the ledger that doesn't add up. */
 export type ReconciliationIssueKind =
     | 'paid_without_capture'
     | 'completed_payment_without_capture'

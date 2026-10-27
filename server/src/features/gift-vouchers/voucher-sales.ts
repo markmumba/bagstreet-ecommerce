@@ -58,7 +58,7 @@ export async function issueGiftVoucherForOrder(tx: Executor, order: VoucherSaleO
     const buyerName = order.customer_name?.trim() || 'Customer';
     const voucher = await insertVoucher(tx, {
         amount,
-        salePaymentMethod: 'PESAPAL',
+        salePaymentMethod: 'MPESA',
         saleReference: order.order_number,
         purchaserName: buyerName,
         recipientName: row.recipient_name,

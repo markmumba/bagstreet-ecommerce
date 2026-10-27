@@ -239,7 +239,7 @@ try {
   const dupes = [...sends.values()].filter((n) => n > 1).length;
   check('two workers at once: every email sent exactly once', sends.size === 10 && dupes === 0 && wa.sent + wb.sent === 10, `sent=${sends.size} dupes=${dupes} split=${wa.sent}/${wb.sent}`);
 
-  // 29–40. Order lifecycle: the paths Pesapal and the expiry job now take.
+  // 29–40. Order lifecycle: the paths M-Pesa and the expiry job now take.
   // Confirming a payment queues "order confirmed" emails to real staff. Reserve those dedupe keys
   // first (as already-skipped test rows), so the lifecycle's emails are dropped as duplicates.
   await sql`UPDATE product_variants SET stock = 20 WHERE id = ${V}`;

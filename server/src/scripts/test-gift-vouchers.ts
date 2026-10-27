@@ -89,7 +89,7 @@ try {
     const wrong = await quoteOrder({ items: [{ variant_id: V, quantity: 1 }], voucher_code: 'BGST-2222-3333-4444-5555' }, { mode: 'walk_in' });
     check('quote: an unknown code is a problem', wrong.voucher_problem === 'Gift voucher not found' && wrong.problems.includes('Gift voucher not found'));
 
-    // 2. Part paid by voucher: held at order creation, spent when Pesapal pays the rest.
+    // 2. Part paid by voucher: held at order creation, spent when M-Pesa pays the rest.
     const o1 = await online(5, of(a, 3000));
     check('partial voucher order waits for payment with the voucher held', await stateOf(o1.id) === 'PENDING/UNPAID' && await balance(of(a, 0).id) === 0);
     const paid = await applyOrderEvent(o1.id, captured(2000, `zz-vch-${o1.id}`), PROVIDER);

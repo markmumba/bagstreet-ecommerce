@@ -18,8 +18,6 @@ import { BagReminderPreference } from '@/components/checkout/BagReminderPreferen
 
 export const Route = createFileRoute('/checkout')({
   validateSearch: z.object({
-    // `payment` is only a provider's redirect hint — the page always asks the server for the real status.
-    payment: z.enum(['paid', 'pending', 'failed']).optional(),
     order_id: z.string().optional(),
     token: z.string().optional(),
   }),
@@ -49,14 +47,14 @@ function CheckoutPage() {
   });
   // Once an order exists (just placed, or back from the payment page) the page is about paying for it.
   if (search.order_id) {
-    return <PaymentView key={search.order_id} orderRef={search.order_id} urlToken={search.token} returnedFrom={search.payment} />;
+    return <PaymentView key={search.order_id} orderRef={search.order_id} urlToken={search.token} />;
   }
   return <CheckoutForm />;
 }
 
 // ── Payment / confirmation ─────────────────────────────────────────────────
 
-function PaymentView({ orderRef, urlToken, returnedFrom }: { orderRef: string; urlToken?: string; returnedFrom?: 'paid' | 'pending' | 'failed' }) {
+function PaymentView({ orderRef, urlToken }: { orderRef: string; urlToken?: string }) {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [stored] = useState(readPendingPayment);
@@ -83,7 +81,6 @@ function PaymentView({ orderRef, urlToken, returnedFrom }: { orderRef: string; u
   const due = info?.amount_due ?? stored?.total;
   // A gift voucher purchase rather than an order of goods.
   const giftVoucher = info?.gift_voucher;
-  const isMpesa = info?.payment_provider === 'mpesa';
   // A PIN prompt is (probably) on the customer's phone right now.
   const awaitingPrompt = isAwaitingPrompt(info);
 
@@ -91,10 +88,6 @@ function PaymentView({ orderRef, urlToken, returnedFrom }: { orderRef: string; u
     setActionMessage('');
     try {
       const res = await initiatePayment.mutateAsync({ order_ref: orderRef, token, pay_phone: otherPhone?.trim() || undefined });
-      if (res.data?.payment_redirect_url) {
-        window.location.assign(res.data.payment_redirect_url);
-        return;
-      }
       if (res.data?.prompt_phone || res.data?.status) {
         setOtherPhone(null);
         statusQuery.refetch();
@@ -171,11 +164,7 @@ function PaymentView({ orderRef, urlToken, returnedFrom }: { orderRef: string; u
                 ? <>{info?.failure_reason ?? "We didn't receive payment for this order."} Your order is saved — you can try again. Nothing has been charged.</>
                 : awaitingPrompt
                   ? <>We've sent an M-Pesa request{due != null && <> for <span className="text-foreground">{formatPrice(due)}</span></>} to <span className="text-foreground">{info?.prompt_phone ?? 'your phone'}</span>. Enter your M-Pesa PIN to pay.</>
-                  : isMpesa
-                    ? <>Pay {due != null && <span className="text-foreground">{formatPrice(due)}</span>} with M-Pesa. We'll send a payment request to your phone — just enter your PIN.</>
-                    : returnedFrom
-                      ? 'Pesapal is still confirming your payment. This can take a minute for M-Pesa.'
-                      : <>Pay {due != null && <span className="text-foreground">{formatPrice(due)}</span>} securely with Pesapal by M-Pesa or card.</>}
+                  : <>Pay {due != null && <span className="text-foreground">{formatPrice(due)}</span>} with M-Pesa. We'll send a payment request to your phone — just enter your PIN.</>}
             </p>
             {awaitingPrompt && (
               <div className="mx-auto mt-8 flex items-center justify-center gap-3 text-[13px] text-foreground-faint" role="status">
@@ -194,7 +183,7 @@ function PaymentView({ orderRef, urlToken, returnedFrom }: { orderRef: string; u
               <p className="mt-8 border border-border bg-surface px-4 py-3 text-[13px] text-foreground-muted" role="status">{actionMessage}</p>
             )}
 
-            {isMpesa && otherPhone !== null && (
+            {otherPhone !== null && (
               <label className="mx-auto mt-8 block max-w-xs text-left">
                 <span className="text-label-caps text-foreground-faint">M-Pesa number</span>
                 <input
@@ -211,18 +200,16 @@ function PaymentView({ orderRef, urlToken, returnedFrom }: { orderRef: string; u
 
             <div className="mt-10 flex flex-col items-stretch gap-3 sm:flex-row sm:justify-center">
               <PrimaryButton onClick={startPayment} disabled={initiatePayment.isPending || (otherPhone !== null && otherPhone.trim() === '')}>
-                {initiatePayment.isPending ? (isMpesa ? 'Sending…' : 'Starting…')
-                  : isMpesa
-                    ? otherPhone !== null ? 'Send to this number'
-                      : awaitingPrompt ? 'Send the request again'
-                      : state === 'FAILED' ? 'Try M-Pesa again' : 'Send M-Pesa request'
-                    : state === 'FAILED' ? 'Try payment again' : 'Continue to payment'}
+                {initiatePayment.isPending ? 'Sending…'
+                  : otherPhone !== null ? 'Send to this number'
+                  : awaitingPrompt ? 'Send the request again'
+                  : state === 'FAILED' ? 'Try M-Pesa again' : 'Send M-Pesa request'}
               </PrimaryButton>
-              {isMpesa && otherPhone === null ? (
+              {otherPhone === null ? (
                 <SecondaryButton onClick={() => setOtherPhone('')}>Use a different number</SecondaryButton>
-              ) : isMpesa ? (
+              ) : (
                 <SecondaryButton onClick={() => setOtherPhone(null)}>Cancel</SecondaryButton>
-              ) : null}
+              )}
               {!awaitingPrompt && (
                 <SecondaryButton onClick={checkAgain} disabled={statusQuery.isFetching}>
                   {statusQuery.isFetching ? 'Checking…' : 'I have paid — check again'}
@@ -449,10 +436,6 @@ function CheckoutForm() {
       // the customer resumes payment from the banner instead.
       await clearCart.mutateAsync();
 
-      if (order.payment_redirect_url) {
-        window.location.assign(order.payment_redirect_url);
-        return;
-      }
       navigate({ to: '/checkout', search: { order_id: ref, token: order.access_token } });
     } catch (err: any) {
       // Surface the server's reason (e.g. "Insufficient stock", "code already used") instead of a generic failure.

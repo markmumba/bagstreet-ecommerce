@@ -8,7 +8,6 @@ export interface GiftVoucherPurchaseResponse {
   order_number: string;
   total_amount: number;
   amount_due: number;
-  payment_redirect_url: string | null;
   payment_reference: string | null;
   access_token: string;
 }

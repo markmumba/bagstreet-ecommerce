@@ -61,7 +61,6 @@ services:
       CORS_ORIGIN: https://${SHOP_DOMAIN},https://${ADMIN_DOMAIN}
       # Caddy is the one proxy in front of the API. Change only if you add another (see docs).
       TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-1}
-      PESAPAL_CALLBACK_URL: https://${API_DOMAIN}/api/payments/pesapal/callback
       REDIS_REST_URL: http://redis-rest:80
       RATE_LIMIT_STORE: redis
       # Migrations run as an explicit deploy step, not on every start.

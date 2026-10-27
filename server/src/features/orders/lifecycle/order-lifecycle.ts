@@ -181,7 +181,7 @@ async function loadContext(tx: Executor, order: OrderRow, state: OrderState, eve
 
     const ctx: DecisionContext = {
         orderTotal,
-        currency: env.PESAPAL_CURRENCY,
+        currency: env.CURRENCY,
         captured,
         refunded: sum(LEDGER_ENTRY.REFUND_ISSUED, 'DEBIT'),
         voucherHeld: voucher.held,
@@ -258,10 +258,10 @@ async function applyEffect(run: Run, effect: Effect): Promise<void> {
             run.captured = roundMoney(run.captured + await voucherBalance.hold(tx, order, staffId(run.actor)));
             return;
         case 'redeem_voucher':
-            await voucherBalance.redeem(tx, order, env.PESAPAL_CURRENCY, staffId(run.actor));
+            await voucherBalance.redeem(tx, order, env.CURRENCY, staffId(run.actor));
             return;
         case 'release_voucher':
-            await voucherBalance.release(tx, order, env.PESAPAL_CURRENCY, staffId(run.actor),
+            await voucherBalance.release(tx, order, env.CURRENCY, staffId(run.actor),
                 run.event.type === 'expired' ? 'Unpaid order expired' : 'Order cancelled');
             return;
         case 'issue_gift_voucher':
@@ -295,7 +295,7 @@ async function applyEffect(run: Run, effect: Effect): Promise<void> {
                 entry_type: LEDGER_ENTRY.REFUND_ISSUED,
                 direction: 'DEBIT',
                 amount: effect.amount,
-                currency: env.PESAPAL_CURRENCY,
+                currency: env.CURRENCY,
                 reference: refundReference(effect.idempotencyKey),
                 metadata: {
                     method: effect.method,
@@ -314,7 +314,7 @@ async function applyEffect(run: Run, effect: Effect): Promise<void> {
                 entry_type: LEDGER_ENTRY.PAYMENT_REVERSED,
                 direction: 'DEBIT',
                 amount: effect.amount,
-                currency: env.PESAPAL_CURRENCY,
+                currency: env.CURRENCY,
                 reference: effect.reference,
                 metadata: { order_id: orderId, ...run.options.paymentMetadata },
             }, tx);

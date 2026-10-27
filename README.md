@@ -86,14 +86,13 @@ RATE_LIMIT_STORE=redis
 REDIS_REST_URL=http://localhost:8079
 REDIS_REST_TOKEN=change-me
 
-# Pesapal API 3.0. Use sandbox in dev; set PESAPAL_ENV=production for live payments.
-PESAPAL_ENV=sandbox
-PESAPAL_CONSUMER_KEY=
-PESAPAL_CONSUMER_SECRET=
-PESAPAL_IPN_ID=
-PESAPAL_CALLBACK_URL=http://localhost:3000/api/payments/pesapal/callback
-PESAPAL_CANCELLATION_URL=http://localhost:5174/checkout
-PESAPAL_CURRENCY=KES
+# M-Pesa Express (Daraja STK Push). Sandbox keys from developer.safaricom.co.ke; MPESA_ENV=production for live.
+CURRENCY=KES
+MPESA_ENV=sandbox
+MPESA_CONSUMER_KEY=
+MPESA_CONSUMER_SECRET=
+MPESA_SHORTCODE=174379
+MPESA_PASSKEY=
 ```
 
 ---

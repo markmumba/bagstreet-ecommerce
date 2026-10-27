@@ -32,6 +32,7 @@ import { resolveUnitPrice, saleIsActive } from '@server/lib/pricing';
 import { createOrderAccessToken, orderTokenRef } from '../../lib/order-received-token';
 import { orderAmountDue, summariseOrderPayments } from '../payments/order-balance';
 import { startOnlinePayment } from '../payments/start-payment';
+import { MPESA } from '../payments/mpesa-payments';
 import { readJsonColumn } from '../../lib/json-column';
 import { REFUND_METHOD } from 'shared/dist';
 import type { OrderPaymentsResponse } from 'shared/dist';
@@ -294,10 +295,10 @@ export const ordersHandlers = {
             customer_name: (order as any).customer_name ?? shippingAddress.full_name ?? 'Guest customer',
             customer_email: (order as any).customer_email ?? shippingAddress.email,
             customer_phone: (order as any).customer_phone ?? shippingAddress.phone,
-            payment_provider: payment?.provider ?? env.PAYMENT_PROVIDER,
+            payment_provider: payment?.provider ?? MPESA,
             payment_method: payment?.payment_method ?? undefined,
             payment_reference: payment?.confirmation_code ?? payment?.provider_reference ?? null,
-            currency: payment?.currency ?? env.PESAPAL_CURRENCY,
+            currency: payment?.currency ?? env.CURRENCY,
             subtotal,
             shipping_cost: parseFloat((order as any).shipping_cost ?? '0'),
             discount_amount: parseFloat((order as any).discount_amount ?? '0'),
@@ -453,11 +454,11 @@ export const ordersHandlers = {
                     merchantReference: paymentReference,
                     paymentMethod: validated.data.payment_method,
                     amount: paidAtCounter,
-                    currency: env.PESAPAL_CURRENCY,
+                    currency: env.CURRENCY,
                     rawPayload: { source: ORDER_SOURCE.WALK_IN, payment_method: validated.data.payment_method },
                 } : undefined,
             },
-            { type: 'walk_in_sale', amount: paidAtCounter, currency: env.PESAPAL_CURRENCY, reference: paymentReference },
+            { type: 'walk_in_sale', amount: paidAtCounter, currency: env.CURRENCY, reference: paymentReference },
             staffActor(c),
             { paymentMetadata: { source: ORDER_SOURCE.WALK_IN, payment_method: validated.data.payment_method, recorded_by: actor.email }, request: requestOf(c) });
         } catch (err: any) {
@@ -510,7 +511,7 @@ export const ordersHandlers = {
         const shippingCost = quote.delivery!.cost;
         const discountAmount = quote.discount?.amount ?? 0;
         const totalAmount = quote.total;
-        // A gift voucher pays what it can; M-Pesa (or Pesapal) collects the rest (nothing, if it covers it all).
+        // A gift voucher pays what it can; M-Pesa collects the rest (nothing, if it covers it all).
         const amountDue = quote.amount_to_pay;
         const voucher = await voucherForOrder(validated.data.voucher_code, quote);
 
@@ -555,20 +556,11 @@ export const ordersHandlers = {
         // not here — most unpaid orders are abandoned checkouts. Stock was taken, so low-stock alerts stay.
 
         // Fully paid by gift voucher: the order is already confirmed, there's nothing to collect.
-        const { redirectUrl: paymentRedirectUrl, reference: paymentReference } = amountDue > 0
-            ? await startOnlinePayment(order, amountDue, {
-                phone: validated.data.phone,
-                email: customerEmail,
-                fullName: shippingAddress.full_name,
-                addressLine1: shippingAddress.address_line1,
-                addressLine2: shippingAddress.address_line2,
-                city: shippingAddress.city,
-                state: shippingAddress.state,
-            })
-            : { redirectUrl: null, reference: null };
+        const { reference: paymentReference } = amountDue > 0
+            ? await startOnlinePayment(order, amountDue, validated.data.phone)
+            : { reference: null };
         const message = amountDue <= 0 ? 'Order placed — paid by gift voucher'
-            : paymentRedirectUrl ? 'Order placed — continue to secure payment'
-            : env.PAYMENT_PROVIDER === 'mpesa' && paymentReference ? 'Order placed — check your phone to pay with M-Pesa'
+            : paymentReference ? 'Order placed — check your phone to pay with M-Pesa'
             : 'Order placed — payment is pending';
 
         const orderResponse = toOrderResponse(order, items);
@@ -576,8 +568,7 @@ export const ordersHandlers = {
             c,
             {
                 ...orderResponse,
-                payment_provider: env.PAYMENT_PROVIDER,
-                payment_redirect_url: paymentRedirectUrl,
+                payment_provider: MPESA,
                 payment_reference: paymentReference,
                 // Lets a guest check or retry payment for this order without an account.
                 access_token: createOrderAccessToken(orderTokenRef(order as any)),

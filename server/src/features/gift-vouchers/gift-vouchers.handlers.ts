@@ -198,7 +198,7 @@ export const giftVouchersHandlers = {
         }, { type: 'placed_online' }, { kind: 'customer', isOwner: true, via: 'checkout' },
         { request: { ip: getClientIp(c), userAgent: c.req.header('user-agent') ?? null } });
 
-        const payment = await startOnlinePayment(order, data.amount, { phone, email, fullName: data.buyer_name });
+        const payment = await startOnlinePayment(order, data.amount, phone);
         return success(c, {
             order_id: String(order.id),
             public_id: String(order.public_id),
@@ -206,11 +206,10 @@ export const giftVouchersHandlers = {
             total_amount: data.amount,
             amount_due: data.amount,
             payment_provider: payment.provider,
-            payment_redirect_url: payment.redirectUrl,
             payment_reference: payment.reference,
             // Lets a guest check or retry payment without an account, as for any order.
             access_token: createOrderAccessToken(orderTokenRef(order as any)),
-        }, payment.redirectUrl ? 'Continue to secure payment' : 'Payment is pending', 201);
+        }, payment.reference ? 'Check your phone to pay with M-Pesa' : 'Payment is pending', 201);
     },
 
     /** A customer checking what's left on a voucher. Wrong codes count towards the guessing limit. */

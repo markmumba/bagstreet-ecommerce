@@ -8,7 +8,6 @@ import { PAYMENT_STATUS } from 'shared/dist';
 import { env } from '../config/env';
 import { ordersQueries } from '../features/orders/orders.queries';
 import { paymentsQueries } from '../features/payments/payments.queries';
-import { processPaymentTransaction } from '../features/payments/payments.handlers';
 import { MPESA, processMpesaTransaction } from '../features/payments/mpesa-payments';
 import { applyOrderEvent } from '../features/orders/lifecycle/order-lifecycle';
 import { shouldCancelExpiredOrder, type ProviderCheck } from './unpaid-order-policy';
@@ -21,9 +20,9 @@ async function checkProvider(orderId: number): Promise<ProviderCheck> {
     const tx = await paymentsQueries.findProviderTransactionByOrderId(orderId);
     if (!tx?.provider_reference) return 'none';
     try {
-        const result = tx.provider === MPESA
-            ? await processMpesaTransaction(tx, { force: true })
-            : await processPaymentTransaction(tx);
+        // Attempts from a retired provider can't be checked any more: treat as unpaid.
+        if (tx.provider !== MPESA) return 'not_paid';
+        const result = await processMpesaTransaction(tx, { force: true });
         return result.status === PAYMENT_STATUS.PAID ? 'paid' : 'not_paid';
     } catch (err) {
         console.warn(`[order-expiry] could not check ${tx.provider} for order ${orderId}:`, err);
