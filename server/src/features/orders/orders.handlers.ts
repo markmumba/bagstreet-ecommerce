@@ -31,7 +31,7 @@ import { randomUUID } from 'node:crypto';
 import { resolveUnitPrice, saleIsActive } from '@server/lib/pricing';
 import { createOrderAccessToken, orderTokenRef } from '../../lib/order-received-token';
 import { orderAmountDue, summariseOrderPayments } from '../payments/order-balance';
-import { startPesapalPayment } from '../payments/start-payment';
+import { startOnlinePayment } from '../payments/start-payment';
 import { readJsonColumn } from '../../lib/json-column';
 import { REFUND_METHOD } from 'shared/dist';
 import type { OrderPaymentsResponse } from 'shared/dist';
@@ -294,7 +294,7 @@ export const ordersHandlers = {
             customer_name: (order as any).customer_name ?? shippingAddress.full_name ?? 'Guest customer',
             customer_email: (order as any).customer_email ?? shippingAddress.email,
             customer_phone: (order as any).customer_phone ?? shippingAddress.phone,
-            payment_provider: payment?.provider ?? 'pesapal',
+            payment_provider: payment?.provider ?? env.PAYMENT_PROVIDER,
             payment_method: payment?.payment_method ?? undefined,
             payment_reference: payment?.confirmation_code ?? payment?.provider_reference ?? null,
             currency: payment?.currency ?? env.PESAPAL_CURRENCY,
@@ -510,7 +510,7 @@ export const ordersHandlers = {
         const shippingCost = quote.delivery!.cost;
         const discountAmount = quote.discount?.amount ?? 0;
         const totalAmount = quote.total;
-        // A gift voucher pays what it can; Pesapal collects the rest (nothing, if it covers it all).
+        // A gift voucher pays what it can; M-Pesa (or Pesapal) collects the rest (nothing, if it covers it all).
         const amountDue = quote.amount_to_pay;
         const voucher = await voucherForOrder(validated.data.voucher_code, quote);
 
@@ -556,7 +556,7 @@ export const ordersHandlers = {
 
         // Fully paid by gift voucher: the order is already confirmed, there's nothing to collect.
         const { redirectUrl: paymentRedirectUrl, reference: paymentReference } = amountDue > 0
-            ? await startPesapalPayment(order, amountDue, {
+            ? await startOnlinePayment(order, amountDue, {
                 phone: validated.data.phone,
                 email: customerEmail,
                 fullName: shippingAddress.full_name,
@@ -566,22 +566,24 @@ export const ordersHandlers = {
                 state: shippingAddress.state,
             })
             : { redirectUrl: null, reference: null };
+        const message = amountDue <= 0 ? 'Order placed — paid by gift voucher'
+            : paymentRedirectUrl ? 'Order placed — continue to secure payment'
+            : env.PAYMENT_PROVIDER === 'mpesa' && paymentReference ? 'Order placed — check your phone to pay with M-Pesa'
+            : 'Order placed — payment is pending';
 
         const orderResponse = toOrderResponse(order, items);
         return success(
             c,
             {
                 ...orderResponse,
-                payment_provider: 'pesapal',
+                payment_provider: env.PAYMENT_PROVIDER,
                 payment_redirect_url: paymentRedirectUrl,
                 payment_reference: paymentReference,
                 // Lets a guest check or retry payment for this order without an account.
                 access_token: createOrderAccessToken(orderTokenRef(order as any)),
-                message: amountDue <= 0 ? 'Order placed — paid by gift voucher'
-                    : paymentRedirectUrl ? 'Continue to secure payment' : 'Order placed — payment is pending',
+                message,
             },
-            amountDue <= 0 ? 'Order placed — paid by gift voucher'
-                : paymentRedirectUrl ? 'Order placed — continue to secure payment' : 'Order placed — payment is pending',
+            message,
             201
         );
     },

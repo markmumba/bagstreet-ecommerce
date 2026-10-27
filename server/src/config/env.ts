@@ -67,6 +67,24 @@ const envSchema = z.object({
     REDIS_REST_TOKEN: z.string().optional(),
     RATE_LIMIT_STORE: z.enum(['memory', 'redis']).default('memory'),
     RUN_MIGRATIONS_ON_STARTUP: z.string().optional().transform((value) => value === undefined ? undefined : value === 'true'),
+    /** Who collects online payments. Pesapal stays wired up but is off until its account is approved. */
+    PAYMENT_PROVIDER: z.enum(['mpesa', 'pesapal']).default('mpesa'),
+    /** Safaricom Daraja — M-Pesa Express (STK Push). */
+    MPESA_ENV: z.enum(['sandbox', 'production']).default('sandbox'),
+    MPESA_CONSUMER_KEY: z.string().optional(),
+    MPESA_CONSUMER_SECRET: z.string().optional(),
+    /** BusinessShortCode: the Paybill, or for a Till the store number (HO). */
+    MPESA_SHORTCODE: z.string().optional(),
+    MPESA_PASSKEY: z.string().optional(),
+    /** CustomerPayBillOnline for a Paybill, CustomerBuyGoodsOnline for a Till. */
+    MPESA_TRANSACTION_TYPE: z.enum(['CustomerPayBillOnline', 'CustomerBuyGoodsOnline']).default('CustomerPayBillOnline'),
+    /** Who receives the money (PartyB). Unset: MPESA_SHORTCODE. Set to the Till number for Buy Goods. */
+    MPESA_PARTY_B: z.string().optional(),
+    /** Public HTTPS URL Safaricom posts results to. Unset: SERVER_URL/api/payments/mpesa/callback. */
+    MPESA_CALLBACK_URL: z.string().url().optional(),
+    /** Appended to the callback path so only Safaricom (who was given the URL) can reach it. */
+    MPESA_CALLBACK_SECRET: z.string().min(16).optional(),
+    MPESA_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
     PESAPAL_ENV: z.enum(['sandbox', 'production']).default('sandbox'),
     PESAPAL_CONSUMER_KEY: z.string().optional(),
     PESAPAL_CONSUMER_SECRET: z.string().optional(),

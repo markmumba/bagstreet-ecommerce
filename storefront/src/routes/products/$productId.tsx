@@ -559,7 +559,7 @@ function ProductDetailPage() {
             </li>
             <li className="flex items-center gap-3">
               <Lock strokeWidth={1} className="h-4 w-4 text-brass" aria-hidden="true" />
-              Secure checkout with PesaPal
+              Secure checkout with M-Pesa
             </li>
           </ul>
         </div>

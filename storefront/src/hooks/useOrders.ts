@@ -57,10 +57,11 @@ export function usePlaceOrder() {
 /** Identifies an order for payment actions: by id or public ref, proven by the checkout token or phone/email. */
 type OrderPaymentAccess = { order_id?: number; order_ref?: string; token?: string; phone?: string; email?: string };
 
-export function useInitiatePesapalPayment() {
+/** Starts payment: M-Pesa sends the PIN prompt (to `pay_phone` if given); Pesapal returns its page. */
+export function useInitiatePayment() {
   return useMutation({
-    mutationFn: (data: OrderPaymentAccess) =>
-      apiClient.post<PaymentRetryResponse>('/api/payments/pesapal/initiate', data),
+    mutationFn: (data: OrderPaymentAccess & { pay_phone?: string }) =>
+      apiClient.post<PaymentRetryResponse>('/api/payments/initiate', data),
   });
 }
 
@@ -76,16 +77,27 @@ export function useCompleteDevPayment() {
   });
 }
 
+/** After an M-Pesa prompt is sent, keep checking this long — the prompt itself times out in about a minute. */
+const PROMPT_WATCH_MS = 3 * 60 * 1000;
+
+/** True while an M-Pesa prompt was sent recently enough that the customer may still be paying it. */
+export function isAwaitingPrompt(info: PaymentStatusResponse | undefined): boolean {
+  if (!info || info.status !== 'PENDING' || info.payment_provider !== 'mpesa' || !info.prompt_sent_at) return false;
+  return Date.now() - new Date(info.prompt_sent_at).getTime() < PROMPT_WATCH_MS;
+}
+
 /**
- * Live payment status for an order, asked of the server (which checks Pesapal) — the checkout
- * page renders from this, never from the `payment=` value in the return URL.
+ * Live payment status for an order, asked of the server (which checks with M-Pesa or Pesapal) —
+ * the checkout page renders from this, never from the `payment=` value in a return URL.
+ * Polls while an M-Pesa prompt is waiting on the customer's phone.
  */
-export function usePaymentStatus(orderRef: string | undefined, token: string | undefined) {
+export function usePaymentStatus(orderRef: string | undefined, token: string | undefined, { watch = false } = {}) {
   return useQuery({
     queryKey: ['payment-status', orderRef],
-    queryFn: () => apiClient.post<PaymentStatusResponse>('/api/payments/pesapal/status', { order_ref: orderRef, token }),
+    queryFn: () => apiClient.post<PaymentStatusResponse>('/api/payments/status', { order_ref: orderRef, token }),
     enabled: Boolean(orderRef && token),
     retry: false,
     staleTime: 0,
+    refetchInterval: (query) => (watch && isAwaitingPrompt(query.state.data?.data) ? 4000 : false),
   });
 }

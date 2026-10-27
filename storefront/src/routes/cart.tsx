@@ -183,7 +183,7 @@ function CartPage() {
 
             <p className="mt-6 flex items-center justify-center gap-2 text-[12px] text-foreground-muted">
               <Lock strokeWidth={1} className="h-3.5 w-3.5 text-brass" aria-hidden="true" />
-              Secure checkout with PesaPal
+              Secure checkout with M-Pesa
             </p>
           </div>
         </aside>

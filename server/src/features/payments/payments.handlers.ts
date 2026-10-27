@@ -3,7 +3,7 @@ import { paymentsQueries } from './payments.queries';
 import { ordersQueries } from '../orders/orders.queries';
 import { normalisePhone } from '../../lib/phone';
 import { success } from '@server/lib/response';
-import { BadRequestError, ForbiddenError, NotFoundError } from '@server/lib/errors';
+import { BadRequestError, ForbiddenError, NotFoundError, TooManyRequestsError } from '@server/lib/errors';
 import { ORDER_SOURCE, ORDER_STATUS, PAYMENT_STATUS, USER_ROLE } from "shared/dist";
 import { sql } from '../../lib/db';
 import { giftVoucherOrderOf } from '../gift-vouchers/voucher-sales';
@@ -16,6 +16,19 @@ import { getOptionalUser } from '@server/lib/hono';
 import { getPesapalTransactionStatus, submitPesapalOrder } from '../../services/pesapal';
 import { normalizeShippingAddress } from '../../lib/shipping-address';
 import { createOrderAccessToken, orderTokenRef, verifyOrderAccessToken } from '../../lib/order-received-token';
+import { timingSafeEqual } from 'node:crypto';
+import { readJsonColumn } from '../../lib/json-column';
+import { maskPhone, parseStkCallback } from '../../services/mpesa-protocol';
+import {
+    MAX_PROMPTS_PER_ORDER,
+    MPESA,
+    PROMPT_REUSE_MS,
+    mpesaPhone,
+    processMpesaTransaction,
+    promptPhoneHint,
+    recordMpesaCallback,
+    sendMpesaPrompt,
+} from './mpesa-payments';
 
 function getOptionalAuthUser(c: AppContext): AuthUser | null {
     return getOptionalUser(c);
@@ -148,6 +161,66 @@ export async function processPesapalTransaction(tx: Awaited<ReturnType<typeof pa
     };
 }
 
+/** Checks a payment attempt with whichever provider it was made through. */
+export async function processPaymentTransaction(tx: ProviderTransaction): Promise<{ status: string; order_id?: number; failure_reason?: string | null }> {
+    return tx.provider === MPESA ? processMpesaTransaction(tx) : processPesapalTransaction(tx);
+}
+
+/**
+ * Sends (or re-sends) the M-Pesa PIN prompt for an order. A prompt sent under a minute ago to the
+ * same phone is reused rather than sent twice (a double tap, or a refresh).
+ */
+async function initiateMpesa(c: AppContext, order: any, requestedPhone: string | undefined) {
+    const phone = mpesaPhone(requestedPhone || order.customer_phone);
+    if (!phone) throw new BadRequestError('Enter a Safaricom number M-Pesa can send the payment request to, e.g. 0712 345 678.');
+
+    const latest = await paymentsQueries.findProviderTransactionByOrderId(Number(order.id), MPESA);
+    if (latest?.status === 'PENDING') {
+        const sameNumber = readJsonColumn<{ phone?: string }>(latest.raw_payload)?.phone === phone;
+        if (sameNumber && Date.now() - new Date(latest.created_at).getTime() < PROMPT_REUSE_MS) {
+            return success(c, {
+                order_id: order.id,
+                payment_provider: MPESA,
+                payment_reference: latest.provider_reference,
+                payment_redirect_url: null,
+                prompt_phone: maskPhone(phone),
+            }, `We've sent a payment request to ${maskPhone(phone)}. Enter your M-Pesa PIN on your phone.`);
+        }
+        // The last prompt may have been paid while the customer was asking for another.
+        const previous = await processMpesaTransaction(latest, { force: true }).catch(() => null);
+        if (previous?.status === PAYMENT_STATUS.PAID) {
+            return success(c, { status: PAYMENT_STATUS.PAID, order_id: order.id }, 'Payment already confirmed');
+        }
+    }
+
+    if (await paymentsQueries.countProviderTransactions(Number(order.id), MPESA) >= MAX_PROMPTS_PER_ORDER) {
+        throw new TooManyRequestsError('Too many payment requests for this order. Please contact us and we will help you pay.');
+    }
+
+    let tx;
+    try {
+        tx = await sendMpesaPrompt(order, orderAmountDue(order), phone);
+    } catch (err) {
+        console.error('[mpesa] STK push failed:', err);
+        throw new BadRequestError("M-Pesa couldn't send the payment request right now. Please try again in a moment.");
+    }
+    return success(c, {
+        order_id: order.id,
+        payment_provider: MPESA,
+        payment_reference: tx.provider_reference,
+        payment_redirect_url: null,
+        prompt_phone: maskPhone(phone),
+    }, `We've sent a payment request to ${maskPhone(phone)}. Enter your M-Pesa PIN on your phone.`);
+}
+
+/** The secret path segment Safaricom was given, compared in constant time. */
+function isMpesaCallbackSecret(given: string | undefined) {
+    const expected = env.MPESA_CALLBACK_SECRET;
+    if (!expected) return true;
+    if (!given || given.length !== expected.length) return false;
+    return timingSafeEqual(Buffer.from(given), Buffer.from(expected));
+}
+
 async function readPesapalNotification(c: AppContext) {
     if (c.req.method === 'GET') {
         return {
@@ -166,14 +239,17 @@ async function readPesapalNotification(c: AppContext) {
 }
 
 export const paymentsHandlers = {
-    initiatePesapal: async (c: AppContext) => {
+    /** Starts (or restarts) payment for an unpaid order with the provider that is switched on. */
+    initiatePayment: async (c: AppContext) => {
         const authUser = getOptionalAuthUser(c);
-        const { order_id, order_ref, phone, email, token } = await c.req.json<{
+        const { order_id, order_ref, phone, email, token, pay_phone } = await c.req.json<{
             order_id?: number | string;
             order_ref?: string;
             phone?: string;
             email?: string;
             token?: string;
+            /** M-Pesa: send the prompt to this number instead of the order's phone. */
+            pay_phone?: string;
         }>();
         if (!order_id && !order_ref) throw new BadRequestError('order_id or order_ref is required');
 
@@ -191,6 +267,8 @@ export const paymentsHandlers = {
         if (view.status === 'REVIEW') {
             throw new BadRequestError('We have received a payment for this order and our team is checking it. Please don\'t pay again.');
         }
+
+        if (env.PAYMENT_PROVIDER === 'mpesa') return initiateMpesa(c, order, pay_phone);
 
         const existing = await paymentsQueries.findProviderTransactionByOrderId(order.id, 'pesapal');
         if (existing?.checkout_url) {
@@ -244,10 +322,10 @@ export const paymentsHandlers = {
     },
 
     /**
-     * Current payment state of an order, checked live with Pesapal when a payment was started.
+     * Current payment state of an order, checked live with the provider when a payment was started.
      * Guests prove ownership with the checkout token (or phone/email); never trusts the redirect URL.
      */
-    pesapalStatus: async (c: AppContext) => {
+    paymentStatus: async (c: AppContext) => {
         const authUser = getOptionalAuthUser(c);
         const { order_id, order_ref, order_tracking_id, phone, email, token } = await c.req.json<{
             order_id?: number | string;
@@ -267,9 +345,11 @@ export const paymentsHandlers = {
 
         // A voucher purchase: the payment screen says where the voucher was sent.
         const giftVoucher = (order as any).order_source === ORDER_SOURCE.GIFT_VOUCHER ? await giftVoucherOrderOf(sql, Number(order.id)) : undefined;
-        const respond = (status: string, message: string, current: any = order) =>
+        const respond = (status: string, message: string, current: any = order, extra: Record<string, unknown> = {}) =>
             success(c, {
                 status,
+                payment_provider: tx?.provider ?? env.PAYMENT_PROVIDER,
+                ...extra,
                 ...orderPaymentSummary(current),
                 order_source: current.order_source,
                 gift_voucher: giftVoucher ? {
@@ -297,15 +377,19 @@ export const paymentsHandlers = {
         if (view.status === 'PAID') return respond(PAYMENT_STATUS.PAID, 'Payment confirmed');
         if (view.status === 'REVIEW') return respond('REVIEW', 'We have received a payment and our team is checking it.');
 
-        tx ??= await paymentsQueries.findProviderTransactionByOrderId(Number(order.id), 'pesapal');
+        tx ??= await paymentsQueries.findProviderTransactionByOrderId(Number(order.id));
         if (!tx) return respond(ORDER_STATUS.PENDING, 'Payment has not been started');
+        // M-Pesa: where the last prompt went and when, so the screen can say "check your phone".
+        const promptInfo = tx.provider === MPESA
+            ? { prompt_phone: promptPhoneHint(tx), prompt_sent_at: new Date(tx.created_at).toISOString() }
+            : {};
 
-        let result: Awaited<ReturnType<typeof processPesapalTransaction>>;
+        let result: Awaited<ReturnType<typeof processPaymentTransaction>>;
         try {
-            result = await processPesapalTransaction(tx);
+            result = await processPaymentTransaction(tx);
         } catch (err) {
-            console.error('[pesapal] status check failed:', err);
-            return respond(ORDER_STATUS.PENDING, 'We could not reach Pesapal right now. Please try again shortly.');
+            console.error(`[${tx.provider}] status check failed:`, err);
+            return respond(ORDER_STATUS.PENDING, 'We could not check your payment right now. Please try again shortly.', order, promptInfo);
         }
 
         const current = await ordersQueries.findById(Number(order.id));
@@ -315,7 +399,22 @@ export const paymentsHandlers = {
             REVIEW: 'We have received a payment and our team is checking it.',
             EXPIRED: 'Your payment arrived after this order expired. We will refund you.',
         }[result.status as string] ?? 'Payment is still pending';
-        return respond(result.status, message, current ?? order);
+        return respond(result.status, message, current ?? order, { ...promptInfo, failure_reason: result.failure_reason ?? undefined });
+    },
+
+    /**
+     * Safaricom's STK Push result. Always acknowledged (Safaricom doesn't retry), then confirmed
+     * with an STK Push Query before the order moves — callbacks aren't signed.
+     */
+    mpesaCallback: async (c: AppContext) => {
+        if (!isMpesaCallbackSecret(c.req.param('secret'))) return c.json({ ResultCode: 1, ResultDesc: 'Not found' }, 404);
+
+        const callback = parseStkCallback(await c.req.json().catch(() => null));
+        if (!callback) return c.json({ ResultCode: 1, ResultDesc: 'Malformed callback' }, 400);
+
+        // Answered straight away; the query that confirms it can take a few seconds.
+        void recordMpesaCallback(callback).catch((err) => console.error('[mpesa] callback processing failed:', err));
+        return c.json({ ResultCode: 0, ResultDesc: 'Accepted' });
     },
 
     pesapalCallback: async (c: AppContext) => {

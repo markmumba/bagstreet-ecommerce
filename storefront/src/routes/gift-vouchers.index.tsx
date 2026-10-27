@@ -156,7 +156,7 @@ function GiftVouchersPage() {
             {error && <p className="mt-3 text-[13px] text-destructive" role="alert">{error}</p>}
             <p className="mt-5 flex items-center justify-center gap-2 text-[12px] text-foreground-muted">
               <Lock strokeWidth={1} className="h-3.5 w-3.5 text-brass" aria-hidden="true" />
-              Secure payment with Pesapal
+              Secure payment with M-Pesa
             </p>
           </div>
           <p className="mt-5 text-center text-[13px] text-foreground-muted">

@@ -4,7 +4,7 @@ import { getOptionalUser, getRequiredUser } from '@server/lib/hono';
 import { getClientIp } from '@server/lib/client-ip';
 import { createOrderAccessToken, orderTokenRef } from '@server/lib/order-received-token';
 import { createOrder } from '../orders/lifecycle/order-lifecycle';
-import { startPesapalPayment } from '../payments/start-payment';
+import { startOnlinePayment } from '../payments/start-payment';
 import { auditFromContext } from '@server/lib/audit';
 import { NotFoundError, ValidationError } from '@server/lib/errors';
 import { normalisePhone } from '@server/lib/phone';
@@ -163,7 +163,7 @@ export const giftVouchersHandlers = {
 
     /**
      * A customer buying a voucher on the storefront. The purchase is an Order (source GIFT_VOUCHER)
-     * so Pesapal, expiry and late payments work as for any order; the voucher is issued once paid.
+     * so payment, expiry and late payments work as for any order; the voucher is issued once paid.
      */
     purchase: async (c: AppContext) => {
         const data = await parse(c, purchaseVoucherSchema);
@@ -198,13 +198,14 @@ export const giftVouchersHandlers = {
         }, { type: 'placed_online' }, { kind: 'customer', isOwner: true, via: 'checkout' },
         { request: { ip: getClientIp(c), userAgent: c.req.header('user-agent') ?? null } });
 
-        const payment = await startPesapalPayment(order, data.amount, { phone, email, fullName: data.buyer_name });
+        const payment = await startOnlinePayment(order, data.amount, { phone, email, fullName: data.buyer_name });
         return success(c, {
             order_id: String(order.id),
             public_id: String(order.public_id),
             order_number: order.order_number,
             total_amount: data.amount,
             amount_due: data.amount,
+            payment_provider: payment.provider,
             payment_redirect_url: payment.redirectUrl,
             payment_reference: payment.reference,
             // Lets a guest check or retry payment without an account, as for any order.

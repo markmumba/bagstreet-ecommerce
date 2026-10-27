@@ -175,10 +175,13 @@ export interface OrderResponse {
 }
 
 export interface PaymentRetryResponse {
-    checkout_request_id: string;
     payment_provider?: string;
     payment_reference?: string | null;
     payment_redirect_url?: string | null;
+    /** M-Pesa: the masked number the PIN prompt was sent to, e.g. "0712 ••• 678". */
+    prompt_phone?: string;
+    /** Set instead when the order turned out to be paid already. */
+    status?: string;
 }
 
 export interface PaymentStatusResponse {
@@ -200,6 +203,13 @@ export interface PaymentStatusResponse {
     payment_status?: string;
     receipt_number?: string;
     payment_method?: string;
+    /** `mpesa` (PIN prompt on the customer's phone) or `pesapal` (hosted payment page). */
+    payment_provider?: string;
+    /** M-Pesa: masked number the latest prompt went to, and when it was sent. */
+    prompt_phone?: string | null;
+    prompt_sent_at?: string;
+    /** M-Pesa: why the latest prompt didn't go through (cancelled, wrong PIN, phone off…). */
+    failure_reason?: string;
 }
 
 export interface OrderReceiptResponse {
