@@ -24,7 +24,7 @@ function parseDay(value: string | undefined, label: string): Date | null {
 const day = (d: Date) => d.toISOString().slice(0, 10);
 
 export const reconciliationHandlers = {
-    /** Internal check: orders, Pesapal transactions and the ledger, for a date range (default last 30 days). */
+    /** Internal check: orders, M-Pesa transactions and the ledger, for a date range (default last 30 days). */
     report: async (c: AppContext) => {
         const today = parseDay(day(new Date()), 'today')!;
         const from = parseDay(c.req.query('from'), 'from') ?? new Date(today.getTime() - 29 * DAY_MS);
@@ -48,25 +48,25 @@ export const reconciliationHandlers = {
     },
 
     /**
-     * Pesapal statement import. Multipart: `file` (CSV export) and `record_fees` ("true" to write fees;
+     * M-Pesa statement import. Multipart: `file` (CSV export) and `record_fees` ("true" to write fees;
      * anything else is a preview). Fees are recorded once per transaction, so re-importing is safe.
      */
     statement: async (c: AppContext) => {
         const form = await c.req.formData().catch(() => null);
         const file = form?.get('file');
-        if (!(file instanceof File) || file.size === 0) throw new BadRequestError('Upload the Pesapal statement as a CSV file');
+        if (!(file instanceof File) || file.size === 0) throw new BadRequestError('Upload the M-Pesa statement as a CSV file');
         if (file.size > MAX_STATEMENT_BYTES) throw new BadRequestError('Statement must be 2MB or smaller — export a shorter date range');
         const recordFees = form?.get('record_fees') === 'true';
 
         const rows = parseCsv(await file.text(), []);
         const columns = detectStatementColumns(Object.keys(rows[0]?.values ?? {}));
         const problems = statementColumnProblems(columns);
-        if (problems.length > 0) throw new BadRequestError(`This doesn't look like a Pesapal statement. ${problems.join(' ')}`);
+        if (problems.length > 0) throw new BadRequestError(`This doesn't look like an M-Pesa statement. ${problems.join(' ')}`);
 
         const statementRows = normaliseStatementRows(rows, columns);
         const { matches, issues, matchedTransactionIds } = reconcileStatementRows(
             statementRows,
-            await reconciliationQueries.knownPesapalTransactions(),
+            await reconciliationQueries.knownMpesaTransactions(),
         );
 
         // Dates on the statement bound the "missing from statement" check; skip it if they can't be read.
@@ -77,9 +77,9 @@ export const reconciliationHandlers = {
             const from = new Date(Math.min(...dates));
             const to = new Date(Math.max(...dates) + DAY_MS - 1);
             dateRange = { from: day(from), to: day(to) };
-            missing = (await reconciliationQueries.pesapalCapturesBetween(from, to))
+            missing = (await reconciliationQueries.mpesaCapturesBetween(from, to))
                 .filter((cap) => !matchedTransactionIds.has(Number(cap.transaction_id)))
-                .map((cap) => ({ order_number: cap.order_number, reference: cap.reference, amount: Number(cap.amount), date: String(cap.created_at) }));
+                .map((cap) => ({ order_id: String(cap.order_id), order_number: cap.order_number, reference: cap.reference, amount: Number(cap.amount), date: String(cap.created_at) }));
         }
 
         const withFees = matches.filter((m) => m.fee != null && m.fee > 0);
@@ -92,9 +92,9 @@ export const reconciliationHandlers = {
                 if (inserted) feesRecorded += 1;
             }
             await auditFromContext(c, {
-                action: 'PESAPAL_STATEMENT_IMPORTED',
+                action: 'MPESA_STATEMENT_IMPORTED',
                 entityType: 'payments',
-                entityId: 'pesapal_statement',
+                entityId: 'mpesa_statement',
                 metadata: { file: file.name, rows: statementRows.length, matched: matches.length, fees_recorded: feesRecorded, issues: issues.length, missing: missing.length },
             });
         }

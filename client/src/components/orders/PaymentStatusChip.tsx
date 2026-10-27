@@ -33,8 +33,10 @@ export function PaymentStatusChip({ status, className }: { status: PaymentStatus
       title={style.hint}
       className={cn('inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-xs font-medium', style.className, className)}
     >
-      <Icon className="h-3 w-3" strokeWidth={2} />
+      <Icon className="h-3 w-3" strokeWidth={2} aria-hidden="true" />
       {style.label}
+      {/* The hover hint, for screen readers too. On touch screens the order sheet explains it. */}
+      {style.hint && <span className="sr-only">: {style.hint}</span>}
     </span>
   );
 }

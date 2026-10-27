@@ -29,6 +29,7 @@ import {
 import { orderConfirmationJob, orderExpiredJob, paymentFailedJob, staffAlert, staffOrderConfirmedEmail } from './order-messages';
 import { alertStaff } from '../../staff-alerts/staff-alerts';
 import { orderVoucherMoney, voucherBalance, voucherReclaimable } from '../../gift-vouchers/voucher-balance';
+import { cancelGiftVoucherForOrder, giftVoucherSaleFacts, issueGiftVoucherForOrder, type VoucherSaleOrder } from '../../gift-vouchers/voucher-sales';
 
 type Executor = typeof sql;
 
@@ -116,6 +117,7 @@ export async function applyOrderEvent(orderId: number, event: OrderEvent, actor:
                 payment_status = ${next.payment},
                 paid_at = CASE WHEN ${next.payment === PAYMENT_STATUS.PAID} THEN COALESCE(paid_at, CURRENT_TIMESTAMP) ELSE paid_at END,
                 dispatched_at = CASE WHEN ${next.status === 'SHIPPED'} THEN COALESCE(dispatched_at, CURRENT_TIMESTAMP) ELSE dispatched_at END,
+                delivered_at = CASE WHEN ${next.status === 'DELIVERED'} THEN COALESCE(delivered_at, CURRENT_TIMESTAMP) ELSE delivered_at END,
                 updated_at = CURRENT_TIMESTAMP
             WHERE id = ${order.id}
             RETURNING *
@@ -179,12 +181,13 @@ async function loadContext(tx: Executor, order: OrderRow, state: OrderState, eve
 
     const ctx: DecisionContext = {
         orderTotal,
-        currency: env.PESAPAL_CURRENCY,
+        currency: env.CURRENCY,
         captured,
         refunded: sum(LEDGER_ENTRY.REFUND_ISSUED, 'DEBIT'),
         voucherHeld: voucher.held,
         voucherRedeemed: voucher.redeemed,
         voucherReturned: voucher.returned,
+        giftVoucher: order.order_source === 'GIFT_VOUCHER' ? await giftVoucherSaleFacts(tx, order.id) : undefined,
     };
 
     if (event.type === 'refund_recorded') {
@@ -255,11 +258,17 @@ async function applyEffect(run: Run, effect: Effect): Promise<void> {
             run.captured = roundMoney(run.captured + await voucherBalance.hold(tx, order, staffId(run.actor)));
             return;
         case 'redeem_voucher':
-            await voucherBalance.redeem(tx, order, env.PESAPAL_CURRENCY, staffId(run.actor));
+            await voucherBalance.redeem(tx, order, env.CURRENCY, staffId(run.actor));
             return;
         case 'release_voucher':
-            await voucherBalance.release(tx, order, env.PESAPAL_CURRENCY, staffId(run.actor),
+            await voucherBalance.release(tx, order, env.CURRENCY, staffId(run.actor),
                 run.event.type === 'expired' ? 'Unpaid order expired' : 'Order cancelled');
+            return;
+        case 'issue_gift_voucher':
+            await issueGiftVoucherForOrder(tx, order as OrderRow & VoucherSaleOrder, run.after);
+            return;
+        case 'cancel_gift_voucher':
+            await cancelGiftVoucherForOrder(tx, orderId, effect.reason, staffId(run.actor));
             return;
         case 'return_to_voucher':
             await voucherBalance.returnTo(tx, order, effect.amount, staffId(run.actor),
@@ -286,7 +295,7 @@ async function applyEffect(run: Run, effect: Effect): Promise<void> {
                 entry_type: LEDGER_ENTRY.REFUND_ISSUED,
                 direction: 'DEBIT',
                 amount: effect.amount,
-                currency: env.PESAPAL_CURRENCY,
+                currency: env.CURRENCY,
                 reference: refundReference(effect.idempotencyKey),
                 metadata: {
                     method: effect.method,
@@ -305,7 +314,7 @@ async function applyEffect(run: Run, effect: Effect): Promise<void> {
                 entry_type: LEDGER_ENTRY.PAYMENT_REVERSED,
                 direction: 'DEBIT',
                 amount: effect.amount,
-                currency: env.PESAPAL_CURRENCY,
+                currency: env.CURRENCY,
                 reference: effect.reference,
                 metadata: { order_id: orderId, ...run.options.paymentMetadata },
             }, tx);

@@ -67,14 +67,24 @@ const envSchema = z.object({
     REDIS_REST_TOKEN: z.string().optional(),
     RATE_LIMIT_STORE: z.enum(['memory', 'redis']).default('memory'),
     RUN_MIGRATIONS_ON_STARTUP: z.string().optional().transform((value) => value === undefined ? undefined : value === 'true'),
-    PESAPAL_ENV: z.enum(['sandbox', 'production']).default('sandbox'),
-    PESAPAL_CONSUMER_KEY: z.string().optional(),
-    PESAPAL_CONSUMER_SECRET: z.string().optional(),
-    PESAPAL_IPN_ID: z.string().optional(),
-    PESAPAL_CALLBACK_URL: z.string().url().optional(),
-    PESAPAL_CANCELLATION_URL: z.string().url().optional(),
-    PESAPAL_CURRENCY: z.string().default('KES'),
-    PESAPAL_TIMEOUT_MS: z.coerce.number().int().positive().default(10_000),
+    /** Currency every order, payment and ledger entry is in. */
+    CURRENCY: z.string().default('KES'),
+    /** Safaricom Daraja — M-Pesa Express (STK Push). */
+    MPESA_ENV: z.enum(['sandbox', 'production']).default('sandbox'),
+    MPESA_CONSUMER_KEY: z.string().optional(),
+    MPESA_CONSUMER_SECRET: z.string().optional(),
+    /** BusinessShortCode: the Paybill, or for a Till the store number (HO). */
+    MPESA_SHORTCODE: z.string().optional(),
+    MPESA_PASSKEY: z.string().optional(),
+    /** CustomerPayBillOnline for a Paybill, CustomerBuyGoodsOnline for a Till. */
+    MPESA_TRANSACTION_TYPE: z.enum(['CustomerPayBillOnline', 'CustomerBuyGoodsOnline']).default('CustomerPayBillOnline'),
+    /** Who receives the money (PartyB). Unset: MPESA_SHORTCODE. Set to the Till number for Buy Goods. */
+    MPESA_PARTY_B: z.string().optional(),
+    /** Public HTTPS URL Safaricom posts results to. Unset: SERVER_URL/api/payments/mpesa/callback. */
+    MPESA_CALLBACK_URL: z.string().url().optional(),
+    /** Appended to the callback path so only Safaricom (who was given the URL) can reach it. */
+    MPESA_CALLBACK_SECRET: z.string().min(16).optional(),
+    MPESA_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
     /** Unpaid online orders are cancelled (stock released) after this many minutes. 0 disables expiry. */
     UNPAID_ORDER_TTL_MINUTES: z.coerce.number().int().min(0).default(45),
     CART_RECOVERY_ENABLED: z.enum(['true', 'false']).default('true').transform(value => value === 'true'),

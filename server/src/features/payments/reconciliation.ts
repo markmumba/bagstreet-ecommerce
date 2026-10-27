@@ -17,7 +17,7 @@ export interface ReconciliationOrderRow {
     reversed: number;
     /** Staff accepted the reversal as lost. */
     reversal_written_off: boolean;
-    /** A Pesapal transaction for this order is COMPLETED. */
+    /** An M-Pesa transaction for this order is COMPLETED. */
     has_completed_provider_payment: boolean;
 }
 
@@ -51,7 +51,7 @@ export function classifyOrderForReconciliation(row: ReconciliationOrderRow): Rec
     }
     if (row.has_completed_provider_payment && captured === 0) {
         issues.push({ ...base, kind: 'completed_payment_without_capture', amount: null, expected: total,
-            message: 'Pesapal shows this payment completed, but the ledger has no record of it.' });
+            message: 'M-Pesa shows this payment completed, but the ledger has no record of it.' });
     }
     if (!paid && !cancelled && captured > 0) {
         issues.push({ ...base, kind: 'held_for_review', amount: captured, expected: total,
@@ -66,9 +66,10 @@ export function classifyOrderForReconciliation(row: ReconciliationOrderRow): Rec
         issues.push({ ...base, kind: 'refund_owed', amount: net, expected: 0,
             message: `Order is cancelled but ${kes(net)} has not been refunded.` });
     }
-    if (paid && !cancelled && row.order_source === 'ONLINE' && !row.has_completed_provider_payment) {
+    // Paid online (goods or a gift voucher purchase) but M-Pesa never confirmed it.
+    if (paid && !cancelled && (row.order_source === 'ONLINE' || row.order_source === 'GIFT_VOUCHER') && !row.has_completed_provider_payment) {
         issues.push({ ...base, kind: 'marked_paid_manually', amount: captured || null, expected: total,
-            message: 'Online order marked paid without a completed Pesapal payment — confirm the money arrived.' });
+            message: 'Online order marked paid without a completed M-Pesa payment — confirm the money arrived.' });
     }
     return issues;
 }

@@ -1,5 +1,5 @@
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { ORDER_STATUS } from 'shared';
 
 interface Props {
@@ -46,7 +46,7 @@ export function OrderStatusChart({ data }: Props) {
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle className="table-header">Orders by Status</CardTitle>
+        <h2 data-slot="card-title" className="leading-none font-semibold table-header">Orders by status</h2>
       </CardHeader>
       <CardContent>
         <ResponsiveContainer width="100%" height={220}>

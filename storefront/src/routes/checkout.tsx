@@ -5,7 +5,7 @@ import { AlertCircle, Check, Lock } from 'lucide-react';
 import type { ShippingLocationResponse } from 'shared';
 import { POLICY_VERSION } from 'shared';
 import { useCart, useCartQuote, useClearCart } from '@/hooks/useCart';
-import { useCompleteDevPayment, useInitiatePesapalPayment, usePaymentStatus, usePlaceOrder } from '@/hooks/useOrders';
+import { isAwaitingPrompt, useCompleteDevPayment, useInitiatePayment, usePaymentStatus, usePlaceOrder } from '@/hooks/useOrders';
 import { useAuth } from '@/context/AuthContext';
 import { useActiveShippingLocations } from '@/hooks/useShipping';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
@@ -18,8 +18,6 @@ import { BagReminderPreference } from '@/components/checkout/BagReminderPreferen
 
 export const Route = createFileRoute('/checkout')({
   validateSearch: z.object({
-    // `payment` is only Pesapal's redirect hint — the page always asks the server for the real status.
-    payment: z.enum(['paid', 'pending', 'failed']).optional(),
     order_id: z.string().optional(),
     token: z.string().optional(),
   }),
@@ -44,27 +42,29 @@ function CheckoutPage() {
   const search = Route.useSearch();
   useSeo({
     title: 'Checkout',
-    description: 'Complete your Bagstreet order with guest checkout and secure Pesapal payment.',
+    description: 'Complete your Bagstreet order with guest checkout and secure M-Pesa payment.',
     canonicalPath: '/checkout',
   });
-  // Once an order exists (just placed, or back from Pesapal) the page is about paying for it.
+  // Once an order exists (just placed, or back from the payment page) the page is about paying for it.
   if (search.order_id) {
-    return <PaymentView key={search.order_id} orderRef={search.order_id} urlToken={search.token} returnedFrom={search.payment} />;
+    return <PaymentView key={search.order_id} orderRef={search.order_id} urlToken={search.token} />;
   }
   return <CheckoutForm />;
 }
 
 // ── Payment / confirmation ─────────────────────────────────────────────────
 
-function PaymentView({ orderRef, urlToken, returnedFrom }: { orderRef: string; urlToken?: string; returnedFrom?: 'paid' | 'pending' | 'failed' }) {
+function PaymentView({ orderRef, urlToken }: { orderRef: string; urlToken?: string }) {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [stored] = useState(readPendingPayment);
   const token = urlToken ?? (stored?.ref === orderRef ? stored.token : undefined);
-  const statusQuery = usePaymentStatus(orderRef, token);
-  const initiatePayment = useInitiatePesapalPayment();
+  const statusQuery = usePaymentStatus(orderRef, token, { watch: true });
+  const initiatePayment = useInitiatePayment();
   const completeDevPayment = useCompleteDevPayment();
   const [actionMessage, setActionMessage] = useState('');
+  // M-Pesa: send the prompt to a different number than the one on the order.
+  const [otherPhone, setOtherPhone] = useState<string | null>(null);
 
   const info = statusQuery.data?.data;
   const state: 'loading' | 'unverified' | 'PAID' | 'PENDING' | 'FAILED' | 'EXPIRED' | 'REVIEW' =
@@ -77,15 +77,20 @@ function PaymentView({ orderRef, urlToken, returnedFrom }: { orderRef: string; u
 
   const orderLabel = info?.order_number ?? stored?.orderNumber ?? orderRef;
   const total = info?.total_amount ?? stored?.total;
-  // What Pesapal collects: the total less any gift voucher.
+  // What M-Pesa collects: the total less any gift voucher.
   const due = info?.amount_due ?? stored?.total;
+  // A gift voucher purchase rather than an order of goods.
+  const giftVoucher = info?.gift_voucher;
+  // A PIN prompt is (probably) on the customer's phone right now.
+  const awaitingPrompt = isAwaitingPrompt(info);
 
   const startPayment = async () => {
     setActionMessage('');
     try {
-      const res = await initiatePayment.mutateAsync({ order_ref: orderRef, token });
-      if (res.data?.payment_redirect_url) {
-        window.location.assign(res.data.payment_redirect_url);
+      const res = await initiatePayment.mutateAsync({ order_ref: orderRef, token, pay_phone: otherPhone?.trim() || undefined });
+      if (res.data?.prompt_phone || res.data?.status) {
+        setOtherPhone(null);
+        statusQuery.refetch();
         return;
       }
       setActionMessage('Payment could not start yet. Please try again shortly.');
@@ -132,7 +137,11 @@ function PaymentView({ orderRef, urlToken, returnedFrom }: { orderRef: string; u
             <p className="mt-6 text-label-caps text-foreground-faint">Order {orderLabel}</p>
             <h1 className="mt-3 text-headline-lg">Thank you — <em>it's yours</em></h1>
             <p className="mx-auto mt-4 max-w-sm text-[15px] text-foreground-muted">
-              We've received your payment{total != null ? ` of ${formatPrice(total)}` : ''}. You'll get a confirmation email shortly, and our team will be in touch about delivery.
+              {giftVoucher
+                ? giftVoucher.deliver_to === 'RECIPIENT'
+                  ? `Your ${formatPrice(giftVoucher.amount)} gift voucher has been emailed to ${giftVoucher.recipient_name || giftVoucher.recipient_email}. Your receipt is on its way to you.`
+                  : `Your ${formatPrice(giftVoucher.amount)} gift voucher is on its way to your email. Print it or pass the code on.`
+                : `We've received your payment${total != null ? ` of ${formatPrice(total)}` : ''}. You'll get a confirmation email shortly, and our team will be in touch about delivery.`}
             </p>
             <div className="mt-10 flex flex-col items-center gap-4">
               <PrimaryButton onClick={() => (user ? navigate({ to: '/orders/$orderId', params: { orderId: orderRef } }) : navigate({ to: '/' }))}>
@@ -146,30 +155,66 @@ function PaymentView({ orderRef, urlToken, returnedFrom }: { orderRef: string; u
           <>
             <p className="mt-12 text-label-caps text-foreground-faint">Order {orderLabel}</p>
             <h1 className="mt-3 text-headline-lg">
-              {state === 'FAILED' ? <>Payment <em>not completed</em></> : <>Complete your <em>payment</em></>}
+              {state === 'FAILED' ? <>Payment <em>not completed</em></>
+                : awaitingPrompt ? <>Check your <em>phone</em></>
+                : <>Complete your <em>payment</em></>}
             </h1>
             <p className="mx-auto mt-4 max-w-sm text-[15px] text-foreground-muted">
               {state === 'FAILED'
-                ? "Your order is saved, but we didn't receive payment for it. You can try again — nothing has been charged."
-                : returnedFrom
-                  ? 'Pesapal is still confirming your payment. This can take a minute for M-Pesa.'
-                  : <>Pay {due != null && <span className="text-foreground">{formatPrice(due)}</span>} securely with Pesapal by M-Pesa or card.</>}
+                ? <>{info?.failure_reason ?? "We didn't receive payment for this order."} Your order is saved — you can try again. Nothing has been charged.</>
+                : awaitingPrompt
+                  ? <>We've sent an M-Pesa request{due != null && <> for <span className="text-foreground">{formatPrice(due)}</span></>} to <span className="text-foreground">{info?.prompt_phone ?? 'your phone'}</span>. Enter your M-Pesa PIN to pay.</>
+                  : <>Pay {due != null && <span className="text-foreground">{formatPrice(due)}</span>} with M-Pesa. We'll send a payment request to your phone — just enter your PIN.</>}
             </p>
+            {awaitingPrompt && (
+              <div className="mx-auto mt-8 flex items-center justify-center gap-3 text-[13px] text-foreground-faint" role="status">
+                <span className="h-px w-10 animate-pulse bg-brass" aria-hidden="true" />
+                Waiting for M-Pesa to confirm…
+                <span className="h-px w-10 animate-pulse bg-brass" aria-hidden="true" />
+              </div>
+            )}
             <p className="mx-auto mt-3 max-w-sm text-[13px] text-foreground-faint">
-              We hold your items for a short time. Unpaid orders are released after a while so others can buy them.
+              {giftVoucher
+                ? 'Unpaid voucher purchases are cancelled after a while. Nothing is charged until you pay.'
+                : 'We hold your items for a short time. Unpaid orders are released after a while so others can buy them.'}
             </p>
 
             {actionMessage && (
               <p className="mt-8 border border-border bg-surface px-4 py-3 text-[13px] text-foreground-muted" role="status">{actionMessage}</p>
             )}
 
+            {otherPhone !== null && (
+              <label className="mx-auto mt-8 block max-w-xs text-left">
+                <span className="text-label-caps text-foreground-faint">M-Pesa number</span>
+                <input
+                  type="tel"
+                  inputMode="tel"
+                  autoComplete="tel"
+                  placeholder="0712 345 678"
+                  value={otherPhone}
+                  onChange={(e) => setOtherPhone(e.target.value)}
+                  className={`${inputClass} mt-2`}
+                />
+              </label>
+            )}
+
             <div className="mt-10 flex flex-col items-stretch gap-3 sm:flex-row sm:justify-center">
-              <PrimaryButton onClick={startPayment} disabled={initiatePayment.isPending}>
-                {initiatePayment.isPending ? 'Starting…' : state === 'FAILED' ? 'Try payment again' : 'Continue to payment'}
+              <PrimaryButton onClick={startPayment} disabled={initiatePayment.isPending || (otherPhone !== null && otherPhone.trim() === '')}>
+                {initiatePayment.isPending ? 'Sending…'
+                  : otherPhone !== null ? 'Send to this number'
+                  : awaitingPrompt ? 'Send the request again'
+                  : state === 'FAILED' ? 'Try M-Pesa again' : 'Send M-Pesa request'}
               </PrimaryButton>
-              <SecondaryButton onClick={checkAgain} disabled={statusQuery.isFetching}>
-                {statusQuery.isFetching ? 'Checking…' : 'I have paid — check again'}
-              </SecondaryButton>
+              {otherPhone === null ? (
+                <SecondaryButton onClick={() => setOtherPhone('')}>Use a different number</SecondaryButton>
+              ) : (
+                <SecondaryButton onClick={() => setOtherPhone(null)}>Cancel</SecondaryButton>
+              )}
+              {!awaitingPrompt && (
+                <SecondaryButton onClick={checkAgain} disabled={statusQuery.isFetching}>
+                  {statusQuery.isFetching ? 'Checking…' : 'I have paid — check again'}
+                </SecondaryButton>
+              )}
               {import.meta.env.DEV && (
                 <SecondaryButton onClick={devFinish} disabled={completeDevPayment.isPending}>
                   {completeDevPayment.isPending ? 'Finishing…' : 'Finish dev order'}
@@ -185,7 +230,7 @@ function PaymentView({ orderRef, urlToken, returnedFrom }: { orderRef: string; u
             <p className="mt-12 text-label-caps text-foreground-faint">Order {orderLabel}</p>
             <h1 className="mt-3 text-headline-lg">We're checking your <em>payment</em></h1>
             <p className="mx-auto mt-4 max-w-sm text-[15px] text-foreground-muted">
-              We've received a payment for this order, but it doesn't match the order total, so our team is checking it with Pesapal.
+              We've received a payment for this order, but it doesn't match the order total, so our team is checking it.
               Please don't pay again — we'll contact you shortly.
             </p>
             <HelpLine />
@@ -387,14 +432,10 @@ function CheckoutForm() {
       if (order.access_token) {
         savePendingPayment({ ref, token: order.access_token, orderNumber: order.order_number, total: order.amount_due });
       }
-      // The bag is now this order. Emptying it means backing out of Pesapal can't place it twice;
+      // The bag is now this order. Emptying it means backing out of payment can't place it twice;
       // the customer resumes payment from the banner instead.
       await clearCart.mutateAsync();
 
-      if (order.payment_redirect_url) {
-        window.location.assign(order.payment_redirect_url);
-        return;
-      }
       navigate({ to: '/checkout', search: { order_id: ref, token: order.access_token } });
     } catch (err: any) {
       // Surface the server's reason (e.g. "Insufficient stock", "code already used") instead of a generic failure.
@@ -547,7 +588,7 @@ function CheckoutForm() {
             <p className="text-[15px] leading-relaxed text-foreground-muted">
               {coveredByVoucher
                 ? "Your gift voucher covers this order: there's nothing more to pay."
-                : <>After placing your order you'll continue to <span className="text-foreground">Pesapal</span> to pay{voucher ? ' the rest' : ''} securely by M-Pesa or card.</>}
+                : <>After placing your order we'll send an <span className="text-foreground">M-Pesa</span> request to your phone to pay{voucher ? ' the rest' : ''} — just enter your PIN.</>}
             </p>
           </FormSection>
         </div>
@@ -733,7 +774,7 @@ function CheckoutForm() {
             {!coveredByVoucher && (
               <p className="mt-6 flex items-center justify-center gap-2 text-[12px] text-foreground-muted">
                 <Lock strokeWidth={1} className="h-3.5 w-3.5 text-brass" aria-hidden="true" />
-                Secure payment with Pesapal
+                Secure payment with M-Pesa
               </p>
             )}
 

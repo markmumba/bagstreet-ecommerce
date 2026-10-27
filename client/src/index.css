@@ -1,4 +1,5 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+/* Inter, self-hosted: bundled by Vite and served by the admin itself (no Google Fonts request). */
+@import "@fontsource-variable/inter";
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "../../shared/styles/motion.css";
@@ -186,7 +187,7 @@
   }
   body {
     @apply bg-background text-foreground;
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    font-family: 'Inter Variable', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
     font-feature-settings: "cv02" 1, "cv03" 1, "cv04" 1, "cv11" 1;
   }
 }
@@ -225,4 +226,27 @@
 @keyframes shimmer {
   from { background-position: 200% 0; }
   to { background-position: -200% 0; }
+}
+
+/* Loading indicators hold still for people who ask for less motion. */
+@media (prefers-reduced-motion: reduce) {
+  .skeleton { animation: none; background: var(--color-bg-subtle); }
+  .animate-spin,
+  .animate-pulse { animation-duration: 3s; }
+}
+
+/*
+ * Row actions (copy, view, edit…): always visible on touch screens, where there is no hover.
+ * With a mouse they stay out of the way until the row is hovered or a control is focused.
+ */
+@media (hover: hover) {
+  .reveal-on-hover { opacity: 0; transition: opacity 150ms ease-out; }
+  .group:hover .reveal-on-hover,
+  .group:focus-within .reveal-on-hover,
+  .reveal-on-hover:focus-visible { opacity: 1; }
+}
+
+/* Hints that only make sense with a mouse (e.g. "…" standing in for hover-revealed actions). */
+@media (hover: none) {
+  .hover-hint { display: none !important; }
 }

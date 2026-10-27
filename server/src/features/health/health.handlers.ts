@@ -2,7 +2,7 @@ import type { AppContext } from '@server/lib/hono';
 import { emailOutboxStats } from '@server/services/email-outbox';
 import { env } from '../../config/env';
 import { sql } from '../../lib/db';
-import { isPesapalConfigured, pesapalBulkhead, pesapalCircuit } from '../../services/pesapal';
+import { isMpesaConfigured, mpesaBulkhead, mpesaCircuit } from '../../services/mpesa';
 
 async function checkDatabase() {
     const started = Date.now();
@@ -37,10 +37,10 @@ export const healthHandlers = {
             redis_configured: Boolean(env.REDIS_REST_URL && env.REDIS_REST_TOKEN),
         };
         checks.circuits = {
-            pesapal: pesapalCircuit.snapshot(),
+            mpesa: mpesaCircuit.snapshot(),
         };
         checks.bulkheads = {
-            pesapal: pesapalBulkhead.snapshot(),
+            mpesa: mpesaBulkhead.snapshot(),
         };
         try {
             const outbox = await emailOutboxStats();
@@ -57,8 +57,8 @@ export const healthHandlers = {
             email_configured: env.EMAIL_PROVIDER === 'resend'
                 ? Boolean(env.RESEND_API_KEY)
                 : Boolean(env.SMTP_USER && env.SMTP_PASS),
-            payment_provider: 'pesapal',
-            pesapal_configured: isPesapalConfigured(),
+            mpesa_configured: isMpesaConfigured(),
+            mpesa_callback_secret_set: Boolean(env.MPESA_CALLBACK_SECRET),
         };
 
         return c.json({

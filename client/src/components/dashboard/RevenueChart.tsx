@@ -7,23 +7,21 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from 'recharts';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
+import { formatCompact, formatMoney, formatShortDate } from '@/lib/format';
 
 interface Props {
   data: { date: string; revenue: number }[];
 }
 
-function formatDate(dateStr: string) {
-  const d = new Date(dateStr);
-  return d.toLocaleDateString('en-KE', { month: 'short', day: 'numeric' });
-}
+const formatDate = formatShortDate;
 
 function CustomTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null;
   return (
     <div className="rounded-lg border bg-background px-3 py-2 text-sm shadow-[var(--shadow-dropdown)]">
       <p className="font-medium">{formatDate(label)}</p>
-      <p className="text-muted-foreground">KES {payload[0].value.toLocaleString('en-KE', { minimumFractionDigits: 2 })}</p>
+      <p className="text-muted-foreground tabular-nums">{formatMoney(payload[0].value)}</p>
     </div>
   );
 }
@@ -32,7 +30,7 @@ export function RevenueChart({ data }: Props) {
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle className="table-header">Revenue - Last 30 Days</CardTitle>
+        <h2 data-slot="card-title" className="leading-none font-semibold table-header">Revenue — last 30 days</h2>
       </CardHeader>
       <CardContent>
         <ResponsiveContainer width="100%" height={220}>
@@ -56,7 +54,7 @@ export function RevenueChart({ data }: Props) {
               tick={{ fontSize: 11 }}
               tickLine={false}
               axisLine={false}
-              tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`}
+              tickFormatter={(v) => formatCompact(v)}
               width={36}
             />
             <Tooltip content={<CustomTooltip />} />

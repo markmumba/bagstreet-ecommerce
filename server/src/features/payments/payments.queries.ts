@@ -114,6 +114,15 @@ export const paymentsQueries = {
         return row;
     },
 
+    /** How many payment attempts an order has had with a provider (each M-Pesa prompt is one). */
+    countProviderTransactions: async (orderId: number, provider: string): Promise<number> => {
+        const [row] = await sql<{ count: number }[]>`
+            SELECT COUNT(*)::int AS count FROM payment_transactions
+            WHERE order_id = ${orderId} AND provider = ${provider}
+        `;
+        return row?.count ?? 0;
+    },
+
     updateProviderTransaction: async (
         id: number,
         data: {

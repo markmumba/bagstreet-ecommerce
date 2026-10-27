@@ -200,6 +200,11 @@ export function Navbar() {
                   Shop all
                 </Link>
               </li>
+              <li onMouseEnter={() => setActiveMenu(null)} className="hidden xl:block">
+                <Link to="/gift-vouchers" className={`whitespace-nowrap py-7 text-label-caps transition-colors duration-200 ${linkTone}`}>
+                  Gift vouchers
+                </Link>
+              </li>
             </ul>
           </nav>
 
@@ -394,6 +399,7 @@ function MobileMenu({ open, tree, signedIn }: { open: boolean; tree: CategoryTre
             <li><Link to="/login">Sign in</Link></li>
           )}
           <li><Link to="/cart">Shopping bag</Link></li>
+          <li><Link to="/gift-vouchers">Gift vouchers</Link></li>
         </ul>
       </nav>
     </div>

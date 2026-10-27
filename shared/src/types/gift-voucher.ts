@@ -18,7 +18,7 @@ export const VOUCHER_SALE_PAYMENT_METHOD = {
 } as const;
 export type VoucherSalePaymentMethod = typeof VOUCHER_SALE_PAYMENT_METHOD[keyof typeof VOUCHER_SALE_PAYMENT_METHOD];
 
-export type GiftVoucherMovementKind = 'ISSUED' | 'HELD' | 'REDEEMED' | 'RELEASED' | 'RETURNED' | 'VOIDED' | 'ADJUSTED';
+export type GiftVoucherMovementKind = 'ISSUED' | 'HELD' | 'REDEEMED' | 'RELEASED' | 'RETURNED' | 'VOIDED' | 'ADJUSTED' | 'CODE_REPLACED';
 
 export interface GiftVoucherResponse {
     id: string;
@@ -39,6 +39,10 @@ export interface GiftVoucherResponse {
     purchaser_name: string | null;
     sale_payment_method: string;
     sale_reference: string | null;
+    /** SHOP (sold at the till) or ONLINE (bought on the storefront). */
+    sold_via: string;
+    /** The online order it was bought with. */
+    purchase_order_number: string | null;
     issued_by_email: string | null;
     voided_at: string | null;
     void_reason: string | null;
@@ -91,3 +95,36 @@ export interface GiftVoucherSummaryResponse {
     expired_unspent: number;
     counts: Record<GiftVoucherStatus, number>;
 }
+
+/** The amounts a voucher can be bought for online (any amount in the shop). */
+export const GIFT_VOUCHER_ONLINE_AMOUNTS = [2000, 5000, 10000, 20000] as const;
+
+export const GIFT_VOUCHER_DELIVER_TO = {
+    RECIPIENT: 'RECIPIENT',
+    BUYER: 'BUYER',
+} as const;
+export type GiftVoucherDeliverTo = typeof GIFT_VOUCHER_DELIVER_TO[keyof typeof GIFT_VOUCHER_DELIVER_TO];
+
+/** Buying a voucher on the storefront. */
+export interface GiftVoucherPurchaseRequest {
+    amount: number;
+    deliver_to: GiftVoucherDeliverTo;
+    recipient_name?: string;
+    recipient_email?: string;
+    message?: string;
+    buyer_name: string;
+    buyer_email: string;
+    buyer_phone: string;
+    policy_acceptance: { accepted: true; version: string };
+}
+
+/** A customer checking what is left on their voucher. */
+export interface GiftVoucherBalanceResponse {
+    balance: number;
+    initial_amount: number;
+    status: GiftVoucherStatus;
+    expires_at: string;
+}
+
+/** Returned once when staff replace a lost code: the new code. */
+export type ReplacedGiftVoucherCodeResponse = IssuedGiftVoucherResponse;

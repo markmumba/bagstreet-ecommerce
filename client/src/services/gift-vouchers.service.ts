@@ -23,6 +23,7 @@ export const giftVouchersService = {
   issue: (data: GiftVoucherIssueRequest) => apiClient.post<IssuedGiftVoucherResponse>('/api/gift-vouchers', data),
   lookup: (code: string) => apiClient.post<GiftVoucherResponse>('/api/gift-vouchers/lookup', { code }),
   void: (id: string, reason: string) => apiClient.post<GiftVoucherResponse>(`/api/gift-vouchers/${id}/void`, { reason }),
+  replaceCode: (id: string) => apiClient.post<IssuedGiftVoucherResponse>(`/api/gift-vouchers/${id}/replace-code`),
   adjust: (id: string, delta: number, reason: string) =>
     apiClient.post<GiftVoucherResponse>(`/api/gift-vouchers/${id}/adjust`, { delta, reason }),
 };

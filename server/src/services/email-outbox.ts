@@ -9,7 +9,7 @@
  */
 import { sql } from '../lib/db';
 import { readJsonColumn, toJsonbParam } from '../lib/json-column';
-import { sendEmailJob, type EmailJob } from './email-jobs';
+import { redactDeliveredJob, sendEmailJob, type EmailJob } from './email-jobs';
 import { afterFailure, describeError } from './email-outbox-policy';
 import { alertStaff } from '../features/staff-alerts/staff-alerts';
 
@@ -103,6 +103,7 @@ export async function processEmailOutboxBatch(
                 SET status = ${delivered === false ? 'SKIPPED' : 'SENT'}, sent_at = now(), locked_until = NULL, last_error = NULL
                 WHERE id = ${row.id} AND status = 'SENDING'
             `;
+            await redactPayload(row.id, job);
             if (delivered === false) result.skipped += 1;
             else result.sent += 1;
         } catch (err) {
@@ -113,6 +114,8 @@ export async function processEmailOutboxBatch(
                     UPDATE email_outbox SET status = 'FAILED', locked_until = NULL, last_error = ${error}
                     WHERE id = ${row.id}
                 `;
+                const job = readJsonColumn<EmailJob>(row.payload);
+                if (job) await redactPayload(row.id, job);
                 result.failed += 1;
                 console.error(`[email-outbox] giving up on ${row.job_type} to ${row.recipient} after ${row.attempts} attempts: ${error}`);
                 await alertAdminsEmailFailed(row, error);
@@ -130,6 +133,12 @@ export async function processEmailOutboxBatch(
         }
     }
     return result;
+}
+
+/** Drops secrets (gift voucher codes) from a finished email's stored payload. */
+async function redactPayload(id: number, job: EmailJob) {
+    const redacted = redactDeliveredJob(job);
+    if (redacted) await sql`UPDATE email_outbox SET payload = ${toJsonbParam(redacted)}::jsonb WHERE id = ${id}`;
 }
 
 async function alertAdminsEmailFailed(row: OutboxRow, error: string) {

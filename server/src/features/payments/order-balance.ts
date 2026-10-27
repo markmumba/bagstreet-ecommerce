@@ -6,7 +6,7 @@ import { readJsonColumn } from '@server/lib/json-column';
 export const LEDGER_ENTRY = {
     PAYMENT_CAPTURED: 'PAYMENT_CAPTURED',
     REFUND_ISSUED: 'REFUND_ISSUED',
-    /** Charged by Pesapal; recorded from statement imports. */
+    /** Charged by M-Pesa; recorded from statement imports. */
     PROVIDER_FEE: 'PROVIDER_FEE',
     /** Captured money taken back by the provider (chargeback / reversal). Money out. */
     PAYMENT_REVERSED: 'PAYMENT_REVERSED',

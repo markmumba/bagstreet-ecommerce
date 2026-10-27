@@ -13,7 +13,7 @@ import { cn } from '@/lib/utils';
 type Product = ProductResponse;
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Boxes, ImageIcon, Package, Pencil, Plus, Star, Tag, Trash2, Upload } from 'lucide-react';
+import { Boxes, ImageIcon, Link2, Package, Pencil, Plus, Search, Star, Tag, Trash2, Upload } from 'lucide-react';
 import {
   Table,
   TableBody,
@@ -22,6 +22,14 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { formatMoney } from '@/lib/format';
+
+function ariaSort(canSort: boolean, sorted: false | 'asc' | 'desc'): 'ascending' | 'descending' | 'none' | undefined {
+  if (!canSort) return undefined;
+  if (sorted === 'asc') return 'ascending';
+  if (sorted === 'desc') return 'descending';
+  return 'none';
+}
 
 const columnClasses: Record<string, string> = {
   name: 'w-[320px]',
@@ -40,6 +48,7 @@ interface ProductsDataTableProps {
   onCreateNew?: () => void;
   onImportCsv?: () => void;
   onOpenVariants?: (product: Product) => void;
+  onOpenPairings?: (product: Product) => void;
   onEdit?: (product: Product) => void;
   onSale?: (product: Product) => void;
   onRemove?: (product: Product) => void;
@@ -64,6 +73,7 @@ export function ProductsDataTable({
   onCreateNew,
   onImportCsv,
   onOpenVariants,
+  onOpenPairings,
   onEdit,
   onSale,
   onRemove,
@@ -91,12 +101,33 @@ export function ProductsDataTable({
     manualPagination: true,
   });
 
+  const isSearching = searchValue.trim().length > 0;
+  const emptyState = (
+    <div className="flex flex-col items-center gap-3">
+      {isSearching ? <Search className="h-6 w-6" strokeWidth={1.5} /> : <Package className="h-6 w-6" strokeWidth={1.5} />}
+      <div>
+        <p className="font-medium text-foreground">
+          {isSearching ? `No products match “${searchValue.trim()}”` : 'Your catalogue is empty'}
+        </p>
+        <p className="mt-1 text-sm text-muted-foreground">
+          {isSearching ? 'Check the spelling, or try part of the product name.' : 'Add your first product to go live.'}
+        </p>
+      </div>
+      {isSearching
+        ? onSearchChange && <Button variant="outline" onClick={() => onSearchChange('')}>Clear search</Button>
+        : onCreateNew && <Button onClick={onCreateNew}>Add product</Button>}
+    </div>
+  );
+
   return (
     <div className="space-y-4">
       {/* Toolbar */}
       <div className="flex flex-wrap items-center gap-3">
         <Input
-          placeholder="Search products..."
+          type="search"
+          aria-label="Search products"
+          autoComplete="off"
+          placeholder="Search products…"
           value={searchValue}
           onChange={(e) => onSearchChange?.(e.target.value)}
           className="h-9 w-full sm:max-w-[240px]"
@@ -113,7 +144,7 @@ export function ProductsDataTable({
         {onCreateNew && (
           <Button onClick={onCreateNew}>
             <Plus className="h-4 w-4" />
-            New Product
+            New product
           </Button>
         )}
       </div>
@@ -137,6 +168,9 @@ export function ProductsDataTable({
                       <img
                         src={product.image_url}
                         alt={product.name}
+                        width={64}
+                        height={64}
+                        loading="lazy"
                         className={cn('h-full w-full object-cover', !product.is_active && 'grayscale opacity-70')}
                       />
                     ) : (
@@ -154,6 +188,8 @@ export function ProductsDataTable({
                       <button
                         type="button"
                         title={product.is_featured ? 'Unfeature' : 'Feature'}
+                        aria-label={`Feature ${product.name} on the storefront`}
+                        aria-pressed={product.is_featured}
                         onClick={() => onToggleFeatured?.(product)}
                         className={cn(
                           'flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground',
@@ -179,7 +215,7 @@ export function ProductsDataTable({
                   <div>
                     <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Price</p>
                     <p className="mt-1 font-semibold tabular-nums text-foreground">
-                      KES {(product.sale_price ?? product.price).toFixed(2)}
+                      {formatMoney(product.sale_price ?? product.price)}
                     </p>
                   </div>
                   <div>
@@ -193,10 +229,15 @@ export function ProductsDataTable({
                     <Boxes className="h-4 w-4" />
                     Variants
                   </Button>
-                  <Button variant="ghost" size="sm" onClick={() => onEdit?.(product)} title="Edit" className="h-8 w-8 px-0">
+                  <Button variant="ghost" size="sm" onClick={() => onEdit?.(product)} title="Edit" aria-label={`Edit ${product.name}`} className="h-8 w-8 px-0">
                     <Pencil className="h-4 w-4" />
                   </Button>
-                  <Button variant="ghost" size="sm" onClick={() => onSale?.(product)} title="Sale" className="h-8 w-8 px-0">
+                  {onOpenPairings && (
+                    <Button variant="ghost" size="sm" onClick={() => onOpenPairings(product)} title="Goes well with" aria-label={`Choose what goes well with ${product.name}`} className="h-8 w-8 px-0">
+                      <Link2 className="h-4 w-4" />
+                    </Button>
+                  )}
+                  <Button variant="ghost" size="sm" onClick={() => onSale?.(product)} title="Sale" aria-label={`Set a sale price for ${product.name}`} className="h-8 w-8 px-0">
                     <Tag className="h-4 w-4" />
                   </Button>
                   <Button
@@ -204,6 +245,7 @@ export function ProductsDataTable({
                     size="sm"
                     onClick={() => onRemove?.(product)}
                     title="Remove"
+                    aria-label={`Remove ${product.name}`}
                     className="h-8 w-8 px-0 hover:bg-destructive/10 hover:text-destructive"
                   >
                     <Trash2 className="h-4 w-4" />
@@ -214,22 +256,23 @@ export function ProductsDataTable({
           })
         ) : (
           <div className="rounded-xl border bg-card p-8 text-center text-muted-foreground">
-            <Package className="mx-auto h-6 w-6" strokeWidth={1.5} />
-            <p className="mt-3 font-medium text-foreground">Your catalogue is empty</p>
-            <p className="mt-1 text-sm">Add your first product to go live.</p>
-            {onCreateNew && <Button onClick={onCreateNew} className="mt-4">Add product</Button>}
+            {emptyState}
           </div>
         )}
       </div>
 
       {/* Desktop table */}
-      <div className="hidden overflow-hidden rounded-xl border bg-card lg:block">
+      <div className="hidden overflow-x-auto rounded-xl border bg-card lg:block">
         <Table className="min-w-[1080px] table-fixed">
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id}>
                 {headerGroup.headers.map((header) => (
-                  <TableHead key={header.id} className={columnClasses[header.column.id]}>
+                  <TableHead
+                    key={header.id}
+                    className={columnClasses[header.column.id]}
+                    aria-sort={ariaSort(header.column.getCanSort(), header.column.getIsSorted())}
+                  >
                     {header.isPlaceholder
                       ? null
                       : flexRender(header.column.columnDef.header, header.getContext())}
@@ -256,14 +299,7 @@ export function ProductsDataTable({
             ) : (
               <TableRow>
                 <TableCell colSpan={columns.length} className="h-[200px] text-center text-muted-foreground">
-                  <div className="flex flex-col items-center gap-3">
-                    <Package className="h-6 w-6" strokeWidth={1.5} />
-                    <div>
-                      <p className="font-medium text-foreground">Your catalogue is empty</p>
-                      <p className="mt-1 text-sm text-muted-foreground">Add your first product to go live.</p>
-                    </div>
-                    {onCreateNew && <Button onClick={onCreateNew}>Add product</Button>}
-                  </div>
+                  {emptyState}
                 </TableCell>
               </TableRow>
             )}

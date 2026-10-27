@@ -14,6 +14,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { formatDateTime, formatMoney } from '@/lib/format';
+import { ErrorNotice, errorMessage } from '@/components/ui/notice';
 
 const STATE_LABELS: Record<OrderPaymentState, { label: string; variant: React.ComponentProps<typeof Badge>['variant'] }> = {
   unpaid: { label: 'Unpaid', variant: 'neutral' },
@@ -28,14 +30,13 @@ const STATE_LABELS: Record<OrderPaymentState, { label: string; variant: React.Co
 
 const METHOD_LABELS: Record<RefundMethod, string> = {
   MPESA: 'M-Pesa',
-  PESAPAL: 'Pesapal',
   CASH: 'Cash',
   BANK_TRANSFER: 'Bank transfer',
   OTHER: 'Other',
   GIFT_VOUCHER: 'Back onto the gift voucher',
 };
 
-const kes = (amount: number) => `KES ${amount.toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const kes = (amount: number) => formatMoney(amount);
 
 function entryLabel(entry: LedgerEntryResponse) {
   if (entry.entry_type === 'PAYMENT_CAPTURED') {
@@ -46,7 +47,7 @@ function entryLabel(entry: LedgerEntryResponse) {
     const last4 = entry.metadata?.voucher_last4;
     return `Paid by gift voucher${last4 ? ` ····${String(last4)}` : ''}`;
   }
-  if (entry.entry_type === 'PROVIDER_FEE') return 'Pesapal fee';
+  if (entry.entry_type === 'PROVIDER_FEE') return 'M-Pesa charge';
   if (entry.entry_type === 'PAYMENT_REVERSED') return 'Taken back by the payment provider';
   if (entry.entry_type === 'REFUND_ISSUED') {
     const method = entry.metadata?.method as RefundMethod | undefined;
@@ -60,9 +61,9 @@ export function OrderPaymentsPanel({ orderId, canRefund }: { orderId: string; ca
   const { data: payments, isLoading, isError } = useOrderPayments(orderId);
   const [formOpen, setFormOpen] = useState(false);
 
-  if (isLoading) return <div className="h-24 animate-pulse rounded-xl bg-muted/40" />;
+  if (isLoading) return <div role="status" aria-label="Loading payments" className="h-24 animate-pulse rounded-xl bg-muted/40" />;
   if (isError || !payments) {
-    return <p className="text-sm text-muted-foreground">Payment history couldn't be loaded.</p>;
+    return <ErrorNotice>Payment history couldn’t be loaded. Close the order and open it again.</ErrorNotice>;
   }
 
   const { summary, entries } = payments;
@@ -91,7 +92,7 @@ export function OrderPaymentsPanel({ orderId, canRefund }: { orderId: string; ca
       </dl>
       {summary.fees > 0 && (
         <p className="-mt-1 text-xs text-muted-foreground">
-          After {kes(summary.fees)} Pesapal fees: <span className="font-medium text-foreground">{kes(summary.net_after_fees)}</span>
+          After {kes(summary.fees)} M-Pesa charges: <span className="font-medium text-foreground">{kes(summary.net_after_fees)}</span>
         </p>
       )}
 
@@ -102,7 +103,7 @@ export function OrderPaymentsPanel({ orderId, canRefund }: { orderId: string; ca
       )}
       {(summary.state === 'underpaid' || summary.state === 'overpaid') && (
         <p className="rounded-xl bg-[var(--color-warning-bg)] px-3 py-2 text-sm text-[var(--color-warning-text)]">
-          Received {kes(summary.captured)} against an order total of {kes(summary.order_total)}. Check with Pesapal before fulfilling.
+          Received {kes(summary.captured)} against an order total of {kes(summary.order_total)}. Check the M-Pesa statement before fulfilling.
         </p>
       )}
       {summary.legacy_unrecorded_capture && (
@@ -127,7 +128,7 @@ export function OrderPaymentsPanel({ orderId, canRefund }: { orderId: string; ca
                   <div className="min-w-0">
                     <p className="font-medium first-letter:uppercase">{entryLabel(entry)}</p>
                     <p className="text-xs text-muted-foreground">
-                      {new Date(entry.created_at).toLocaleString('en-KE', { dateStyle: 'medium', timeStyle: 'short' })}
+                      {formatDateTime(entry.created_at)}
                       {externalRef ? ` · ${externalRef}` : ''}
                     </p>
                     {reason && <p className="mt-0.5 text-xs text-muted-foreground">“{reason}”</p>}
@@ -188,7 +189,8 @@ function RefundForm({ orderId, cashRefundable, voucherRefundable, onDone }: {
 
   const numericAmount = Number(amount);
   const amountValid = Number.isFinite(numericAmount) && numericAmount > 0 && numericAmount <= refundable;
-  const canSubmit = amountValid && reason.trim().length >= 3 && !recordRefund.isPending;
+  const reasonValid = reason.trim().length >= 3;
+  const canSubmit = amountValid && reasonValid && !recordRefund.isPending;
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -206,7 +208,7 @@ function RefundForm({ orderId, cashRefundable, voucherRefundable, onDone }: {
       });
       onDone();
     } catch (err: any) {
-      setError(err?.message || 'Could not record the refund');
+      setError(errorMessage(err, 'The refund couldn’t be recorded. Check your connection and try again.'));
     }
   };
 
@@ -257,8 +259,10 @@ function RefundForm({ orderId, cashRefundable, voucherRefundable, onDone }: {
         <Input
           value={externalReference}
           onChange={(e) => setExternalReference(e.target.value.toUpperCase())}
-          placeholder="e.g. M-Pesa code SJK3XXXXXX"
+          placeholder="e.g. M-Pesa code SJK3XXXXXX…"
           maxLength={100}
+          spellCheck={false}
+          autoComplete="off"
         />
       </label>}
       <label className="flex flex-col gap-1 text-xs font-medium">
@@ -267,20 +271,24 @@ function RefundForm({ orderId, cashRefundable, voucherRefundable, onDone }: {
           rows={2}
           value={reason}
           onChange={(e) => setReason(e.target.value)}
-          placeholder="e.g. Returned within 24 hours, unused"
+          placeholder="e.g. Returned within 24 hours, unused…"
           maxLength={500}
+          aria-describedby="refund-reason-hint"
         />
+        <span id="refund-reason-hint" className="font-normal text-muted-foreground">
+          At least 3 characters. It’s kept with the refund record.
+        </span>
       </label>
 
       {!amountValid && amount !== '' && (
-        <p className="text-xs text-destructive">Enter an amount between KES 0.01 and {kes(refundable)}.</p>
+        <p role="alert" className="text-xs text-destructive">Enter an amount between {kes(0.01)} and {kes(refundable)}.</p>
       )}
-      {error && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>}
+      <ErrorNotice>{error}</ErrorNotice>
 
       <div className="flex justify-end gap-2">
         <Button type="button" variant="ghost" size="sm" onClick={onDone} disabled={recordRefund.isPending}>Cancel</Button>
         <Button type="submit" size="sm" disabled={!canSubmit}>
-          {recordRefund.isPending ? 'Recording…' : `Record ${amountValid ? kes(numericAmount) : ''} refund`}
+          {recordRefund.isPending ? 'Recording…' : amountValid ? `Record ${kes(numericAmount)} refund` : 'Record refund'}
         </Button>
       </div>
     </form>

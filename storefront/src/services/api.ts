@@ -134,8 +134,12 @@ class ApiClient {
     const res = await this.client.patch<ApiResponse<T>>(url, data);
     return res.data;
   }
-  async delete<T>(url: string) {
-    const res = await this.client.delete<ApiResponse<T>>(url);
+  async put<T>(url: string, data?: unknown) {
+    const res = await this.client.put<ApiResponse<T>>(url, data);
+    return res.data;
+  }
+  async delete<T>(url: string, data?: unknown) {
+    const res = await this.client.delete<ApiResponse<T>>(url, data === undefined ? undefined : { data });
     return res.data;
   }
 }

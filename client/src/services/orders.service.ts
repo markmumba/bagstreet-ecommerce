@@ -15,7 +15,12 @@ export interface OrderListParams {
   limit?: number;
   status?: string;
   payment_status?: PaymentStatus;
+  /** Sorted by the server across all orders. */
+  sort?: OrderSortField;
+  dir?: 'asc' | 'desc';
 }
+
+export type OrderSortField = 'date' | 'total' | 'order' | 'customer';
 
 export const ordersService = {
   getAll: (params?: OrderListParams) =>

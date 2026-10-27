@@ -2,10 +2,16 @@ import type { OrderReceiptResponse } from 'shared';
 import { useOrderReceipt } from '@/hooks/useOrders';
 import {
   Dialog,
+  DialogClose,
   DialogContent,
+  DialogDescription,
+  DialogTitle,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Download, Printer, ShoppingBag } from 'lucide-react';
+import { ErrorNotice, errorMessage } from '@/components/ui/notice';
+import { Printer, ShoppingBag } from 'lucide-react';
+import { formatDateTime, formatMoney as formatKes } from '@/lib/format';
+import { toast } from '@/lib/toast';
 
 interface OrderReceiptDialogProps {
   orderId: string | null;
@@ -13,20 +19,12 @@ interface OrderReceiptDialogProps {
   onOpenChange: (open: boolean) => void;
 }
 
-function formatMoney(amount: number, currency: string) {
-  return new Intl.NumberFormat('en-KE', {
-    style: 'currency',
-    currency,
-    maximumFractionDigits: 2,
-  }).format(amount);
+// The shop trades in KES only; `currency` is kept for the receipt's data shape.
+function formatMoney(amount: number, _currency?: string) {
+  return formatKes(amount);
 }
 
-function formatDate(date: string) {
-  return new Date(date).toLocaleString('en-KE', {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  });
-}
+const formatDate = formatDateTime;
 
 function escapeHtml(value: string | number | null | undefined) {
   return String(value ?? '')
@@ -333,7 +331,7 @@ function buildReceiptPrintHtml(receipt: OrderReceiptResponse) {
             <span></span><span></span><span></span>
           </div>
           <div>
-            <p class="brand-name">BagStreet</p>
+            <p class="brand-name">Bagstreet</p>
             <span class="small muted">Payment receipt</span>
           </div>
         </div>
@@ -380,7 +378,7 @@ function buildReceiptPrintHtml(receipt: OrderReceiptResponse) {
 
       <footer class="footer">
         <div>
-          <div>BagStreet</div>
+          <div>Bagstreet</div>
           <div>Issued ${escapeHtml(formatDate(receipt.issued_at))}</div>
         </div>
         <div class="footer-right">
@@ -395,7 +393,10 @@ function buildReceiptPrintHtml(receipt: OrderReceiptResponse) {
 
 function printReceipt(receipt: OrderReceiptResponse) {
   const printWindow = window.open('', '_blank', 'width=520,height=780');
-  if (!printWindow) return;
+  if (!printWindow) {
+    toast.error('Your browser blocked the print window. Allow pop-ups for this site, then try again.');
+    return;
+  }
 
   printWindow.document.open();
   printWindow.document.write(buildReceiptPrintHtml(receipt));
@@ -420,7 +421,7 @@ function ReceiptBody({ receipt }: { receipt: OrderReceiptResponse }) {
                 ))}
               </div>
               <div>
-                <p className="text-base font-semibold">BagStreet</p>
+                <p className="text-base font-semibold">Bagstreet</p>
                 <p className="text-xs text-[#666]">Payment receipt</p>
               </div>
             </div>
@@ -454,10 +455,10 @@ function ReceiptBody({ receipt }: { receipt: OrderReceiptResponse }) {
                     <p className="font-medium leading-5">{item.product_name}</p>
                     {variant && <p className="mt-0.5 text-[#666]">{variant}</p>}
                     <p className="mt-2 text-[#666]">
-                      {item.quantity} x {formatMoney(item.unit_price, receipt.currency)}
+                      {item.quantity} × <span className="tabular-nums">{formatMoney(item.unit_price, receipt.currency)}</span>
                     </p>
                   </div>
-                  <p className="font-medium">{formatMoney(item.subtotal, receipt.currency)}</p>
+                  <p className="font-medium tabular-nums">{formatMoney(item.subtotal, receipt.currency)}</p>
                 </div>
               );
             })}
@@ -469,11 +470,11 @@ function ReceiptBody({ receipt }: { receipt: OrderReceiptResponse }) {
             <div className="flex items-start justify-between gap-4">
               <div>
                 <p className="text-base font-semibold">Total paid</p>
-                <div className="mt-4 space-y-1.5 text-xs text-[#555]">
+                <div className="mt-4 space-y-1.5 text-xs tabular-nums text-[#555]">
                   <p>Subtotal: {formatMoney(receipt.subtotal, receipt.currency)}</p>
                   <p>Delivery: {formatMoney(receipt.shipping_cost, receipt.currency)}</p>
                   {receipt.discount_amount > 0 && (
-                    <p>Discount: -{formatMoney(receipt.discount_amount, receipt.currency)}</p>
+                    <p>Discount: −{formatMoney(receipt.discount_amount, receipt.currency)}</p>
                   )}
                   {receipt.voucher_amount > 0 && (
                     <p>
@@ -503,7 +504,7 @@ function ReceiptBody({ receipt }: { receipt: OrderReceiptResponse }) {
 
         <div className="flex items-end justify-between bg-[#ecece8] px-7 py-5 text-[11px] text-[#555]">
           <div>
-            <p>BagStreet</p>
+            <p>Bagstreet</p>
             <p>Issued {formatDate(receipt.issued_at)}</p>
           </div>
           <div className="text-right">
@@ -525,31 +526,30 @@ export function OrderReceiptDialog({ orderId, open, onOpenChange }: OrderReceipt
         showCloseButton={false}
         className="max-h-[94vh] overflow-y-auto border-0 bg-transparent p-0 shadow-none sm:max-w-[460px]"
       >
+        <DialogTitle className="sr-only">Payment receipt</DialogTitle>
+        <DialogDescription className="sr-only">
+          The receipt for this order, ready to print or save as a PDF.
+        </DialogDescription>
+
         {isLoading && (
-          <div className="mx-auto flex h-72 w-full max-w-[420px] items-center justify-center rounded-3xl bg-[#f7f7f5]">
+          <div
+            role="status"
+            aria-label="Loading receipt"
+            className="mx-auto flex h-72 w-full max-w-[420px] items-center justify-center rounded-3xl bg-[#f7f7f5]"
+          >
             <div className="h-8 w-8 animate-spin rounded-full border-4 border-solid border-primary border-r-transparent" />
           </div>
         )}
 
         {error && (
-          <div className="mx-auto w-full max-w-[420px] rounded-3xl bg-background px-4 py-3 text-sm text-destructive shadow-2xl">
-            {error?.message || 'Could not load receipt'}
-          </div>
+          <ErrorNotice className="mx-auto w-full max-w-[420px] bg-background shadow-2xl">
+            {errorMessage(error, 'The receipt couldn’t be loaded. Close this and try again.')}
+          </ErrorNotice>
         )}
 
         {receipt && (
-          <div className="space-y-4 py-6">
+          <div className="py-6">
             <ReceiptBody receipt={receipt} />
-            <div className="mx-auto flex max-w-[420px] justify-end gap-2 print:hidden">
-              <Button variant="outline" onClick={() => printReceipt(receipt)}>
-                <Printer className="h-4 w-4" />
-                Print
-              </Button>
-              <Button variant="outline" onClick={() => printReceipt(receipt)}>
-                <Download className="h-4 w-4" />
-                Save PDF
-              </Button>
-            </div>
           </div>
         )}
 
@@ -559,6 +559,18 @@ export function OrderReceiptDialog({ orderId, open, onOpenChange }: OrderReceipt
             <p className="text-sm">No receipt available</p>
           </div>
         )}
+
+        <div className="mx-auto flex w-full max-w-[420px] justify-end gap-2 pb-6 print:hidden">
+          <DialogClose asChild>
+            <Button variant="outline" className="bg-background">Close</Button>
+          </DialogClose>
+          {receipt && (
+            <Button onClick={() => printReceipt(receipt)}>
+              <Printer className="h-4 w-4" />
+              Print or save as PDF
+            </Button>
+          )}
+        </div>
       </DialogContent>
     </Dialog>
   );

@@ -4,34 +4,49 @@ import { useLookupGiftVoucher } from '@/hooks/useGiftVouchers';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { ErrorNotice, errorMessage } from '@/components/ui/notice';
 import { STATUS_LABELS, formatDate, kes } from './voucher-format';
 
 /** For a customer at the counter asking what's left on their voucher. */
 export function CheckBalanceCard({ onOpen }: { onOpen: (id: string) => void }) {
   const lookup = useLookupGiftVoucher();
   const [code, setCode] = useState('');
+  const [missingCode, setMissingCode] = useState(false);
   const voucher = lookup.data;
 
   const submit = (event: React.FormEvent) => {
     event.preventDefault();
-    if (code.trim()) lookup.mutate(code.trim());
+    if (!code.trim()) {
+      lookup.reset();
+      setMissingCode(true);
+      return;
+    }
+    setMissingCode(false);
+    lookup.mutate(code.trim());
   };
 
   return (
     <form onSubmit={submit} className="rounded-xl border bg-card p-4">
       <h2 className="text-sm font-semibold">Check a voucher</h2>
-      <div className="mt-3 flex gap-2">
-        <Input value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} placeholder="BGST-XXXX-XXXX-XXXX-XXXX"
-          className="font-mono" maxLength={40} autoComplete="off" />
-        <Button type="submit" variant="outline" disabled={!code.trim() || lookup.isPending}>
+      <Label htmlFor="check-voucher-code" className="mt-3 block text-xs text-muted-foreground">Voucher code</Label>
+      <div className="mt-1.5 flex gap-2">
+        <Input id="check-voucher-code" value={code}
+          onChange={(e) => { setCode(e.target.value.toUpperCase()); setMissingCode(false); }}
+          placeholder="BGST-XXXX-XXXX-XXXX-XXXX…" className="font-mono" maxLength={40}
+          autoComplete="off" spellCheck={false} aria-invalid={missingCode || undefined} />
+        <Button type="submit" variant="outline" disabled={lookup.isPending}>
           <Search className="h-4 w-4" />
           Check
         </Button>
       </div>
+      {missingCode && <ErrorNotice className="mt-3">Type the code from the voucher card, then press Check.</ErrorNotice>}
       {lookup.isError && (
-        <p className="mt-3 text-sm text-destructive">
-          {(lookup.error as { status?: number })?.status === 404 ? 'No voucher has that code.' : (lookup.error as Error)?.message}
-        </p>
+        <ErrorNotice className="mt-3">
+          {(lookup.error as { status?: number })?.status === 404
+            ? 'No voucher has that code. Check each character against the card and try again.'
+            : errorMessage(lookup.error, 'The voucher couldn’t be checked. Check your connection and try again.')}
+        </ErrorNotice>
       )}
       {voucher && !lookup.isError && (
         <button type="button" onClick={() => onOpen(voucher.id)}

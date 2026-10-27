@@ -24,6 +24,9 @@ export interface OrderRow extends Omit<Order, 'id' | 'created_at' | 'updated_at'
     updated_at: string;
 }
 
+export const ORDER_SORT_FIELDS = ['date', 'total', 'order', 'customer'] as const;
+export interface OrderSort { by: typeof ORDER_SORT_FIELDS[number]; dir: 'asc' | 'desc' }
+
 export interface OrderItemRow {
     id: number;
     order_id: number;
@@ -74,7 +77,7 @@ async function enforceCustomerOrderLimits(tx: typeof sql, phone: string, email: 
             )::int AS "openUnpaid",
             count(*) FILTER (WHERE created_at > now() - interval '1 hour')::int AS "lastHour"
         FROM orders
-        WHERE order_source = ${ORDER_SOURCE.ONLINE}
+        WHERE order_source IN (${ORDER_SOURCE.ONLINE}, ${ORDER_SOURCE.GIFT_VOUCHER})
           AND (customer_phone = ${phone} OR (${normalisedEmail}::text IS NOT NULL AND lower(customer_email) = ${normalisedEmail}))
     `;
     const violation = orderLimitViolation(counts ?? { openUnpaid: 0, lastHour: 0 });
@@ -102,6 +105,14 @@ export interface OrderDraft {
     discountAmount: number;
     /** A gift voucher paying part or all of the total (held by the Order lifecycle when created). */
     voucher?: { id: number; amount: number; last4: string } | null;
+    /** A gift voucher being bought (order source GIFT_VOUCHER): issued once the order is paid. */
+    giftVoucherPurchase?: {
+        amount: number;
+        deliverTo: 'RECIPIENT' | 'BUYER';
+        recipientName: string | null;
+        recipientEmail: string | null;
+        message: string | null;
+    };
     customerName: string;
     customerPhone: string;
     customerEmail: string | null;
@@ -124,13 +135,26 @@ export interface OrderDraft {
 }
 
 export const ordersQueries = {
-    findAll: async (page: number, limit: number, status: string | null, paymentStatus: string | null): Promise<OrderRow[]> => {
+    /** One page of orders, sorted across all of them (not just the page): newest first by default. */
+    findAll: async (
+        page: number, limit: number, status: string | null, paymentStatus: string | null,
+        sort: OrderSort = { by: 'date', dir: 'desc' },
+    ): Promise<OrderRow[]> => {
         const offset = (page - 1) * limit;
+        const { by, dir } = sort;
         return await sql<OrderRow[]>`
             SELECT * FROM orders
             WHERE (${status}::text IS NULL OR status = ${status}::text)
               AND (${paymentStatus}::text IS NULL OR payment_status = ${paymentStatus}::text)
-            ORDER BY created_at DESC
+            ORDER BY
+                CASE WHEN ${by} = 'total' AND ${dir} = 'asc' THEN total_amount END ASC,
+                CASE WHEN ${by} = 'total' AND ${dir} = 'desc' THEN total_amount END DESC,
+                CASE WHEN ${by} = 'order' AND ${dir} = 'asc' THEN order_number END ASC,
+                CASE WHEN ${by} = 'order' AND ${dir} = 'desc' THEN order_number END DESC,
+                CASE WHEN ${by} = 'customer' AND ${dir} = 'asc' THEN lower(customer_name) END ASC,
+                CASE WHEN ${by} = 'customer' AND ${dir} = 'desc' THEN lower(customer_name) END DESC,
+                CASE WHEN ${by} = 'date' AND ${dir} = 'asc' THEN created_at END ASC,
+                created_at DESC, id DESC
             LIMIT ${limit} OFFSET ${offset}
         `;
     },
@@ -186,12 +210,20 @@ export const ordersQueries = {
         return order;
     },
 
+    /** The order's lines; a gift voucher purchase shows the voucher as its one line. */
     findItemsByOrderId: async (orderId: number): Promise<OrderItemRow[]> => {
         return await sql<OrderItemRow[]>`
-            SELECT oi.*, p.name AS product_name, p.slug AS product_slug
+            SELECT oi.id, oi.order_id, oi.product_id, oi.variant_id, oi.variant_sku, oi.variant_size, oi.variant_color,
+                   oi.quantity, oi.unit_price, oi.subtotal, oi.created_at, p.name AS product_name, p.slug AS product_slug
             FROM order_items oi
             JOIN products p ON p.id = oi.product_id
             WHERE oi.order_id = ${orderId}
+            UNION ALL
+            SELECT 0 AS id, g.order_id, NULL AS product_id, NULL AS variant_id, NULL AS variant_sku, NULL AS variant_size,
+                   NULL AS variant_color, 1 AS quantity, g.amount AS unit_price, g.amount AS subtotal, g.created_at,
+                   'Gift voucher' || COALESCE(' for ' || g.recipient_name, '') AS product_name, NULL AS product_slug
+            FROM gift_voucher_orders g
+            WHERE g.order_id = ${orderId}
         `;
     },
     findProductInOrders: async (productId:number):Promise<boolean> => {
@@ -240,18 +272,27 @@ export const ordersQueries = {
                 INSERT INTO orders(
                     user_id, order_number, total_amount, shipping_address, shipping_location_id, shipping_cost,
                     notes, discount_code, discount_amount, customer_name, customer_phone, customer_email,
-                    status, payment_status, order_source, paid_at, voucher_id, voucher_amount, voucher_last4
+                    status, payment_status, order_source, paid_at, voucher_id, voucher_amount, voucher_last4, delivered_at
                 )
                 VALUES (
                     ${userId}, ${orderNumber}, ${draft.totalAmount}, ${toJsonbParam(shippingAddress)}::jsonb,
                     ${draft.shippingLocationId}, ${draft.shippingCost}, ${draft.notes ?? null},
                     ${draft.discountCode}, ${draft.discountAmount}, ${draft.customerName}, ${draft.customerPhone}, ${customerEmail},
                     ${start.status}, ${start.payment}, ${draft.orderSource ?? ORDER_SOURCE.ONLINE}, ${paidAt},
-                    ${draft.voucher?.id ?? null}, ${draft.voucher?.amount ?? 0}, ${draft.voucher?.last4 ?? null}
+                    ${draft.voucher?.id ?? null}, ${draft.voucher?.amount ?? 0}, ${draft.voucher?.last4 ?? null},
+                    ${start.status === ORDER_STATUS.DELIVERED ? new Date().toISOString() : null}
                 )
                 RETURNING *
             `;
             if (!order) throw new Error('Failed to create order');
+
+            if (draft.giftVoucherPurchase) {
+                const purchase = draft.giftVoucherPurchase;
+                await tx`
+                    INSERT INTO gift_voucher_orders (order_id, amount, deliver_to, recipient_name, recipient_email, message)
+                    VALUES (${order.id}, ${purchase.amount}, ${purchase.deliverTo}, ${purchase.recipientName}, ${purchase.recipientEmail}, ${purchase.message})
+                `;
+            }
 
             for (const item of items) {
                 const subtotal = item.unit_price * item.quantity;
@@ -316,7 +357,8 @@ export const ordersQueries = {
             SELECT id, created_at FROM orders
             WHERE status = ${ORDER_STATUS.PENDING}
               AND payment_status IN (${PAYMENT_STATUS.UNPAID}, ${PAYMENT_STATUS.FAILED})
-              AND order_source = ${ORDER_SOURCE.ONLINE}
+              -- Paid online: goods orders and gift voucher purchases (walk-ins are paid at the counter).
+              AND order_source IN (${ORDER_SOURCE.ONLINE}, ${ORDER_SOURCE.GIFT_VOUCHER})
               AND created_at < ${createdBefore.toISOString()}
               -- Money already received (e.g. underpaid, held for review): staff resolve it, not the timer.
               AND NOT EXISTS (

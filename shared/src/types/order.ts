@@ -42,6 +42,8 @@ export type OrderAction = typeof ORDER_ACTION[keyof typeof ORDER_ACTION];
 export const ORDER_SOURCE = {
     ONLINE: 'ONLINE',
     WALK_IN: 'WALK_IN',
+    /** A gift voucher bought online: no items or delivery; the voucher is issued once paid. */
+    GIFT_VOUCHER: 'GIFT_VOUCHER',
 } as const;
 
 export type OrderSource = typeof ORDER_SOURCE[keyof typeof ORDER_SOURCE];
@@ -50,7 +52,7 @@ export const WALK_IN_PAYMENT_METHOD = {
     CASH: 'CASH',
     CARD: 'CARD',
     BANK_TRANSFER: 'BANK_TRANSFER',
-    PESAPAL: 'PESAPAL',
+    MPESA: 'MPESA',
     OTHER: 'OTHER',
 } as const;
 
@@ -95,7 +97,7 @@ export interface OrderCreateRequest {
     phone: string;
     email?: string;
     discount_code?: string;
-    /** A gift voucher code: pays what it can of the total; Pesapal collects the rest. */
+    /** A gift voucher code: pays what it can of the total; M-Pesa collects the rest. */
     voucher_code?: string;
     notes?: string;
 }
@@ -162,7 +164,6 @@ export interface OrderResponse {
     notes?: string;
     items: OrderItemResponse[];
     payment_provider?: string;
-    payment_redirect_url?: string | null;
     payment_reference?: string | null;
     /** Returned when an online order is placed: lets a guest check or retry payment for it. */
     access_token?: string;
@@ -173,10 +174,12 @@ export interface OrderResponse {
 }
 
 export interface PaymentRetryResponse {
-    checkout_request_id: string;
     payment_provider?: string;
     payment_reference?: string | null;
-    payment_redirect_url?: string | null;
+    /** M-Pesa: the masked number the PIN prompt was sent to, e.g. "0712 ••• 678". */
+    prompt_phone?: string;
+    /** Set instead when the order turned out to be paid already. */
+    status?: string;
 }
 
 export interface PaymentStatusResponse {
@@ -191,10 +194,20 @@ export interface PaymentStatusResponse {
     total_amount?: number;
     /** What is paid by card or M-Pesa: the total less any gift voucher. */
     amount_due?: number;
+    order_source?: OrderSource;
+    /** For a gift voucher purchase: what was bought and where the code is emailed. */
+    gift_voucher?: { amount: number; deliver_to: 'RECIPIENT' | 'BUYER'; recipient_name: string | null; recipient_email: string | null };
     order_status?: string;
     payment_status?: string;
     receipt_number?: string;
     payment_method?: string;
+    /** `mpesa`: the PIN prompt goes to the customer's phone. */
+    payment_provider?: string;
+    /** M-Pesa: masked number the latest prompt went to, and when it was sent. */
+    prompt_phone?: string | null;
+    prompt_sent_at?: string;
+    /** M-Pesa: why the latest prompt didn't go through (cancelled, wrong PIN, phone off…). */
+    failure_reason?: string;
 }
 
 export interface OrderReceiptResponse {
@@ -239,7 +252,6 @@ export interface DiscountCodeResponse {
 /** How a refund was paid back to the customer. Refunds are recorded after staff send the money. */
 export const REFUND_METHOD = {
     MPESA: 'MPESA',
-    PESAPAL: 'PESAPAL',
     CASH: 'CASH',
     BANK_TRANSFER: 'BANK_TRANSFER',
     OTHER: 'OTHER',
@@ -320,7 +332,7 @@ export interface RecordRefundRequest {
     idempotency_key: string;
 }
 
-/** Something in orders, Pesapal transactions or the ledger that doesn't add up. */
+/** Something in orders, M-Pesa transactions or the ledger that doesn't add up. */
 export type ReconciliationIssueKind =
     | 'paid_without_capture'
     | 'completed_payment_without_capture'
@@ -359,6 +371,8 @@ export interface StatementIssueResponse {
     row: number;
     kind: 'not_in_ledger' | 'amount_mismatch' | 'unknown_reference' | 'not_successful' | 'unreadable_amount';
     reference: string | null;
+    /** Set when the row's reference matched an order. */
+    order_id: string | null;
     order_number: string | null;
     statement_amount: number | null;
     ledger_amount: number | null;
@@ -377,6 +391,6 @@ export interface StatementReconciliationReport {
     fees_recorded: number;
     issues: StatementIssueResponse[];
     /** Payments in the ledger, dated within the statement's range, that the statement doesn't list. */
-    missing_from_statement: { order_number: string | null; reference: string | null; amount: number; date: string }[];
+    missing_from_statement: { order_id: string; order_number: string | null; reference: string | null; amount: number; date: string }[];
     date_range: { from: string; to: string } | null;
 }

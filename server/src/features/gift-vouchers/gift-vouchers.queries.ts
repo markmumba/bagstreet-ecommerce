@@ -27,6 +27,8 @@ export interface GiftVoucherRow extends VoucherRuleRow {
     sale_reference: string | null;
     issued_by: number | null;
     issued_by_email: string | null;
+    purchase_order_id: number | null;
+    purchase_order_number: string | null;
     /** Set aside for unpaid orders. */
     held: string;
     created_at: string;
@@ -60,11 +62,75 @@ const HELD_SQL = `
 
 async function selectVouchers(db: Executor, where: string, params: unknown[], tail = ''): Promise<GiftVoucherRow[]> {
     return await db.unsafe(`
-        SELECT v.*, u.email AS issued_by_email, ${HELD_SQL} AS held
-        FROM gift_vouchers v LEFT JOIN users u ON u.id = v.issued_by
+        SELECT v.*, u.email AS issued_by_email, po.order_number AS purchase_order_number, ${HELD_SQL} AS held
+        FROM gift_vouchers v
+        LEFT JOIN users u ON u.id = v.issued_by
+        LEFT JOIN orders po ON po.id = v.purchase_order_id
         WHERE ${where}
         ${tail}
     `, params) as GiftVoucherRow[];
+}
+
+export interface NewVoucher {
+    amount: number;
+    salePaymentMethod: string;
+    saleReference: string | null;
+    purchaserName: string | null;
+    recipientName: string | null;
+    recipientPhone: string | null;
+    recipientEmail: string | null;
+    message: string | null;
+    issuedBy: number | null;
+    soldVia: 'SHOP' | 'ONLINE';
+    purchaseOrderId: number | null;
+    /** For the ISSUED movement. */
+    note: string;
+}
+
+/** Creates a voucher and its ISSUED movement inside `tx`. Returns the full code, which is never stored. */
+export async function insertVoucher(tx: Executor, data: NewVoucher): Promise<{ id: number; code: string; last4: string; expiresAt: Date }> {
+    const amount = roundMoney(data.amount);
+    const expiresAt = voucherExpiryFrom(new Date());
+    // 2^80 possible codes: a clash is practically impossible, but never reuse one.
+    for (let attempt = 0; attempt < 3; attempt++) {
+        const bare = normaliseVoucherCode(generateVoucherCode())!;
+        const [created] = await tx<{ id: number }[]>`
+            INSERT INTO gift_vouchers (
+                code_hash, code_last4, initial_amount, balance, expires_at, recipient_name, recipient_phone,
+                recipient_email, message, purchaser_name, sale_payment_method, sale_reference, issued_by, sold_via, purchase_order_id
+            )
+            VALUES (
+                ${hashVoucherCode(bare)}, ${bare.slice(-4)}, ${amount}, ${amount}, ${expiresAt},
+                ${data.recipientName}, ${data.recipientPhone}, ${data.recipientEmail}, ${data.message},
+                ${data.purchaserName}, ${data.salePaymentMethod}, ${data.saleReference}, ${data.issuedBy}, ${data.soldVia}, ${data.purchaseOrderId}
+            )
+            ON CONFLICT (code_hash) DO NOTHING
+            RETURNING id
+        `;
+        if (!created) continue;
+        await tx`
+            INSERT INTO gift_voucher_movements (voucher_id, kind, delta, amount, balance_after, created_by, note)
+            VALUES (${created.id}, 'ISSUED', ${amount}, ${amount}, ${amount}, ${data.issuedBy}, ${data.note})
+        `;
+        return { id: Number(created.id), code: formatVoucherCode(bare), last4: bare.slice(-4), expiresAt };
+    }
+    throw new Error('Could not generate a unique gift voucher code');
+}
+
+/** Cancels whatever is left on a voucher inside `tx` (the caller has locked it). No-op if already cancelled. */
+export async function voidVoucher(tx: Executor, id: number, reason: string, by: number | null): Promise<void> {
+    const [voucher] = await tx<{ balance: string; voided_at: string | null }[]>`SELECT balance, voided_at FROM gift_vouchers WHERE id = ${id}`;
+    if (!voucher || voucher.voided_at) return;
+    const balance = roundMoney(Number(voucher.balance));
+    await tx`
+        UPDATE gift_vouchers
+        SET balance = 0, voided_at = CURRENT_TIMESTAMP, void_reason = ${reason}, voided_by = ${by}, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ${id}
+    `;
+    await tx`
+        INSERT INTO gift_voucher_movements (voucher_id, kind, delta, amount, balance_after, created_by, note)
+        VALUES (${id}, 'VOIDED', ${-balance}, ${balance}, 0, ${by}, ${reason})
+    `;
 }
 
 export const giftVouchersQueries = {
@@ -111,46 +177,39 @@ export const giftVouchersQueries = {
     },
 
     /** Issues a voucher sold in the shop. Returns the full code: the only time it exists outside the holder's hands. */
-    issue: async (data: {
-        amount: number;
-        salePaymentMethod: string;
-        saleReference: string | null;
-        purchaserName: string | null;
-        recipientName: string | null;
-        recipientPhone: string | null;
-        recipientEmail: string | null;
-        message: string | null;
-        issuedBy: number;
-    }): Promise<{ voucher: GiftVoucherRow; code: string }> => {
-        const amount = roundMoney(data.amount);
+    issue: async (data: Omit<NewVoucher, 'soldVia' | 'purchaseOrderId' | 'note'> & { issuedBy: number }): Promise<{ voucher: GiftVoucherRow; code: string }> => {
         return await sql.begin(async (tx: Executor) => {
-            // 2^80 possible codes: a clash is practically impossible, but never reuse one.
+            const { id, code } = await insertVoucher(tx, {
+                ...data, soldVia: 'SHOP', purchaseOrderId: null, note: `Sold in the shop (${data.salePaymentMethod})`,
+            });
+            return { voucher: (await giftVouchersQueries.findById(id, tx))!, code };
+        }) as { voucher: GiftVoucherRow; code: string };
+    },
+
+    /** A lost or exposed code: the voucher gets a new code, keeping its balance, expiry and history. */
+    replaceCode: async (id: number, by: number): Promise<{ voucher: GiftVoucherRow; code: string; oldLast4: string }> => {
+        return await sql.begin(async (tx: Executor) => {
+            const [locked] = await tx<{ code_last4: string; balance: string; voided_at: string | null }[]>`
+                SELECT code_last4, balance, voided_at FROM gift_vouchers WHERE id = ${id} FOR UPDATE
+            `;
+            if (!locked) throw new NotFoundError('Gift voucher', id);
+            if (locked.voided_at) throw new BadRequestError('A cancelled gift voucher cannot get a new code');
             for (let attempt = 0; attempt < 3; attempt++) {
-                const code = generateVoucherCode();
-                const bare = normaliseVoucherCode(code)!;
-                const [created] = await tx<{ id: number }[]>`
-                    INSERT INTO gift_vouchers (
-                        code_hash, code_last4, initial_amount, balance, expires_at, recipient_name, recipient_phone,
-                        recipient_email, message, purchaser_name, sale_payment_method, sale_reference, issued_by
-                    )
-                    VALUES (
-                        ${hashVoucherCode(bare)}, ${bare.slice(-4)}, ${amount}, ${amount}, ${voucherExpiryFrom(new Date())},
-                        ${data.recipientName}, ${data.recipientPhone}, ${data.recipientEmail}, ${data.message},
-                        ${data.purchaserName}, ${data.salePaymentMethod}, ${data.saleReference}, ${data.issuedBy}
-                    )
-                    ON CONFLICT (code_hash) DO NOTHING
+                const bare = normaliseVoucherCode(generateVoucherCode())!;
+                const [updated] = await tx`
+                    UPDATE gift_vouchers SET code_hash = ${hashVoucherCode(bare)}, code_last4 = ${bare.slice(-4)}, updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ${id} AND NOT EXISTS (SELECT 1 FROM gift_vouchers WHERE code_hash = ${hashVoucherCode(bare)})
                     RETURNING id
                 `;
-                if (!created) continue;
+                if (!updated) continue;
                 await tx`
                     INSERT INTO gift_voucher_movements (voucher_id, kind, delta, amount, balance_after, created_by, note)
-                    VALUES (${created.id}, 'ISSUED', ${amount}, ${amount}, ${amount}, ${data.issuedBy}, ${`Sold in the shop (${data.salePaymentMethod})`})
+                    VALUES (${id}, 'CODE_REPLACED', 0, 0, ${locked.balance}, ${by}, ${`Replaced code ····${locked.code_last4}`})
                 `;
-                const voucher = await giftVouchersQueries.findById(Number(created.id), tx);
-                return { voucher: voucher!, code: formatVoucherCode(bare) };
+                return { voucher: (await giftVouchersQueries.findById(id, tx))!, code: formatVoucherCode(bare), oldLast4: locked.code_last4 };
             }
             throw new Error('Could not generate a unique gift voucher code');
-        }) as { voucher: GiftVoucherRow; code: string };
+        }) as { voucher: GiftVoucherRow; code: string; oldLast4: string };
     },
 
     /** Cancels a voucher: its balance can no longer be spent. Refused while an unpaid order holds part of it. */
@@ -163,16 +222,7 @@ export const giftVouchersQueries = {
             if (roundMoney(Number(before.held)) > 0) {
                 throw new BadRequestError('An unpaid order is using this voucher. Try again once it is paid or has expired.');
             }
-            const balance = roundMoney(Number(before.balance));
-            await tx`
-                UPDATE gift_vouchers
-                SET balance = 0, voided_at = CURRENT_TIMESTAMP, void_reason = ${reason}, voided_by = ${by}, updated_at = CURRENT_TIMESTAMP
-                WHERE id = ${id}
-            `;
-            await tx`
-                INSERT INTO gift_voucher_movements (voucher_id, kind, delta, amount, balance_after, created_by, note)
-                VALUES (${id}, 'VOIDED', ${-balance}, ${balance}, 0, ${by}, ${reason})
-            `;
+            await voidVoucher(tx, id, reason, by);
             return { before, after: (await giftVouchersQueries.findById(id, tx))! };
         }) as { before: GiftVoucherRow; after: GiftVoucherRow };
     },

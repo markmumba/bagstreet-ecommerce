@@ -6,7 +6,7 @@ import {
   type ColumnDef,
   type SortingState,
 } from '@tanstack/react-table';
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import type { CategoryResponse } from 'shared';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -19,6 +19,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { formatDate } from '@/lib/format';
 
 interface CategoriesDataTableProps {
   data: CategoryResponse[];
@@ -35,6 +36,8 @@ interface CategoriesDataTableProps {
   onEdit?: (category: CategoryResponse) => void;
   onDelete?: (category: CategoryResponse) => void;
   isDeleting?: boolean;
+  /** Extra content at the bottom of each phone card. */
+  renderExtra?: (category: CategoryResponse) => ReactNode;
 }
 
 export function CategoriesDataTable({
@@ -51,6 +54,7 @@ export function CategoriesDataTable({
   onEdit,
   onDelete,
   isDeleting = false,
+  renderExtra,
 }: CategoriesDataTableProps) {
   const [sorting, setSorting] = useState<SortingState>([]);
 
@@ -67,7 +71,10 @@ export function CategoriesDataTable({
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
         <Input
-          placeholder="Search categories..."
+          type="search"
+          aria-label="Search categories"
+          autoComplete="off"
+          placeholder="Search categories…"
           value={search}
           onChange={(e) => onSearchChange(e.target.value)}
           className="h-9 w-full max-w-[240px]"
@@ -84,7 +91,7 @@ export function CategoriesDataTable({
         {onCreateNew && (
           <Button onClick={onCreateNew}>
             <Plus className="h-4 w-4" />
-            New Category
+            New category
           </Button>
         )}
       </div>
@@ -117,13 +124,11 @@ export function CategoriesDataTable({
                   </div>
                 </div>
 
+                {renderExtra?.(category)}
+
                 <div className="mt-4 flex items-center justify-between gap-3 border-t pt-3">
                   <p className="text-xs text-muted-foreground tabular-nums">
-                    {new Date(category.created_at).toLocaleDateString('en-US', {
-                      month: 'short',
-                      day: 'numeric',
-                      year: 'numeric',
-                    })}
+                    {formatDate(category.created_at)}
                   </p>
                   <div className="flex gap-2">
                     {onEdit && (

@@ -648,7 +648,7 @@ async function seedOrder(order: SeedOrder, shippingLocationIds: Map<string, numb
                 currency, status, payment_method, confirmation_code, result_desc, raw_payload, created_at, updated_at
             )
             VALUES (
-                ${createdOrder!.id}, 'pesapal', ${`seed-pesapal-${order.ref}`}, ${`BS-SEED-${order.ref}`},
+                ${createdOrder!.id}, 'mpesa', ${`seed-mpesa-${order.ref}`}, ${`BS-SEED-${order.ref}`},
                 ${null}, ${totalAmount}, 'KES', 'COMPLETED', 'SEED', ${`SEED${createdOrder!.id}`},
                 'Seed payment completed', ${toJsonbParam({ seed: true, order_ref: order.ref })}::jsonb,
                 ${createdAt}, ${createdAt}

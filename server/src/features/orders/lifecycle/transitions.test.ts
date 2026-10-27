@@ -392,6 +392,64 @@ describe('gift vouchers', () => {
     });
 });
 
+// ── Gift vouchers bought online (order source GIFT_VOUCHER) ────────────────
+
+describe('gift voucher sales', () => {
+    const sale = (o: Partial<DecisionContext> = {}, voucher = { issued: false, untouched: true }) => ctx({ giftVoucher: voucher, ...o });
+    const issued = (untouched = true, o: Partial<DecisionContext> = {}) => sale({ captured: 8500, ...o }, { issued: true, untouched });
+
+    test('paying issues the voucher and the sale is done: no confirmation email, nothing to dispatch', () => {
+        const d = decide(S('PENDING', 'UNPAID'), ev.captured(), provider, sale(), REF);
+        expect(next(d)).toEqual(S('DELIVERED', 'PAID'));
+        expect(has(d, 'issue_gift_voucher')).toBe(true);
+        expect(has(d, 'email_customer')).toBe(false);
+        expect(has(d, 'email_staff_order_confirmed')).toBe(false);
+    });
+    test('an underpaid voucher purchase is held; no voucher until staff accept it', () => {
+        const held = decide(S('PENDING', 'UNPAID'), ev.captured(8000), provider, sale(), REF);
+        expect(next(held)).toEqual(S('PENDING', 'HELD'));
+        expect(has(held, 'issue_gift_voucher')).toBe(false);
+        const accepted = decide(S('PENDING', 'HELD'), ev.markedPaid(), admin, sale({ captured: 8000 }), REF);
+        expect(next(accepted)).toEqual(S('DELIVERED', 'PAID'));
+        expect(has(accepted, 'issue_gift_voucher')).toBe(true);
+    });
+    test('a payment after the purchase expired still issues the voucher', () => {
+        const d = decide(S('CANCELLED', 'UNPAID'), ev.captured(), provider, sale({ stockAvailable: true }), REF);
+        expect(next(d)).toEqual(S('DELIVERED', 'PAID'));
+        expect(has(d, 'issue_gift_voucher')).toBe(true);
+    });
+    test('marking a voucher purchase paid issues the voucher', () => {
+        const d = decide(S('PENDING', 'UNPAID'), ev.markedPaid(), admin, sale(), REF);
+        expect(next(d)).toEqual(S('DELIVERED', 'PAID'));
+        expect(has(d, 'issue_gift_voucher')).toBe(true);
+    });
+    test('a reversal cancels whatever is left on the voucher and alerts staff', () => {
+        const d = decide(S('DELIVERED', 'PAID'), ev.reversed(), provider, issued(false), REF);
+        expect(next(d)).toEqual(S('DELIVERED', 'REVERSED'));
+        expect(d.kind !== 'not_allowed' && d.effects).toContainEqual({ type: 'cancel_gift_voucher', reason: 'payment_reversed' });
+        expect(alerts(d)).toContain('payment_reversed');
+    });
+    test('an untouched voucher can be refunded in full, which cancels it', () => {
+        const d = decide(S('DELIVERED', 'PAID'), ev.refund(8500), admin, issued(true), REF);
+        expect(next(d)).toEqual(S('REFUNDED', 'PAID'));
+        expect(d.kind !== 'not_allowed' && d.effects).toContainEqual({ type: 'cancel_gift_voucher', reason: 'refunded' });
+    });
+    test('no partial refunds of a voucher purchase', () => {
+        const d = decide(S('DELIVERED', 'PAID'), ev.refund(2000), admin, issued(true), REF);
+        expect(d).toMatchObject({ kind: 'not_allowed', reason: 'exceeds_refundable' });
+    });
+    test('once any of the voucher is spent or held, the purchase can not be refunded', () => {
+        expect(decide(S('DELIVERED', 'PAID'), ev.refund(8500), admin, issued(false), REF)).toMatchObject({ kind: 'not_allowed', reason: 'invalid_in_state' });
+    });
+    test('repaying after a reversal is refused: a new voucher is issued instead', () => {
+        expect(decide(S('DELIVERED', 'REVERSED'), ev.markedPaid(), admin, issued(false, { captured: 0 }), REF)).toMatchObject({ kind: 'not_allowed' });
+    });
+    test('out for delivery and received change nothing on a voucher sale', () => {
+        expect(decide(S('DELIVERED', 'PAID'), { type: 'dispatched' }, admin, issued(), REF).kind).toBe('unchanged');
+        expect(decide(S('DELIVERED', 'PAID'), ev.delivered(), admin, issued(), REF).kind).toBe('unchanged');
+    });
+});
+
 describe('customer view', () => {
     test.each([
         [S('PENDING', 'UNPAID'), { status: 'PENDING' }],
@@ -443,6 +501,9 @@ const CONTEXTS = [
     // Gift voucher orders: part held, part spent, and a cancelled one whose voucher can pay again.
     ctx({ captured: 3000, voucherHeld: 3000 }), paidCtx({ voucherRedeemed: 3000 }),
     ctx({ stockAvailable: true, voucherReclaimable: 3000 }),
+    // Gift voucher purchases: before and after the voucher is issued.
+    ctx({ stockAvailable: true, giftVoucher: { issued: false, untouched: true } }),
+    paidCtx({ giftVoucher: { issued: true, untouched: true } }), paidCtx({ giftVoucher: { issued: true, untouched: false } }),
 ];
 const key = (s: OrderState) => `${s.status}/${s.payment}`;
 const VALID = new Set(ALL_STATES.map(key));

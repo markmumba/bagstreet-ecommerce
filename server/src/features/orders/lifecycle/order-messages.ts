@@ -109,13 +109,13 @@ export function staffAlert(
 
     switch (kind) {
         case 'payment_held': {
-            const what = received && received.currency.toUpperCase() !== env.PESAPAL_CURRENCY.toUpperCase()
-                ? `${received.currency} ${received.amount.toFixed(2)} (expected ${env.PESAPAL_CURRENCY})`
+            const what = received && received.currency.toUpperCase() !== env.CURRENCY.toUpperCase()
+                ? `${received.currency} ${received.amount.toFixed(2)} (expected ${env.CURRENCY})`
                 : `${money(received?.amount ?? 0)} of ${money(total)}`;
             return {
                 type: 'PAYMENT_MISMATCH',
                 title: `Payment needs review: ${ref}`,
-                body: `Received ${what}. The order was not confirmed. Check with Pesapal, then either "Mark as paid" to accept it or cancel and refund.`,
+                body: `Received ${what}. The order was not confirmed. Check the M-Pesa statement, then either "Mark as paid" to accept it or cancel and refund.`,
             };
         }
         case 'overpaid': {
@@ -142,7 +142,7 @@ export function staffAlert(
             return {
                 type: 'PAYMENT_DUPLICATE',
                 title: `Extra payment on ${ref}`,
-                body: `A further ${money(received?.amount ?? 0)} arrived for an order that was already paid. Check with Pesapal and refund it if it was charged twice.`,
+                body: `A further ${money(received?.amount ?? 0)} arrived for an order that was already paid. Check the M-Pesa statement and refund it if it was charged twice.`,
             };
     }
 }

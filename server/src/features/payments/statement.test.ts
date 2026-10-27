@@ -58,11 +58,16 @@ describe('reconcileStatementRows', () => {
     test('different amount → amount_mismatch', () => {
         expect(statement('Tracking ID,Amount\nTRK-2,3000').issues[0]?.kind).toBe('amount_mismatch');
     });
-    test('Pesapal has it, ledger does not → not_in_ledger', () => {
-        expect(statement('Tracking ID,Amount\nTRK-3,1000').issues[0]?.kind).toBe('not_in_ledger');
+    test('M-Pesa has it, ledger does not → not_in_ledger', () => {
+        const issue = statement('Tracking ID,Amount\nTRK-3,1000').issues[0];
+        expect(issue?.kind).toBe('not_in_ledger');
+        // Matched rows carry the order id so the admin can open the order.
+        expect(issue?.order_id).not.toBeNull();
     });
     test('unknown reference', () => {
-        expect(statement('Tracking ID,Amount\nTRK-999,1000').issues[0]?.kind).toBe('unknown_reference');
+        const issue = statement('Tracking ID,Amount\nTRK-999,1000').issues[0];
+        expect(issue?.kind).toBe('unknown_reference');
+        expect(issue?.order_id).toBeNull();
     });
     test('failed rows are skipped, not matched', () => {
         const r = statement('Tracking ID,Amount,Status\nTRK-1,8500,Failed');
