@@ -8,7 +8,7 @@ import { ORDER_SOURCE, ORDER_STATUS, PAYMENT_STATUS, USER_ROLE } from "shared/di
 import { sql } from '../../lib/db';
 import { giftVoucherOrderOf } from '../gift-vouchers/voucher-sales';
 import { env } from '../../config/env';
-import { applyOrderEvent, orderStateOf } from '../orders/lifecycle/order-lifecycle';
+import { orderStateOf } from '../orders/lifecycle/order-lifecycle';
 import { orderAmountDue, summariseOrderPayments } from './order-balance';
 import { customerView } from '../orders/lifecycle/transitions';
 import type { AuthUser } from '@server/lib/hono';
@@ -65,11 +65,6 @@ function orderPaymentSummary(order: any) {
         order_status: order.status,
         payment_status: order.payment_status,
     };
-}
-
-/** What the customer's payment screen should show for an order right now. */
-function paymentScreenStatus(order: { id: number | string; status: string; payment_status: string }): string {
-    return customerView(orderStateOf(order)).status;
 }
 
 /**
@@ -248,27 +243,4 @@ export const paymentsHandlers = {
         return c.json({ ResultCode: 0, ResultDesc: 'Accepted' });
     },
 
-    completeDevPayment: async (c: AppContext) => {
-        if (env.NODE_ENV === 'production') {
-            throw new NotFoundError('Payment route', 'dev-complete');
-        }
-
-        const authUser = getOptionalAuthUser(c);
-        const { order_id, order_ref, phone, token } = await c.req.json<{ order_id?: number; order_ref?: string; phone?: string; token?: string }>();
-
-        if (!order_id && !order_ref) throw new BadRequestError('order_id or order_ref is required');
-
-        const order = await findOrder(order_id, order_ref);
-        if (!order) throw new NotFoundError('Order', order_ref ?? order_id);
-        if (!canAccessOrder(authUser, order, phone, undefined, token)) throw new ForbiddenError();
-
-        const result = await applyOrderEvent(Number(order.id), {
-            type: 'payment_captured',
-            amount: orderAmountDue(order as any),
-            currency: env.CURRENCY,
-            reference: `dev:${order.id}`,
-        }, { kind: 'system' });
-
-        return success(c, { status: paymentScreenStatus(result.order as any), order_id: order.id }, 'Development payment completed');
-    },
 };

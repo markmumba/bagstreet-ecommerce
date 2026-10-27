@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { productsHandlers } from "./products.handlers";
 import { variantsHandlers } from "./variants.handlers";
-import { requireAuth, requireRole } from "../../middleware/auth.middleware";
+import { optionalAuth, requireAuth, requireRole } from "../../middleware/auth.middleware";
 import { USER_ROLE } from "shared/dist";
 import type { AppEnv } from '@server/lib/hono';
 
@@ -9,6 +9,7 @@ const productsRoutes = new Hono<AppEnv>();
 const requireAdmin = [requireAuth, requireRole(USER_ROLE.ADMIN)] as const;
 
 productsRoutes.get('/', productsHandlers.list);
+productsRoutes.get('/view-counts', ...requireAdmin, productsHandlers.viewCounts);
 productsRoutes.get('/low-stock', ...requireAdmin, variantsHandlers.lowStock);
 productsRoutes.get('/on-sale', productsHandlers.onSale);
 productsRoutes.post('/import', ...requireAdmin, productsHandlers.importCsv);
@@ -19,7 +20,7 @@ productsRoutes.patch('/:id/sale', ...requireAdmin, productsHandlers.setSale);
 productsRoutes.delete('/:id', ...requireAdmin, productsHandlers.delete);
 
 // Variant sub-routes
-productsRoutes.get('/:id/variants', variantsHandlers.list);
+productsRoutes.get('/:id/variants', optionalAuth, variantsHandlers.list);
 productsRoutes.post('/:id/variants', ...requireAdmin, variantsHandlers.create);
 productsRoutes.put('/:id/variants/:vid', ...requireAdmin, variantsHandlers.update);
 productsRoutes.delete('/:id/variants/:vid', ...requireAdmin, variantsHandlers.delete);

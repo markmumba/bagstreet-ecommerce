@@ -65,18 +65,6 @@ export function useInitiatePayment() {
   });
 }
 
-export function useCompleteDevPayment() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (data: OrderPaymentAccess) =>
-      apiClient.post<PaymentStatusResponse>('/api/payments/dev-complete', data),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['orders'] });
-      qc.invalidateQueries({ queryKey: ['cart'] });
-    },
-  });
-}
-
 /** After an M-Pesa prompt is sent, keep checking this long — the prompt itself times out in about a minute. */
 const PROMPT_WATCH_MS = 3 * 60 * 1000;
 

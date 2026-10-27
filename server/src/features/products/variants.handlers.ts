@@ -9,7 +9,8 @@ import { inventory } from '../inventory/inventory';
 import { AfterCommit } from '@server/lib/after-commit';
 import { sql } from '@server/lib/db';
 import type { ProductVariantResponse } from 'shared/dist';
-import { getRequiredUser } from '@server/lib/hono';
+import { getOptionalUser, getRequiredUser } from '@server/lib/hono';
+import { USER_ROLE } from 'shared/dist';
 
 function toVariantResponse(v: any): ProductVariantResponse & { low_stock_threshold?: number } {
     return {
@@ -39,7 +40,10 @@ export const variantsHandlers = {
 
     list: async (c: AppContext) => {
         const productId = parseInt(c.req.param('id')!);
-        const product = await productsQueries.findById(productId);
+        // Staff manage stock on hidden products too; the shop only sees active ones.
+        const role = getOptionalUser(c)?.role;
+        const isStaff = role === USER_ROLE.ADMIN || role === USER_ROLE.MANAGER;
+        const product = isStaff ? await productsQueries.findByIdAnyStatus(productId) : await productsQueries.findById(productId);
         if (!product) throw new NotFoundError('Product', productId);
 
         const variants = await variantsQueries.findByProductId(productId);
@@ -48,7 +52,7 @@ export const variantsHandlers = {
 
     create: async (c: AppContext) => {
         const productId = parseInt(c.req.param('id')!);
-        const product = await productsQueries.findById(productId);
+        const product = await productsQueries.findByIdAnyStatus(productId);
         if (!product) throw new NotFoundError('Product', productId);
 
         const body = await c.req.json();

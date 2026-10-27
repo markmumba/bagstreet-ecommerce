@@ -10,7 +10,6 @@ const paymentsRoutes = new Hono<AppEnv>();
 paymentsRoutes.post('/initiate', optionalAuth, paymentsHandlers.initiatePayment);
 paymentsRoutes.post('/status', optionalAuth, paymentsHandlers.paymentStatus);
 paymentsRoutes.post('/mpesa/callback/:secret?', paymentsHandlers.mpesaCallback);
-paymentsRoutes.post('/dev-complete', optionalAuth, paymentsHandlers.completeDevPayment);
 
 paymentsRoutes.get('/reconciliation', requireAuth, requireRole(USER_ROLE.ADMIN), reconciliationHandlers.report);
 paymentsRoutes.post('/reconciliation/statement', requireAuth, requireRole(USER_ROLE.ADMIN), reconciliationHandlers.statement);
