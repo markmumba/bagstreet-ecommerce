@@ -111,6 +111,10 @@ describe('parseStkQuery', () => {
         expect(parseStkQuery({ requestId: 'x', errorCode: '500.001.1001', errorMessage: 'The transaction is being processed' }))
             .toMatchObject({ outcome: { state: 'pending' } });
     });
+    test('4999 "still under processing" is pending — Safaricom says it even after the paid callback', () => {
+        expect(parseStkQuery({ ResponseCode: '0', ResultCode: '4999', ResultDesc: 'The transaction is still under processing' }))
+            .toMatchObject({ outcome: { state: 'pending' } });
+    });
     test('result', () => {
         expect(parseStkQuery({ ResponseCode: '0', ResultCode: '0', ResultDesc: 'ok' })).toMatchObject({ outcome: { state: 'paid' } });
         expect(parseStkQuery({ ResponseCode: '0', ResultCode: '2001', ResultDesc: 'wrong pin' }))

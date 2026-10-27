@@ -11,6 +11,8 @@ export type StkOutcome =
 
 /** Daraja error code for "the customer hasn't finished yet" when querying a payment. */
 const STILL_PROCESSING = '500.001.1001';
+/** Query ResultCode for the same thing; can come back even after the "paid" callback has arrived. */
+const STILL_PROCESSING_RESULT = '4999';
 
 /** Customer-facing reasons for the common STK result codes; anything else gets the generic one. */
 const FAILURE_REASONS: Record<string, string> = {
@@ -32,6 +34,7 @@ export function outcomeOf(resultCode: unknown, resultDesc?: unknown): StkOutcome
     const code = String(resultCode ?? '').trim();
     if (code === '') return { state: 'pending' };
     if (code === '0') return { state: 'paid' };
+    if (code === STILL_PROCESSING_RESULT) return { state: 'pending' };
     const desc = resultDesc == null ? null : String(resultDesc);
     return { state: 'failed', resultCode: code, reason: failureReason(code, desc) };
 }
