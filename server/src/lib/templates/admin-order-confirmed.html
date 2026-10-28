@@ -1,36 +1,36 @@
 <tr>
   <td class="email-pad" style="padding:32px 40px 24px;">
-    <p style="margin:0 0 12px;font-size:12px;font-weight:700;line-height:1.5;text-transform:uppercase;color:#24715c;">Paid &middot; ready for fulfilment</p>
-    <h1 class="email-heading" style="margin:0 0 16px;font-size:30px;font-weight:700;line-height:1.2;color:#232529;">An order is ready.</h1>
-    <p style="margin:0;font-size:15px;line-height:1.7;color:#59616a;">Hi {{name}}, payment for <strong style="color:#232529;">{{orderRef}}</strong> is confirmed. Review the order and arrange fulfilment.</p>
+    <p style="margin:0 0 12px;font-size:11px;font-weight:700;letter-spacing:2px;line-height:1.5;text-transform:uppercase;color:#3f4c3b;">Paid &middot; ready for fulfilment</p>
+    <h1 class="email-heading" style="margin:0 0 16px;font-size:30px;font-weight:700;line-height:1.2;color:#1c1714;">An order is ready.</h1>
+    <p style="margin:0;font-size:15px;line-height:1.7;color:#5f5852;">Hi {{name}}, payment for <strong style="color:#1c1714;">{{orderRef}}</strong> is confirmed. Review the order and arrange fulfilment.</p>
   </td>
 </tr>
 <tr>
   <td class="email-pad" style="padding:0 40px 24px;">
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f3f7f5;table-layout:fixed;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4efea;table-layout:fixed;">
       <tr>
         <td class="email-stack" style="padding:20px;">
-          <p style="margin:0 0 6px;font-size:12px;line-height:1.5;color:#59616a;">Order reference</p>
-          <p style="margin:0;font-size:18px;font-weight:700;line-height:1.4;color:#232529;overflow-wrap:anywhere;">{{orderRef}}</p>
+          <p style="margin:0 0 6px;font-size:12px;line-height:1.5;color:#5f5852;">Order reference</p>
+          <p style="margin:0;font-size:18px;font-weight:700;line-height:1.4;color:#1c1714;overflow-wrap:anywhere;">{{orderRef}}</p>
         </td>
         <td class="email-stack email-stack-last" align="right" style="padding:20px;">
-          <p style="margin:0 0 6px;font-size:12px;line-height:1.5;color:#59616a;">Payment received</p>
-          <p style="margin:0;font-size:20px;font-weight:700;line-height:1.4;color:#24715c;">{{totalAmount}}</p>
+          <p style="margin:0 0 6px;font-size:12px;line-height:1.5;color:#5f5852;">Payment received</p>
+          <p style="margin:0;font-size:20px;font-weight:700;line-height:1.4;color:#3f4c3b;">{{totalAmount}}</p>
         </td>
       </tr>
     </table>
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="table-layout:fixed;">
-      <tr><td style="width:30%;padding:16px 12px 16px 0;border-bottom:1px solid #e6e8eb;font-size:13px;line-height:1.5;color:#697079;">Customer</td><td align="right" style="padding:16px 0;border-bottom:1px solid #e6e8eb;font-size:14px;line-height:1.5;color:#232529;overflow-wrap:anywhere;">{{customerName}}</td></tr>
-      <tr><td style="padding:16px 12px 16px 0;border-bottom:1px solid #e6e8eb;font-size:13px;line-height:1.5;color:#697079;">Phone</td><td align="right" style="padding:16px 0;border-bottom:1px solid #e6e8eb;font-size:14px;line-height:1.5;color:#232529;">{{customerPhone}}</td></tr>
-      <tr><td style="padding:16px 12px 16px 0;font-size:13px;line-height:1.5;color:#697079;">Items</td><td align="right" style="padding:16px 0;font-size:14px;line-height:1.5;color:#232529;">{{itemCount}}</td></tr>
+      <tr><td style="width:30%;padding:16px 12px 16px 0;border-bottom:1px solid #e2d9cf;font-size:13px;line-height:1.5;color:#736c66;">Customer</td><td align="right" style="padding:16px 0;border-bottom:1px solid #e2d9cf;font-size:14px;line-height:1.5;color:#1c1714;overflow-wrap:anywhere;">{{customerName}}</td></tr>
+      <tr><td style="padding:16px 12px 16px 0;border-bottom:1px solid #e2d9cf;font-size:13px;line-height:1.5;color:#736c66;">Phone</td><td align="right" style="padding:16px 0;border-bottom:1px solid #e2d9cf;font-size:14px;line-height:1.5;color:#1c1714;">{{customerPhone}}</td></tr>
+      <tr><td style="padding:16px 12px 16px 0;font-size:13px;line-height:1.5;color:#736c66;">Items</td><td align="right" style="padding:16px 0;font-size:14px;line-height:1.5;color:#1c1714;">{{itemCount}}</td></tr>
     </table>
   </td>
 </tr>
 <tr>
   <td class="email-pad" style="padding:0 40px 32px;">
-    <table role="presentation" cellpadding="0" cellspacing="0"><tr><td bgcolor="#842b3f" style="border-radius:6px;mso-padding-alt:14px 22px;">
-      <a href="{{adminOrderUrl}}" style="display:inline-block;padding:14px 22px;font-size:14px;font-weight:700;line-height:1.4;text-decoration:none;color:#ffffff;">Open order &rarr;</a>
+    <table role="presentation" cellpadding="0" cellspacing="0"><tr><td bgcolor="#1c1714" style="mso-padding-alt:16px 28px;">
+      <a href="{{adminOrderUrl}}" style="display:inline-block;padding:16px 28px;font-size:12px;font-weight:700;letter-spacing:2px;text-transform:uppercase;line-height:1.4;text-decoration:none;color:#faf8f5;">Open order</a>
     </td></tr></table>
-    <p style="margin:16px 0 0;font-size:13px;line-height:1.7;color:#697079;">Delivery address, purchased items, customer notes and the payment receipt are in the order details. Mark it received only after delivery.</p>
+    <p style="margin:16px 0 0;font-size:13px;line-height:1.7;color:#736c66;">Delivery address, purchased items, customer notes and the payment receipt are in the order details. Mark it received only after delivery.</p>
   </td>
 </tr>

@@ -45,7 +45,7 @@ export function staffOrderConfirmedEmail(order: any, itemCount: number) {
 }
 
 /** The customer's order confirmation email, or null when there's no address to send it to. */
-export async function orderConfirmationJob(order: any, items: any[]): Promise<EmailJob | null> {
+export async function orderConfirmationJob(order: any, items: any[], paymentReference?: string | null): Promise<EmailJob | null> {
     const orderId = Number(order.id);
     const customer = await customerOf(order);
     if (!customer.email) return null;
@@ -68,9 +68,14 @@ export async function orderConfirmationJob(order: any, items: any[]): Promise<Em
             quantity: item.quantity,
             unit_price: parseFloat(item.unit_price),
             subtotal: parseFloat(item.subtotal),
+            image_url: item.image_url ?? null,
         })),
         totalAmount: parseFloat(order.total_amount),
         voucherAmount: parseFloat(order.voucher_amount ?? '0'),
+        shippingCost: parseFloat(order.shipping_cost ?? '0'),
+        discountAmount: parseFloat(order.discount_amount ?? '0'),
+        discountCode: order.discount_code ?? null,
+        paymentReference: paymentReference ?? null,
         shippingAddress: shippingAddressOf(order),
         confirmReceivedUrl: confirmReceivedUrl.toString(),
     };

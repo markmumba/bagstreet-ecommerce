@@ -322,7 +322,7 @@ async function applyEffect(run: Run, effect: Effect): Promise<void> {
 
         case 'email_customer': {
             const job = effect.kind === 'order_confirmation'
-                ? await orderConfirmationJob(order, await ordersQueries.findItemsByOrderId(orderId))
+                ? await orderConfirmationJob(order, await ordersQueries.findItemsByOrderId(orderId), mpesaReceiptOf(run.options.paymentMetadata))
                 : effect.kind === 'order_expired'
                     ? await orderExpiredJob(order)
                     : await paymentFailedJob(order, run.event.type === 'payment_failed' ? run.event.reason : null);
@@ -382,6 +382,12 @@ async function applyEffect(run: Run, effect: Effect): Promise<void> {
 }
 
 /** One ledger reference per refund form submission, so a double submit records one refund. */
+/** The M-Pesa receipt the payment step recorded, shown on the customer's confirmation. */
+function mpesaReceiptOf(metadata: Record<string, unknown> | undefined): string | null {
+    const receipt = metadata?.mpesa_receipt;
+    return typeof receipt === 'string' && receipt ? receipt : null;
+}
+
 function refundReference(idempotencyKey: string) {
     return `refund:${idempotencyKey}`;
 }

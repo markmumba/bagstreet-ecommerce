@@ -53,11 +53,11 @@ describe('transactional email templates', () => {
             quantity: 2, unit_price: 3700, subtotal: 7400,
         }]);
         const preview = emailPreviews.find(item => item.template === 'order-confirmation')!;
-        const html = await renderEmailTemplate('order-confirmation', { ...emailPreviewContext, ...preview.vars }, { itemsHtml: rows });
+        const html = await renderEmailTemplate('order-confirmation', { ...emailPreviewContext, ...preview.vars }, { itemsHtml: rows, totalsHtml: '' });
         expect(html).toContain('<tr>');
         expect(html).toContain('&lt;img src=x&gt; Tote &amp; scarf');
         expect(html).toContain('&lt;script&gt;red&lt;/script&gt;');
-        expect(html).toContain('2 &times; KES 3,700.00');
+        expect(html).toContain('Qty 2 &middot; <span style="white-space:nowrap;">KES 3,700.00</span> each');
         expect(html).toContain('KES 7,400.00');
         expect(html).not.toContain('<img');
         expect(html).not.toContain('<script>');

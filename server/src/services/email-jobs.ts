@@ -35,10 +35,16 @@ export type EmailJob =
             quantity: number;
             unit_price: number;
             subtotal: number;
+            image_url?: string | null;
         }[];
         totalAmount: number;
         /** Part of the total paid by gift voucher (older queued jobs don't have it). */
         voucherAmount?: number;
+        /** Breakdown and receipt; older queued jobs don't have them and show the total only. */
+        shippingCost?: number;
+        discountAmount?: number;
+        discountCode?: string | null;
+        paymentReference?: string | null;
         shippingAddress: { full_name: string; address_line1: string; city: string; county?: string; state?: string };
         confirmReceivedUrl: string;
     }
@@ -112,7 +118,13 @@ export async function sendEmailJob(job: EmailJob): Promise<void | boolean> {
                 job.shippingAddress,
                 job.confirmReceivedUrl,
                 job.orderRef,
-                job.voucherAmount ?? 0,
+                {
+                    voucher: job.voucherAmount ?? 0,
+                    shipping: job.shippingCost,
+                    discount: job.discountAmount,
+                    discountCode: job.discountCode,
+                    paymentReference: job.paymentReference,
+                },
             );
             break;
         case 'GIFT_VOUCHER':
