@@ -38,7 +38,8 @@ describe('compliance controls', () => {
     test('policy archive includes privacy and statutory returns safeguards', () => {
         expect(LEGAL_POLICIES.returns.sections.map(section => section[1]).join(' ')).toContain('do not limit');
         expect(LEGAL_POLICIES.privacy.sections.map(section => section[1]).join(' ')).toContain('separate, optional opt-in');
-        expect(LEGAL_POLICIES.cookies.sections.map(section => section[1]).join(' ')).toContain('do not currently use advertising');
+        expect(LEGAL_POLICIES.privacy.sections.map(section => section[1]).join(' ')).toContain('do not use advertising cookies');
+        expect(LEGAL_POLICIES.privacy.sections.map(section => section[1]).join(' ')).toContain('recently viewed');
     });
     test('agreement copy preserves the original order and escaped policy content, without claiming payment', async () => {
         const agreement = agreementText({ policies: LEGAL_POLICIES, order: {

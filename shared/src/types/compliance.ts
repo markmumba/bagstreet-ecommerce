@@ -1,6 +1,6 @@
-export const POLICY_VERSION = '2026-10-14.1';
+export const POLICY_VERSION = '2026-10-28.1';
 /** When the current policy version took effect (shown on each policy page). */
-export const POLICY_EFFECTIVE_DATE = '14 October 2026';
+export const POLICY_EFFECTIVE_DATE = '28 October 2026';
 
 export const PRIVACY_REQUEST_KIND = ['ACCESS', 'CORRECTION', 'ERASURE', 'OBJECTION'] as const;
 export const PRIVACY_REQUEST_STATUS = ['OPEN', 'IN_PROGRESS', 'COMPLETED', 'REJECTED'] as const;
@@ -67,15 +67,8 @@ export const LEGAL_POLICIES = {
       ['Recipients and international processing', 'Safaricom (M-Pesa) processes payments. Our configured email provider (Resend or Gmail SMTP), hosting and storage providers support delivery and operation of the service. Delivery partners receive the contact and address details needed to fulfil your order. These providers may process information outside Kenya. Before launch or a provider change, BagStreet must review provider contracts, processing locations and lawful transfer safeguards. Contact us for the current provider and safeguard details.'],
       ['Retention', 'Saved-bag snapshots expire after seven days of inactivity. Sent and skipped email jobs are retained for 30 days; failed jobs for 90 days. Order, receipt, ledger and related evidence are retained for tax, accounting, disputes and other legal obligations, with extensions for an active investigation or legal hold. We do not automatically erase sales records when an account is closed. Account, support and security information is reviewed for necessity; contact us for an individual retention assessment.'],
       ['Your rights', 'You can request access, correction, erasure where applicable, restriction or objection to processing, or withdrawal of optional email consent. Signed-in customers can download their account data and submit requests from My Account. Guests can contact our privacy email. We verify identity proportionately before releasing or changing information; do not email passwords, card details or unnecessary identity documents. Some information may need to be retained by law, and we will explain that decision. You may complain to Kenya\'s Office of the Data Protection Commissioner at odpc.go.ke.'],
+      ['Cookies and browser storage', 'We only store what the shop needs to work: a secure sign-in cookie, your bag and any unfinished payment reference in your browser, and cookies that link a saved bag or earlier checkout to its reminder email (these expire after seven days and never grant account access). Your browser also keeps a list of products you recently viewed; it never leaves your device. We do not use advertising cookies or analytics trackers, and would ask for your consent before adding any. You can clear this storage in your browser settings, though sign-in and payment recovery need it, and clearing it does not erase records the shop already holds.'],
       ['Security and changes', 'Staff access is role restricted. We use expiring authentication, restricted administrative actions and audit records. No online service is risk free; report suspected misuse promptly. This notice and its version are linked at checkout. Material changes are published here with a new version.'],
-    ],
-  },
-  cookies: {
-    title: 'Cookies and browser storage',
-    sections: [
-      ['Essential storage', 'Authentication uses HttpOnly refresh cookies and an access token. The shopping bag and unfinished-payment reference are held in browser storage so navigation and reloads work. Recovery cookies identify a saved bag and earlier checkout; they do not grant account access. Recovery links and snapshots expire after seven days.'],
-      ['Optional tracking', 'We do not currently use advertising cookies or analytics trackers. Optional bag reminders are controlled separately by email preference. If non-essential tracking is introduced, we will update this notice and implement an appropriate consent choice before activating it.'],
-      ['Your controls', 'You can sign out, clear your bag or remove browser storage using browser settings. Blocking essential cookies or storage may prevent sign-in or payment recovery. Clearing browser storage does not erase records already held by the shop; use the privacy-request process for those records.'],
     ],
   },
 } as const;

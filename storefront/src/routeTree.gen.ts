@@ -20,7 +20,6 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as ForgotPasswordRouteImport } from './routes/forgot-password'
 import { Route as EmailPreferencesRouteImport } from './routes/email-preferences'
 import { Route as DeliveryRouteImport } from './routes/delivery'
-import { Route as CookiesRouteImport } from './routes/cookies'
 import { Route as ContactRouteImport } from './routes/contact'
 import { Route as CheckoutRouteImport } from './routes/checkout'
 import { Route as CartRouteImport } from './routes/cart'
@@ -89,11 +88,6 @@ const EmailPreferencesRoute = EmailPreferencesRouteImport.update({
 const DeliveryRoute = DeliveryRouteImport.update({
   id: '/delivery',
   path: '/delivery',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const CookiesRoute = CookiesRouteImport.update({
-  id: '/cookies',
-  path: '/cookies',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ContactRoute = ContactRouteImport.update({
@@ -173,7 +167,6 @@ export interface FileRoutesByFullPath {
   '/cart': typeof CartRoute
   '/checkout': typeof CheckoutRoute
   '/contact': typeof ContactRoute
-  '/cookies': typeof CookiesRoute
   '/delivery': typeof DeliveryRoute
   '/email-preferences': typeof EmailPreferencesRoute
   '/forgot-password': typeof ForgotPasswordRoute
@@ -201,7 +194,6 @@ export interface FileRoutesByTo {
   '/cart': typeof CartRoute
   '/checkout': typeof CheckoutRoute
   '/contact': typeof ContactRoute
-  '/cookies': typeof CookiesRoute
   '/delivery': typeof DeliveryRoute
   '/email-preferences': typeof EmailPreferencesRoute
   '/forgot-password': typeof ForgotPasswordRoute
@@ -229,7 +221,6 @@ export interface FileRoutesById {
   '/cart': typeof CartRoute
   '/checkout': typeof CheckoutRoute
   '/contact': typeof ContactRoute
-  '/cookies': typeof CookiesRoute
   '/delivery': typeof DeliveryRoute
   '/email-preferences': typeof EmailPreferencesRoute
   '/forgot-password': typeof ForgotPasswordRoute
@@ -259,7 +250,6 @@ export interface FileRouteTypes {
     | '/cart'
     | '/checkout'
     | '/contact'
-    | '/cookies'
     | '/delivery'
     | '/email-preferences'
     | '/forgot-password'
@@ -287,7 +277,6 @@ export interface FileRouteTypes {
     | '/cart'
     | '/checkout'
     | '/contact'
-    | '/cookies'
     | '/delivery'
     | '/email-preferences'
     | '/forgot-password'
@@ -314,7 +303,6 @@ export interface FileRouteTypes {
     | '/cart'
     | '/checkout'
     | '/contact'
-    | '/cookies'
     | '/delivery'
     | '/email-preferences'
     | '/forgot-password'
@@ -343,7 +331,6 @@ export interface RootRouteChildren {
   CartRoute: typeof CartRoute
   CheckoutRoute: typeof CheckoutRoute
   ContactRoute: typeof ContactRoute
-  CookiesRoute: typeof CookiesRoute
   DeliveryRoute: typeof DeliveryRoute
   EmailPreferencesRoute: typeof EmailPreferencesRoute
   ForgotPasswordRoute: typeof ForgotPasswordRoute
@@ -439,13 +426,6 @@ declare module '@tanstack/react-router' {
       path: '/delivery'
       fullPath: '/delivery'
       preLoaderRoute: typeof DeliveryRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/cookies': {
-      id: '/cookies'
-      path: '/cookies'
-      fullPath: '/cookies'
-      preLoaderRoute: typeof CookiesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/contact': {
@@ -572,7 +552,6 @@ const rootRouteChildren: RootRouteChildren = {
   CartRoute: CartRoute,
   CheckoutRoute: CheckoutRoute,
   ContactRoute: ContactRoute,
-  CookiesRoute: CookiesRoute,
   DeliveryRoute: DeliveryRoute,
   EmailPreferencesRoute: EmailPreferencesRoute,
   ForgotPasswordRoute: ForgotPasswordRoute,

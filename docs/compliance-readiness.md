@@ -9,7 +9,7 @@ Owner confirmed on 8 October 2026: business name **Bagstreet**; privacy/complian
 | PDF requirement | Implementation | Important limit |
 | --- | --- | --- |
 | Terms, returns, delivery, support | Public customer-care pages and footer links; business name and privacy email confirmed by owner | Review registration particulars, return costs and refund service times with counsel/owner |
-| Privacy and cookie notice | `/privacy` and `/cookies`, versioned alongside sale policies | Hosting region, provider contracts and transfer safeguards still need owner confirmation |
+| Privacy and cookie notice | `/privacy` (cookies and storage are a section of it), versioned alongside sale policies | Hosting region, provider contracts and transfer safeguards still need owner confirmation |
 | Explicit purchase agreement | Unchecked checkout acceptance; API rejects missing/old versions; full policy snapshot stored atomically with order | Deploy server and storefront together; older clients must reload |
 | Buyer agreement copy | Submitted item names/variants/prices, totals, address, notes and accepted policies archived together; acknowledgement email queued in the order transaction | This is not a payment receipt or tax invoice; monitor email failures and arrange verified redelivery; counsel confirms prescribed content/manner |
 | Separate email consent | Checkout/account preference and unsubscribe; no automatic discounts | This is saved-bag consent, not permission for unrelated marketing campaigns |

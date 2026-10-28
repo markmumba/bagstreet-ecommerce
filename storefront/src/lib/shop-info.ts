@@ -17,5 +17,4 @@ export const CUSTOMER_CARE_LINKS = [
   { to: '/returns', label: 'Returns and refunds' },
   { to: '/terms', label: 'Terms of sale' },
   { to: '/privacy', label: 'Privacy notice' },
-  { to: '/cookies', label: 'Cookies and storage' },
 ] as const;

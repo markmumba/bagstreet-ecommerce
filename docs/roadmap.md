@@ -30,7 +30,7 @@ real customers; sections 2–4 can follow launch.
 - [ ] Cart recovery: reminder email and restore link in a real browser
 
 ### Owner, counsel and accountant (from [compliance-readiness.md](compliance-readiness.md#launch-gates-not-completed-by-code))
-- [ ] Counsel approves the registration particulars and policy wording (terms, returns, delivery, privacy, cookies)
+- [ ] Counsel approves the registration particulars and policy wording (terms, returns, delivery, privacy incl. cookies and storage)
 - [ ] ODPC registration assessed; list the actual providers (VPS, Spaces, email, CDN, delivery) and confirm processor contracts and cross-border safeguards
 - [ ] Accountant confirms KRA PIN, tax regime, eTIMS and whether a VAT line is needed on orders; agree the record-retention schedule
 - [ ] Supplier invoices, authenticity checks and photo licences on file for the launch catalogue
