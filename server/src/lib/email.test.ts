@@ -79,7 +79,23 @@ describe('email senders', () => {
         expect(html).toContain('KES 7,900.00');
         expect(html).toContain('href="https://example.com/orders/confirm-received?token=test"');
         expect(messages[0]!.text).toContain('https://example.com/orders/confirm-received?token=test');
-        expect(messages[0]!.text).toContain('Total paid: KES 7,900.00');
+        expect(messages[0]!.text).toContain('Total: KES 7,900.00');
+    });
+
+    test('order confirmation breaks down the total and shows the receipt and product photo', async () => {
+        await sendOrderConfirmationEmail('customer@example.com', 'Amani', 8, [{
+            product_name: 'Tote', quantity: 1, unit_price: 4000, subtotal: 4000,
+            image_url: 'https://cdn.example.com/product-images/abc-large.webp',
+        }], 3700, { full_name: 'Amani', address_line1: 'Kenyatta Ave', city: 'Nairobi' },
+        'https://example.com/confirm', 'BS-EXAMPLE',
+        { shipping: 200, discount: 500, discountCode: 'WELCOME', voucher: 1000, paymentReference: 'TJK4X2ABCD' });
+        const html = emailHtml();
+        expect(html).toContain('src="https://cdn.example.com/product-images/abc-thumb.webp"');
+        expect(html).toContain('Discount (WELCOME)');
+        expect(html).toContain('&minus;KES 500.00');
+        expect(html).toContain('TJK4X2ABCD');
+        const text = messages[0]!.text;
+        expect(text).toContain('Subtotal: KES 4,000.00\nDelivery: KES 200.00\nDiscount (WELCOME): -KES 500.00\nTotal: KES 3,700.00\nGift voucher: -KES 1,000.00\nPaid: KES 2,700.00\nM-Pesa receipt: TJK4X2ABCD');
     });
 
     test('staff email deep-links to the order on the configured admin host', async () => {
@@ -120,7 +136,7 @@ describe('email senders', () => {
         const html = emailHtml();
         expect(html).toContain('&lt;b&gt;Tote&lt;/b&gt;');
         expect(html).toContain('KES 4,000.00');
-        expect(html).toContain('Only 1 available');
+        expect(html).toContain('Only 1 left, you had 2 in your bag');
         expect(html).toContain("Your items aren't reserved");
         expect(html).toContain('https://example.com/tote.webp');
         expect(html).toContain('https://example.com/email-preferences?token=test&amp;id=test');

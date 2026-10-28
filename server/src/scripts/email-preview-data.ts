@@ -1,4 +1,4 @@
-import { formatEmailMoney, renderOrderItems } from '../lib/email-format';
+import { formatEmailMoney, orderTotalLines, renderOrderItems, renderOrderTotals, type EmailOrderItem } from '../lib/email-format';
 import type { EmailTemplateName } from '../lib/template';
 import { renderRecoveryItems } from '../lib/recovery-email-format';
 
@@ -11,6 +11,13 @@ export interface EmailPreview {
 }
 
 // Fictional recipients and nonfunctional tokens only. This module never sends email.
+// Placeholder photos stand in for product images so the layout can be judged.
+const photo = (label: string) => `https://placehold.co/160x200/ede6de/736c66.png?text=${encodeURIComponent(label)}`;
+
+const previewItems: EmailOrderItem[] = [
+    { product_name: 'Coach Terri Shoulder Bag', variant_color: 'Black', quantity: 2, unit_price: 3700, subtotal: 7400, image_url: photo('Bag') },
+    { product_name: 'Cashmere Wrap Scarf', variant_color: 'Forest green', quantity: 1, unit_price: 3600, subtotal: 3600, image_url: photo('Scarf') },
+];
 const customerOrder: EmailPreview = {
     filename: 'order-confirmation',
     template: 'order-confirmation',
@@ -20,18 +27,17 @@ const customerOrder: EmailPreview = {
         preheader: 'Payment received. Your order summary and delivery details are inside.',
         name: 'Amani',
         orderRef: 'BS-EXAMPLE',
-        totalAmount: formatEmailMoney(11500),
-        totalNote: `Includes delivery and any applied discounts. ${formatEmailMoney(3000)} of it was paid by gift voucher.`,
+        totalNote: '',
         shippingName: 'Amani Wanjiku',
         shippingAddress: 'Kenyatta Avenue, Apartment 4B',
         shippingCity: 'Nairobi, Kenya',
         confirmReceivedUrl: 'https://example.com/orders/confirm-received?token=preview-only-not-a-real-token',
     },
     trustedHtml: {
-        itemsHtml: renderOrderItems([
-            { product_name: 'Coach Terri Shoulder Bag', variant_color: 'Black', quantity: 2, unit_price: 3700, subtotal: 7400 },
-            { product_name: 'Cashmere Wrap Scarf', variant_color: 'Forest green', quantity: 1, unit_price: 3600, subtotal: 3600 },
-        ]),
+        itemsHtml: renderOrderItems(previewItems),
+        totalsHtml: renderOrderTotals(orderTotalLines(previewItems, 11500, {
+            shipping: 500, voucher: 3000, paymentReference: 'TJK4X2ABCD',
+        })),
     },
 };
 
@@ -67,8 +73,8 @@ export const emailPreviews: EmailPreview[] = [
         },
         trustedHtml: { itemsHtml: renderRecoveryItems({
             lines: [
-                { variant_id: 1, requested_quantity: 2, purchasable_quantity: 1, status: 'insufficient_stock', unit_price: 3700, compare_at_price: null, line_total: 3700, stock: 1, product_id: '1', product_slug: 'coach-terri', product_name: 'Coach Terri Shoulder Bag', image_url: null, sku: 'BAG-COACH-TERRI-BLK', size: null, color: 'Black' },
-                { variant_id: 2, requested_quantity: 1, purchasable_quantity: 0, status: 'out_of_stock', unit_price: 3900, compare_at_price: null, line_total: 0, stock: 0, product_id: '2', product_slug: 'cashmere', product_name: 'Cashmere Wrap Scarf', image_url: null, sku: 'SCF-CASH-WRAP-GRN', size: null, color: 'Forest green' },
+                { variant_id: 1, requested_quantity: 2, purchasable_quantity: 1, status: 'insufficient_stock', unit_price: 3700, compare_at_price: null, line_total: 3700, stock: 1, product_id: '1', product_slug: 'coach-terri', product_name: 'Coach Terri Shoulder Bag', image_url: photo('Bag'), sku: 'BAG-COACH-TERRI-BLK', size: null, color: 'Black' },
+                { variant_id: 2, requested_quantity: 1, purchasable_quantity: 0, status: 'out_of_stock', unit_price: 3900, compare_at_price: null, line_total: 0, stock: 0, product_id: '2', product_slug: 'cashmere', product_name: 'Cashmere Wrap Scarf', image_url: photo('Scarf'), sku: 'SCF-CASH-WRAP-GRN', size: null, color: 'Forest green' },
             ],
         }) },
     },

@@ -1,47 +1,36 @@
 <tr>
-  <td class="email-pad" style="padding:32px 40px 24px;">
-    <p style="margin:0 0 14px;font-size:12px;font-weight:700;line-height:1.5;text-transform:uppercase;color:#24715c;">Payment received</p>
-    <h1 class="email-heading" style="margin:0 0 20px;font-family:Georgia,'Times New Roman',serif;font-size:38px;font-weight:400;line-height:1.2;color:#232529;">Good taste.<br />Great choice.</h1>
-    <p style="margin:0 0 12px;font-size:15px;line-height:1.7;color:#232529;">Hi {{name}},</p>
-    <p style="margin:0;font-size:15px;line-height:1.7;color:#59616a;">Thank you for shopping with BagStreet. Payment for <strong style="color:#232529;">{{orderRef}}</strong> is confirmed. Our team will be in touch to arrange your delivery.</p>
+  <td class="email-pad" style="padding:36px 40px 28px;">
+    <p style="margin:0 0 14px;font-size:11px;font-weight:700;letter-spacing:2px;line-height:1.5;text-transform:uppercase;color:#3f4c3b;">Payment received &middot; {{orderRef}}</p>
+    <h1 class="email-heading" style="margin:0 0 20px;font-family:'Cormorant Garamond',Georgia,'Times New Roman',serif;font-size:38px;font-weight:300;line-height:1.2;color:#1c1714;">Your order<br />is confirmed.</h1>
+    <p style="margin:0 0 12px;font-size:15px;line-height:1.7;color:#1c1714;">Hi {{name}},</p>
+    <p style="margin:0;font-size:15px;line-height:1.7;color:#5f5852;">Thank you for shopping with BagStreet. We've received your payment and our team will be in touch to arrange delivery.</p>
   </td>
 </tr>
 <tr>
   <td class="email-pad" style="padding:0 40px 28px;">
-    <table width="100%" cellpadding="0" cellspacing="0" style="table-layout:fixed;border-collapse:collapse;">
-      <caption style="padding:0 0 12px;text-align:left;font-size:12px;font-weight:700;line-height:1.5;text-transform:uppercase;color:#697079;">Your order &middot; {{orderRef}}</caption>
-      <thead>
-        <tr>
-          <th scope="col" style="width:62%;padding:10px 0;text-align:left;border-bottom:1px solid #e6e8eb;font-size:12px;color:#697079;">Item</th>
-          <th scope="col" style="width:38%;padding:10px 0;text-align:right;border-bottom:1px solid #e6e8eb;font-size:12px;color:#697079;">Amount</th>
-        </tr>
-      </thead>
+    <p style="margin:0;padding:0 0 4px;border-bottom:1px solid #e2d9cf;font-size:11px;font-weight:700;letter-spacing:2px;line-height:1.5;text-transform:uppercase;color:#736c66;">Your order</p>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="table-layout:fixed;border-collapse:collapse;">
       <tbody>{{itemsHtml}}</tbody>
     </table>
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:20px;background:#f3f7f5;table-layout:fixed;">
-      <tr>
-        <td class="email-stack" style="padding:20px;font-size:14px;line-height:1.5;font-weight:700;color:#24715c;">Total paid</td>
-        <td class="email-stack email-stack-last" align="right" style="padding:20px;">
-          <p class="email-total" style="margin:0;font-size:26px;line-height:1.3;font-weight:700;color:#232529;">{{totalAmount}}</p>
-        </td>
-      </tr>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:12px;border-collapse:collapse;">
+      {{totalsHtml}}
     </table>
-    <p style="margin:8px 0 0;font-size:12px;line-height:1.5;color:#697079;">{{totalNote}}</p>
+    <p style="margin:6px 0 0;font-size:12px;line-height:1.5;color:#736c66;">{{totalNote}}</p>
   </td>
 </tr>
 <tr>
   <td class="email-pad" style="padding:0 40px 28px;">
-    <p style="margin:0 0 8px;font-size:12px;font-weight:700;line-height:1.5;text-transform:uppercase;color:#697079;">Delivering to</p>
-    <p style="margin:0;font-size:14px;line-height:1.8;color:#232529;overflow-wrap:anywhere;">{{shippingName}}<br />{{shippingAddress}}<br />{{shippingCity}}</p>
+    <p style="margin:0 0 8px;font-size:11px;font-weight:700;letter-spacing:2px;line-height:1.5;text-transform:uppercase;color:#736c66;">Delivering to</p>
+    <p style="margin:0;font-size:14px;line-height:1.8;color:#1c1714;overflow-wrap:anywhere;">{{shippingName}}<br />{{shippingAddress}}<br />{{shippingCity}}</p>
   </td>
 </tr>
 <tr>
-  <td class="email-pad" style="padding:24px 40px 32px;border-top:1px solid #e6e8eb;">
-    <h2 style="margin:0 0 8px;font-family:Georgia,'Times New Roman',serif;font-size:24px;font-weight:400;line-height:1.3;color:#232529;">One last thing, when it arrives.</h2>
-    <p style="margin:0 0 20px;font-size:14px;line-height:1.7;color:#59616a;">Once you have your package, let us know it reached you safely. Only confirm after you receive it.</p>
-    <table role="presentation" cellpadding="0" cellspacing="0"><tr><td bgcolor="#842b3f" style="border-radius:6px;mso-padding-alt:14px 22px;">
-      <a href="{{confirmReceivedUrl}}" style="display:inline-block;padding:14px 22px;font-size:14px;font-weight:700;line-height:1.4;text-decoration:none;color:#ffffff;">I've received my order &rarr;</a>
+  <td class="email-pad" style="padding:24px 40px 32px;border-top:1px solid #e2d9cf;">
+    <h2 style="margin:0 0 8px;font-family:'Cormorant Garamond',Georgia,'Times New Roman',serif;font-size:24px;font-weight:400;line-height:1.3;color:#1c1714;">One last thing, when it arrives.</h2>
+    <p style="margin:0 0 20px;font-size:14px;line-height:1.7;color:#5f5852;">Once you have your package, let us know it reached you safely. Only confirm after you receive it.</p>
+    <table role="presentation" cellpadding="0" cellspacing="0"><tr><td bgcolor="#1c1714" style="mso-padding-alt:16px 28px;">
+      <a href="{{confirmReceivedUrl}}" style="display:inline-block;padding:16px 28px;font-size:12px;font-weight:700;letter-spacing:2px;text-transform:uppercase;line-height:1.4;text-decoration:none;color:#faf8f5;">I've received my order</a>
     </td></tr></table>
-    <p style="margin:16px 0 0;font-size:12px;line-height:1.7;color:#697079;">Button not working? <a href="{{confirmReceivedUrl}}" style="color:#842b3f;text-decoration:underline;">Open the confirmation link</a>.</p>
+    <p style="margin:16px 0 0;font-size:12px;line-height:1.7;color:#736c66;">Button not working? <a href="{{confirmReceivedUrl}}" style="color:#1c1714;text-decoration:underline;">Open the confirmation link</a>.</p>
   </td>
 </tr>

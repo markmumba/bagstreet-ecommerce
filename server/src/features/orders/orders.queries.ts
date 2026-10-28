@@ -40,6 +40,7 @@ export interface OrderItemRow {
     unit_price: string;
     subtotal: string;
     created_at: string;
+    image_url: string | null;
 }
 
 function generateOrderNumber() {
@@ -213,14 +214,17 @@ export const ordersQueries = {
     findItemsByOrderId: async (orderId: number): Promise<OrderItemRow[]> => {
         return await sql<OrderItemRow[]>`
             SELECT oi.id, oi.order_id, oi.product_id, oi.variant_id, oi.variant_sku, oi.variant_size, oi.variant_color,
-                   oi.quantity, oi.unit_price, oi.subtotal, oi.created_at, p.name AS product_name, p.slug AS product_slug
+                   oi.quantity, oi.unit_price, oi.subtotal, oi.created_at, p.name AS product_name, p.slug AS product_slug,
+                   COALESCE(p.image_url, (SELECT pi.url FROM product_images pi WHERE pi.product_id = p.id
+                                          ORDER BY pi.is_primary DESC, pi.position LIMIT 1)) AS image_url
             FROM order_items oi
             JOIN products p ON p.id = oi.product_id
             WHERE oi.order_id = ${orderId}
             UNION ALL
             SELECT 0 AS id, g.order_id, NULL AS product_id, NULL AS variant_id, NULL AS variant_sku, NULL AS variant_size,
                    NULL AS variant_color, 1 AS quantity, g.amount AS unit_price, g.amount AS subtotal, g.created_at,
-                   'Gift voucher' || COALESCE(' for ' || g.recipient_name, '') AS product_name, NULL AS product_slug
+                   'Gift voucher' || COALESCE(' for ' || g.recipient_name, '') AS product_name, NULL AS product_slug,
+                   NULL AS image_url
             FROM gift_voucher_orders g
             WHERE g.order_id = ${orderId}
         `;

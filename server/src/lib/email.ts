@@ -1,9 +1,9 @@
 import nodemailer from 'nodemailer';
 import { env } from '../config/env';
 import { escapeHtml, renderEmailTemplate, type EmailTemplateName } from './template';
-import { formatEmailMoney, renderOrderItems, type EmailOrderItem } from './email-format';
+import { formatEmailMoney, orderTotalLines, renderOrderItems, renderOrderTotals, type EmailOrderItem, type OrderEmailTotals } from './email-format';
 import type { RecoveryEmail } from '../features/cart-recovery/recovery.delivery';
-import { renderRecoveryItems } from './recovery-email-format';
+import { recoveryAvailability, renderRecoveryItems } from './recovery-email-format';
 
 async function createTransporter() {
     return nodemailer.createTransport({
@@ -136,12 +136,12 @@ export async function sendOrderConfirmationEmail(
     shippingAddress: { full_name: string; address_line1: string; city: string; county?: string; state?: string },
     confirmReceivedUrl: string,
     providedOrderRef?: string,
-    voucherAmount = 0,
+    totals: OrderEmailTotals = {},
 ) {
     const orderRef = providedOrderRef ?? `#${String(orderId).padStart(6, '0').toUpperCase()}`;
-    const totalNote = voucherAmount > 0
-        ? `Includes delivery and any applied discounts. ${formatEmailMoney(voucherAmount)} of it was paid by gift voucher.`
-        : 'Includes delivery and any applied discounts.';
+    const totalLines = orderTotalLines(items, totalAmount, totals);
+    // Jobs queued before the breakdown existed only know the total.
+    const totalNote = totals.shipping == null ? 'Includes delivery and any applied discounts.' : '';
 
     const shippingRegion = shippingAddress.county ?? shippingAddress.state;
     const shippingCity = shippingAddress.city + (shippingRegion ? `, ${shippingRegion}` : '');
@@ -157,19 +157,18 @@ export async function sendOrderConfirmationEmail(
         preheader: `Payment received for ${orderRef}. Your order summary and delivery details are inside.`,
         name,
         orderRef,
-        totalAmount: formatEmailMoney(totalAmount),
         totalNote,
         shippingName: shippingAddress.full_name,
         shippingAddress: shippingAddress.address_line1,
         shippingCity,
         confirmReceivedUrl,
-    }, { itemsHtml: renderOrderItems(items) });
+    }, { itemsHtml: renderOrderItems(items), totalsHtml: renderOrderTotals(totalLines) });
 
     const itemLines = items.map((item) => {
         const variant = [item.variant_size, item.variant_color].filter(Boolean).join(' / ');
         return `${item.product_name}${variant ? ` (${variant})` : ''}\n${item.quantity} x ${formatEmailMoney(item.unit_price)} = ${formatEmailMoney(item.subtotal)}`;
     }).join('\n\n');
-    const text = `Hi ${name},\n\nPayment for order ${orderRef} is confirmed. Our team will be in touch to arrange delivery.\n\n${itemLines}\n\nTotal paid: ${formatEmailMoney(totalAmount)}. ${totalNote}\n\nDelivering to:\n${shippingAddress.full_name}\n${shippingAddress.address_line1}\n${shippingCity}\n\nOnly after your package arrives, confirm you've received it:\n${confirmReceivedUrl}`;
+    const text = `Hi ${name},\n\nPayment for order ${orderRef} is confirmed. Our team will be in touch to arrange delivery.\n\n${itemLines}\n\n${totalLines.map((line) => `${line.label}: ${line.amount.replace('&minus;', '-')}`).join('\n')}${totalNote ? `\n${totalNote}` : ''}\n\nDelivering to:\n${shippingAddress.full_name}\n${shippingAddress.address_line1}\n${shippingCity}\n\nOnly after your package arrives, confirm you've received it:\n${confirmReceivedUrl}`;
     await send(to, `Your Bagstreet order ${orderRef} is confirmed`, html, text);
 }
 
@@ -409,7 +408,10 @@ export async function sendCartRecoveryEmail(email: RecoveryEmail) {
         eyebrow: email.final ? 'A final reminder' : 'Saved for another look', intro,
         recoveryUrl: email.recoveryUrl, unsubscribeUrl: email.unsubscribeUrl,
     }, { itemsHtml: renderRecoveryItems(email.quote) });
-    const items = email.quote.lines.map(line => `${line.product_name ?? 'Unavailable item'}: ${line.purchasable_quantity} available for your bag${line.unit_price === null ? '' : `, ${formatEmailMoney(line.unit_price)} each`}`).join('\n');
+    const items = email.quote.lines.map(line => {
+        const price = line.purchasable_quantity > 0 && line.unit_price !== null ? `, ${formatEmailMoney(line.unit_price)} each` : '';
+        return `${line.product_name ?? 'Unavailable item'} (qty ${line.requested_quantity}): ${recoveryAvailability(line).text}${price}`;
+    }).join('\n');
     const text = `${intro}\n\n${items}\n\nItems aren't reserved. Prices and availability can change. Delivery and any valid promo code are calculated at checkout.\n\nReview your bag:\n${email.recoveryUrl}\n\nAlready paid? Don't pay again; contact our team.\n\nUnsubscribe from bag reminders (order confirmations and receipts are unaffected):\n${email.unsubscribeUrl}`;
     if (!emailDeliveryConfigured()) {
         console.log('[DEV] Cart recovery email prepared (delivery not configured)');
