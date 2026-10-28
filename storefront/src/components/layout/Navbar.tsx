@@ -165,7 +165,7 @@ export function Navbar() {
 
         <div className="grid h-full grid-cols-[1fr_auto_1fr] items-center">
           {/* Left: categories (desktop) / menu toggle (mobile) */}
-          <nav aria-label="Primary" className="flex items-center">
+          <nav aria-label="Primary" className="flex min-w-0 items-center">
             <button
               ref={mobileMenuButtonRef}
               type="button"
@@ -179,7 +179,7 @@ export function Navbar() {
                 : <Menu strokeWidth={1} className="h-5 w-5" aria-hidden="true" />}
             </button>
 
-            <ul className="hidden lg:flex items-center gap-6 xl:gap-9">
+            <ul className="hidden lg:flex items-center gap-6 xl:gap-8">
               {tree.map((node) => (
                 <li key={node.id} onMouseEnter={() => setActiveMenu(node.id)}>
                   <Link
@@ -196,20 +196,15 @@ export function Navbar() {
                 </li>
               ))}
               <li onMouseEnter={() => setActiveMenu(null)} className="hidden xl:block">
-                <Link to="/shop" className={`whitespace-nowrap py-7 text-label-caps transition-colors duration-200 ${linkTone}`}>
+                <Link to="/shop" className={`flex whitespace-nowrap py-7 text-label-caps transition-colors duration-200 ${linkTone}`}>
                   Shop all
-                </Link>
-              </li>
-              <li onMouseEnter={() => setActiveMenu(null)} className="hidden xl:block">
-                <Link to="/gift-vouchers" className={`whitespace-nowrap py-7 text-label-caps transition-colors duration-200 ${linkTone}`}>
-                  Gift vouchers
                 </Link>
               </li>
             </ul>
           </nav>
 
           {/* Brand */}
-          <Link to="/" className="justify-self-center">
+          <Link to="/" className="justify-self-center px-6">
             <span
               className="text-[22px] tracking-[0.25em] uppercase font-light lg:text-2xl"
               style={{ fontFamily: 'var(--font-display)' }}
@@ -220,6 +215,13 @@ export function Navbar() {
 
           {/* Right icons */}
           <div className="flex items-center justify-end gap-4 sm:gap-6">
+            <Link
+              to="/gift-vouchers"
+              className={`hidden xl:block whitespace-nowrap text-label-caps transition-colors duration-200 ${linkTone}`}
+            >
+              Gift vouchers
+            </Link>
+
             <button
               ref={searchButtonRef}
               onClick={openSearch}
