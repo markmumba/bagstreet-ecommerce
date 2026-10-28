@@ -6,7 +6,6 @@ import type { Order, OrderSource, OrderStatus, PaymentStatus, ShippingAddress } 
 import { randomBytes } from 'node:crypto';
 import { TooManyRequestsError } from '../../lib/errors';
 import { orderLimitViolation, type CustomerOrderCounts } from './order-limits';
-import { enqueueEmail } from '../../services/email-outbox';
 import type { OrderAgreementSnapshot } from '../compliance/order-agreement';
 
 export interface OrderRow extends Omit<Order, 'id' | 'created_at' | 'updated_at'> {
@@ -316,8 +315,6 @@ export const ordersQueries = {
                 } };
                 await tx`INSERT INTO order_policy_acceptances(order_id, policy_version, policy_snapshot)
                     VALUES (${order.id}, ${draft.policyAcceptance.version}, ${toJsonbParam(snapshot)}::jsonb)`;
-                if (customerEmail) await enqueueEmail({ type: 'ORDER_AGREEMENT', to: customerEmail, orderId: Number(order.id) },
-                    { tx, dedupeKey: `order-agreement:${order.id}` });
             }
 
             if (draft.recoverySessionHash && customerEmail) {
