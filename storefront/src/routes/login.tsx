@@ -1,6 +1,7 @@
 import { createFileRoute, useNavigate, Link } from '@tanstack/react-router';
 import { useState } from 'react';
 import { z } from 'zod';
+import { AlertCircle, Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 
 export const Route = createFileRoute('/login')({
@@ -13,6 +14,15 @@ export const Route = createFileRoute('/login')({
   component: LoginPage,
 });
 
+const inputClass =
+  'w-full border-0 border-b border-stone bg-transparent px-0 py-2 text-[15px] font-light text-foreground placeholder:text-foreground-faint focus:border-foreground focus:outline-none focus:ring-0 transition-colors duration-200';
+
+const primaryButtonClass =
+  'ui-press h-[52px] w-full bg-espresso text-label-caps text-background hover:bg-espresso-hover disabled:cursor-not-allowed disabled:opacity-60';
+
+const secondaryButtonClass =
+  'ui-press h-[52px] w-full border border-espresso text-label-caps text-foreground hover:bg-surface-oat';
+
 function LoginPage() {
   const { login, register } = useAuth();
   const navigate = useNavigate();
@@ -20,14 +30,21 @@ function LoginPage() {
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
-  const [successMessage, setSuccessMessage] = useState('');
+  const [sentTo, setSentTo] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+
+  const switchMode = (nextMode: 'login' | 'register') => {
+    setMode(nextMode);
+    setError('');
+    setSentTo('');
+    setPassword('');
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    setSuccessMessage('');
     setIsLoading(true);
     try {
       if (mode === 'login') {
@@ -36,12 +53,7 @@ function LoginPage() {
         else navigate({ to: '/' });
       } else {
         await register(email);
-        setSuccessMessage(
-          import.meta.env.DEV
-            ? 'Check your email for the setup link. In development, the link is also printed in the server terminal.'
-            : 'Check your email for the setup link.'
-        );
-        setEmail('');
+        setSentTo(email);
       }
     } catch (err: any) {
       setError(err?.message || 'Something went wrong. Please try again.');
@@ -50,97 +62,131 @@ function LoginPage() {
     }
   };
 
+  const notice = reset
+    ? 'Your password has been reset. Sign in with your new password.'
+    : activated
+      ? 'Your account is ready. Sign in with your new password.'
+      : '';
+
   return (
-    <div className="min-h-[80vh] flex items-center justify-center px-4">
-      <div className="w-full max-w-md">
-        <div className="text-center mb-8">
-          <Link to="/" className="text-3xl font-bold text-primary">Bagstreet</Link>
-          <p className="text-muted-foreground mt-2">
-            {mode === 'login' ? 'Sign in to your account' : 'Enter your email to start setup'}
+    <div className="flex min-h-[80vh] items-center justify-center px-4 py-16">
+      <div className="w-full max-w-[400px]">
+        <header className="text-center">
+          <h1 className="text-headline-lg">{mode === 'login' ? 'Sign in' : 'Create an account'}</h1>
+          <p className="mt-3 text-[15px] text-foreground-muted">
+            {mode === 'login'
+              ? 'Track your orders and check out faster.'
+              : "Enter your email and we'll send you a link to set your password."}
           </p>
-        </div>
+        </header>
 
-        {reset && (
-          <div className="mb-4 rounded-lg bg-green-50 border border-green-200 px-4 py-3 text-sm text-green-800">
-            Password reset — please sign in with your new password.
-          </div>
+        {notice && mode === 'login' && (
+          <p className="mt-8 border border-[var(--color-success-border)] bg-[var(--color-success-bg)] px-4 py-3 text-[13px] text-[var(--color-success-text)]" role="status">
+            {notice}
+          </p>
         )}
 
-        {activated && (
-          <div className="mb-4 rounded-lg bg-green-50 border border-green-200 px-4 py-3 text-sm text-green-800">
-            Account activated — please sign in with your new password.
-          </div>
-        )}
-
-        <div className="border border-border rounded-xl bg-card p-8 shadow-sm">
-          {/* Toggle */}
-          <div className="flex rounded-lg border border-border p-1 mb-6">
-            <button
-              onClick={() => { setMode('login'); setError(''); setSuccessMessage(''); }}
-              className={`flex-1 py-2 text-sm font-medium rounded-md transition-colors ${mode === 'login' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
-            >
-              Sign in
-            </button>
-            <button
-              onClick={() => { setMode('register'); setError(''); setSuccessMessage(''); setPassword(''); }}
-              className={`flex-1 py-2 text-sm font-medium rounded-md transition-colors ${mode === 'register' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
-            >
-              Register
+        {sentTo ? (
+          <div className="mt-10 space-y-6 text-center" role="status">
+            <p className="text-[15px] text-foreground-muted">
+              We've sent a setup link to <span className="text-foreground">{sentTo}</span>. Open it to choose your password.
+              {import.meta.env.DEV && ' In development, the link is also printed in the server terminal.'}
+            </p>
+            <button type="button" onClick={() => switchMode('login')} className={secondaryButtonClass}>
+              Back to sign in
             </button>
           </div>
-
-          <form onSubmit={handleSubmit} className="space-y-4">
+        ) : (
+          <form onSubmit={handleSubmit} className="mt-10 space-y-7">
             <div>
-              <label className="block text-sm font-medium mb-1">Email</label>
+              <label htmlFor="login-email" className="text-label-caps text-foreground-faint">Email</label>
               <input
+                id="login-email"
+                name="email"
                 type="email"
+                autoComplete="email"
+                spellCheck={false}
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="jane@example.com"
                 required
-                className="w-full px-3 py-2 text-sm border border-input rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring"
+                className={`${inputClass} mt-1`}
               />
             </div>
 
             {mode === 'login' && (
               <div>
-                <label className="block text-sm font-medium mb-1">Password</label>
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••"
-                  required
-                  minLength={8}
-                  className="w-full px-3 py-2 text-sm border border-input rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring"
-                />
+                <div className="flex items-baseline justify-between">
+                  <label htmlFor="login-password" className="text-label-caps text-foreground-faint">Password</label>
+                  <Link to="/forgot-password" className="text-[13px] text-foreground-muted underline-offset-4 hover:text-foreground hover:underline">
+                    Forgot password?
+                  </Link>
+                </div>
+                <div className="relative mt-1">
+                  <input
+                    id="login-password"
+                    name="password"
+                    type={showPassword ? 'text' : 'password'}
+                    autoComplete="current-password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                    minLength={8}
+                    className={`${inputClass} pr-10`}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((shown) => !shown)}
+                    className="ui-press absolute right-0 top-1/2 -translate-y-1/2 p-1 text-foreground-faint hover:text-foreground"
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                    aria-pressed={showPassword}
+                  >
+                    {showPassword
+                      ? <EyeOff strokeWidth={1.25} className="h-4 w-4" aria-hidden="true" />
+                      : <Eye strokeWidth={1.25} className="h-4 w-4" aria-hidden="true" />}
+                  </button>
+                </div>
               </div>
             )}
 
-            {mode === 'login' && (
-              <div className="flex justify-end -mt-2">
-                <Link to="/forgot-password" className="text-xs text-muted-foreground hover:text-foreground">
-                  Forgot password?
-                </Link>
-              </div>
-            )}
-
-            {error && <p className="text-xs text-destructive">{error}</p>}
-            {successMessage && (
-              <p className="rounded-lg bg-green-50 border border-green-200 px-3 py-2 text-xs text-green-800">
-                {successMessage}
+            {error && (
+              <p className="flex items-start gap-2 text-[13px] text-destructive" role="alert">
+                <AlertCircle strokeWidth={1.25} className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                {error}
               </p>
             )}
 
-            <button
-              type="submit"
-              disabled={isLoading}
-              className="w-full bg-primary text-primary-foreground py-2.5 rounded-md text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50 mt-2"
-            >
-              {isLoading ? '...' : mode === 'login' ? 'Sign in' : 'Send setup link'}
+            <button type="submit" disabled={isLoading} className={primaryButtonClass}>
+              {mode === 'login'
+                ? (isLoading ? 'Signing in…' : 'Sign in')
+                : (isLoading ? 'Sending…' : 'Send setup link')}
             </button>
           </form>
-        </div>
+        )}
+
+        {!sentTo && (
+          <div className="mt-12 border-t border-border pt-10 text-center">
+            {mode === 'login' ? (
+              <>
+                <p className="text-[15px] text-foreground-muted">New to Bagstreet?</p>
+                <button type="button" onClick={() => switchMode('register')} className={`${secondaryButtonClass} mt-4`}>
+                  Create an account
+                </button>
+              </>
+            ) : (
+              <p className="text-[15px] text-foreground-muted">
+                Already have an account?{' '}
+                <button type="button" onClick={() => switchMode('login')} className="text-foreground underline underline-offset-4 hover:text-brass-text">
+                  Sign in
+                </button>
+              </p>
+            )}
+            {next === '/checkout' && (
+              <Link to="/checkout" className="mt-6 inline-block text-[13px] text-foreground-muted underline underline-offset-4 hover:text-foreground">
+                Continue as guest
+              </Link>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
