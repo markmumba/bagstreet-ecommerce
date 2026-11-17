@@ -14,7 +14,7 @@ describe('classifyOrderForReconciliation', () => {
         expect(kinds({ order_source: 'WALK_IN', has_completed_provider_payment: false })).toEqual([]));
     test('paid with nothing in the ledger', () =>
         expect(kinds({ captured: 0 })).toContain('paid_without_capture'));
-    test('M-Pesa completed but ledger empty', () =>
+    test('Paystack completed but ledger empty', () =>
         expect(kinds({ payment_status: 'UNPAID', status: 'PENDING', captured: 0 })).toEqual(['completed_payment_without_capture']));
     test('money held for review', () =>
         expect(kinds({ payment_status: 'UNPAID', status: 'PENDING', captured: 8000 })).toEqual(['held_for_review']));

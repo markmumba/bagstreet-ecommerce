@@ -24,7 +24,7 @@ function parseDay(value: string | undefined, label: string): Date | null {
 const day = (d: Date) => d.toISOString().slice(0, 10);
 
 export const reconciliationHandlers = {
-    /** Internal check: orders, M-Pesa transactions and the ledger, for a date range (default last 30 days). */
+    /** Internal check: orders, Paystack transactions and the ledger, for a date range (default last 30 days). */
     report: async (c: AppContext) => {
         const today = parseDay(day(new Date()), 'today')!;
         const from = parseDay(c.req.query('from'), 'from') ?? new Date(today.getTime() - 29 * DAY_MS);
@@ -48,20 +48,20 @@ export const reconciliationHandlers = {
     },
 
     /**
-     * M-Pesa statement import. Multipart: `file` (CSV export) and `record_fees` ("true" to write fees;
+     * Paystack statement import. Multipart: `file` (transactions CSV export) and `record_fees` ("true" to write fees;
      * anything else is a preview). Fees are recorded once per transaction, so re-importing is safe.
      */
     statement: async (c: AppContext) => {
         const form = await c.req.formData().catch(() => null);
         const file = form?.get('file');
-        if (!(file instanceof File) || file.size === 0) throw new BadRequestError('Upload the M-Pesa statement as a CSV file');
+        if (!(file instanceof File) || file.size === 0) throw new BadRequestError('Upload the Paystack transactions export as a CSV file');
         if (file.size > MAX_STATEMENT_BYTES) throw new BadRequestError('Statement must be 2MB or smaller — export a shorter date range');
         const recordFees = form?.get('record_fees') === 'true';
 
         const rows = parseCsv(await file.text(), []);
         const columns = detectStatementColumns(Object.keys(rows[0]?.values ?? {}));
         const problems = statementColumnProblems(columns);
-        if (problems.length > 0) throw new BadRequestError(`This doesn't look like an M-Pesa statement. ${problems.join(' ')}`);
+        if (problems.length > 0) throw new BadRequestError(`This doesn't look like a Paystack transactions export. ${problems.join(' ')}`);
 
         const statementRows = normaliseStatementRows(rows, columns);
         const { matches, issues, matchedTransactionIds } = reconcileStatementRows(
@@ -92,9 +92,9 @@ export const reconciliationHandlers = {
                 if (inserted) feesRecorded += 1;
             }
             await auditFromContext(c, {
-                action: 'MPESA_STATEMENT_IMPORTED',
+                action: 'PAYSTACK_STATEMENT_IMPORTED',
                 entityType: 'payments',
-                entityId: 'mpesa_statement',
+                entityId: 'paystack_statement',
                 metadata: { file: file.name, rows: statementRows.length, matched: matches.length, fees_recorded: feesRecorded, issues: issues.length, missing: missing.length },
             });
         }
