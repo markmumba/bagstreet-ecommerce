@@ -9,6 +9,7 @@ import { createOrderReviewToken, orderTokenRef } from '../lib/order-received-tok
 import { reviewsQueries } from '../features/reviews/reviews.queries';
 import { REVIEW_INVITE_DELAY_DAYS } from '../features/reviews/review-rules';
 import { enqueueEmail, wakeEmailOutbox } from './email-outbox';
+import { log } from '../lib/log';
 
 /** The storefront page a customer reviews an order on. */
 export function reviewPageUrl(order: { id: number | string; public_id?: string | null }): string {
@@ -55,7 +56,7 @@ export function startReviewInvites() {
         if (running) return;
         running = true;
         try { await sendDueReviewInvites(); }
-        catch (error) { console.error('[review-invites] failed:', error); }
+        catch (error) { log.error('review-invites: run failed', { err: error }); }
         finally { running = false; }
     };
     setInterval(() => void tick(), 60 * 60_000);

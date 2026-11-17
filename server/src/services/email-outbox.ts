@@ -12,6 +12,7 @@ import { readJsonColumn, toJsonbParam } from '../lib/json-column';
 import { redactDeliveredJob, sendEmailJob, type EmailJob } from './email-jobs';
 import { afterFailure, describeError } from './email-outbox-policy';
 import { alertStaff } from '../features/staff-alerts/staff-alerts';
+import { log } from '../lib/log';
 
 type Executor = typeof sql;
 
@@ -117,7 +118,7 @@ export async function processEmailOutboxBatch(
                 const job = readJsonColumn<EmailJob>(row.payload);
                 if (job) await redactPayload(row.id, job);
                 result.failed += 1;
-                console.error(`[email-outbox] giving up on ${row.job_type} to ${row.recipient} after ${row.attempts} attempts: ${error}`);
+                log.error('email-outbox: giving up on email', { outbox_id: row.id, job_type: row.job_type, attempts: row.attempts, error });
                 await alertAdminsEmailFailed(row, error);
             } else {
                 const delayMs = next.nextAttemptAt.getTime() - Date.now();
@@ -128,7 +129,7 @@ export async function processEmailOutboxBatch(
                     WHERE id = ${row.id}
                 `;
                 result.retrying += 1;
-                console.warn(`[email-outbox] ${row.job_type} to ${row.recipient} failed (attempt ${row.attempts}), retrying: ${error}`);
+                log.warn('email-outbox: send failed, will retry', { outbox_id: row.id, job_type: row.job_type, attempts: row.attempts, error });
             }
         }
     }
@@ -152,7 +153,7 @@ async function alertAdminsEmailFailed(row: OutboxRow, error: string) {
             data: { outbox_id: String(row.id) },
         });
     } catch (err) {
-        console.error('[email-outbox] could not alert admins:', err);
+        log.error('email-outbox: could not alert admins', { err, outbox_id: row.id });
     }
 }
 
@@ -199,7 +200,7 @@ async function tick() {
             await cleanupOutbox();
         }
     } catch (err) {
-        console.error('[email-outbox] worker run failed:', err);
+        log.error('email-outbox: worker run failed', { err });
     } finally {
         running = false;
     }
@@ -217,5 +218,5 @@ export function startEmailOutboxWorker() {
     started = true;
     setInterval(() => void tick(), POLL_INTERVAL_MS);
     void tick();
-    console.log(`[email-outbox] worker started (every ${POLL_INTERVAL_MS / 1000}s)`);
+    log.info('email-outbox: worker started', { poll_seconds: POLL_INTERVAL_MS / 1000 });
 }

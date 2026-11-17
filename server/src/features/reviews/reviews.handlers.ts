@@ -14,6 +14,7 @@ import { reviewsQueries, type AdminReviewRow, type ReviewRow } from './reviews.q
 import {
     adminListSchema, orderAccessSchema, productReviewsQuerySchema, rejectSchema, replySchema, upsertReviewSchema,
 } from './reviews.schema';
+import { log } from '../../lib/log';
 
 const iso = (v: string | Date | null) => (v ? new Date(v).toISOString() : null);
 
@@ -160,7 +161,7 @@ export const reviewsHandlers = {
             link: '/reviews',
             data: { review_id: String(review.id) },
             dedupeKey: `review-pending:${review.id}:${new Date(review.updated_at).getTime()}`,
-        }).catch((err) => console.error('[reviews] staff alert failed:', err));
+        }).catch((err) => log.error('reviews: staff alert failed', { err, review_id: review.id }));
         return success(c, { id: String(review.id), status: review.status }, 'Thanks! Your review will appear once we’ve checked it.', 201);
     },
 

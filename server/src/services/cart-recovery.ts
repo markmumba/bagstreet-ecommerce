@@ -4,6 +4,7 @@ import { enqueueEmail, wakeEmailOutbox } from './email-outbox';
 import { dueRecoveryStage } from '../features/cart-recovery/recovery-policy';
 import { ORDER_STATUS, PAYMENT_STATUS } from 'shared/dist';
 import { recoveryState, type RecoverySnapshot } from '../features/cart-recovery/recovery.queries';
+import { log } from '../lib/log';
 
 export async function queueRecoveryReminders() {
     const queued = env.CART_RECOVERY_ENABLED ? await sql.begin(tx => scheduleRecoveryReminders(tx)) as number : 0;
@@ -52,10 +53,10 @@ export function startCartRecovery() {
         if (running) return;
         running = true;
         try { await queueRecoveryReminders(); }
-        catch (error) { console.error('[cart-recovery] scheduler failed:', error); }
+        catch (error) { log.error('cart-recovery: scheduler failed', { err: error }); }
         finally { running = false; }
     };
     setInterval(() => void tick(), 5 * 60_000);
     setTimeout(() => void tick(), 30_000);
-    console.log(`[cart-recovery] ${env.CART_RECOVERY_ENABLED ? 'enabled: 2-hour reminder' : 'reminders disabled'}, 7-day retention`);
+    log.info('cart-recovery: started', { reminders_enabled: env.CART_RECOVERY_ENABLED });
 }

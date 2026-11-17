@@ -1,6 +1,5 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
-import { logger } from 'hono/logger';
 import { secureHeaders } from 'hono/secure-headers';
 import { bodyLimit } from 'hono/body-limit';
 import { categoriesRoutes } from './features/categories/categories.routes';
@@ -33,16 +32,19 @@ import storefrontRoutes from './features/storefront/storefront.routes';
 import recoveryRoutes from './features/cart-recovery/recovery.routes';
 import { startCartRecovery } from './services/cart-recovery';
 import complianceRoutes from './features/compliance/compliance.routes';
+import { log } from './lib/log';
+import { requestLog } from './middleware/request-log';
 
 
 const app = new Hono<AppEnv>()
 
-app.use('*', logger(message => console.log(message.replace(/([?&]token=)[^&\s]+/g, '$1[redacted]'))));
+app.use('*', requestLog);
 app.use('*', secureHeaders());
 app.use('*', cors({
     origin: env.CORS_ORIGIN,
     allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowHeaders: ['Content-Type', 'Authorization', 'X-Bagstreet-App'],
+    exposeHeaders: ['X-Request-Id'],
     credentials: true,
 }));
 app.use('*', bodyLimit({ maxSize: 10 * 1024 * 1024 })); // 10 MB
@@ -92,20 +94,24 @@ app.notFound((c) => c.json({
 }, 404));
 
 
+// Errors nothing awaited: log them with their stack instead of losing them.
+process.on('unhandledRejection', (reason) => log.error('unhandled promise rejection', { err: reason }));
+process.on('uncaughtException', (err) => log.error('uncaught exception', { err }));
+
 const shouldRunMigrationsOnStartup = env.RUN_MIGRATIONS_ON_STARTUP ?? env.NODE_ENV !== 'production';
 
 const prepareDatabase = shouldRunMigrationsOnStartup ? migrateDatabase : assertDatabaseMigrated;
 
 prepareDatabase()
   .then(() => {
-    console.log('Database ready');
+    log.info('database ready');
     startUnpaidOrderExpiry();
         startEmailOutboxWorker();
         startCartRecovery();
         startReviewInvites();
   })
   .catch((error) => {
-    console.error('Database preparation failed:', error);
+    log.error('database preparation failed', { err: error });
     process.exit(1);
   });
 

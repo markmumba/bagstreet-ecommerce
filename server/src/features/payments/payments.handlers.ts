@@ -18,6 +18,7 @@ import { readJsonColumn } from '../../lib/json-column';
 import { MAX_PROMPTS_PER_ORDER, PROMPT_REUSE_MS, maskPhone, mpesaPhone, promptPhoneHint } from './prompt-phone';
 import { PAYSTACK, processPaystackTransaction, recordPaystackWebhook, sendPaystackPrompt } from './paystack-payments';
 import { isValidWebhookSignature } from '../../services/paystack-protocol';
+import { log } from '../../lib/log';
 
 function getOptionalAuthUser(c: AppContext): AuthUser | null {
     return getOptionalUser(c);
@@ -96,7 +97,7 @@ async function initiatePrompt(c: AppContext, order: any, requestedPhone: string 
     try {
         tx = await sendPaystackPrompt(order, orderAmountDue(order), { phone, email });
     } catch (err) {
-        console.error('[paystack] M-Pesa prompt failed:', err);
+        log.error('paystack: M-Pesa prompt failed', { err, order_id: order.id });
         throw new BadRequestError("M-Pesa couldn't send the payment request right now. Please try again in a moment.");
     }
     return success(c, {
@@ -204,7 +205,7 @@ export const paymentsHandlers = {
         try {
             result = await processPaystackTransaction(tx);
         } catch (err) {
-            console.error(`[${tx.provider}] status check failed:`, err);
+            log.error('payment status check failed', { err, provider: tx.provider, order_id: tx.order_id, payment_transaction_id: tx.id });
             return respond(ORDER_STATUS.PENDING, 'We could not check your payment right now. Please try again shortly.', order, promptInfo);
         }
 
@@ -246,7 +247,7 @@ export const paymentsHandlers = {
             return c.json({ message: 'Malformed body' }, 400);
         }
         if (event.event === 'charge.success') {
-            void recordPaystackWebhook(event).catch((err) => console.error('[paystack] webhook processing failed:', err));
+            void recordPaystackWebhook(event).catch((err) => log.error('paystack: webhook processing failed', { err, reference: event.data?.reference }));
         }
         return c.json({ received: true });
     },

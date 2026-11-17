@@ -14,6 +14,7 @@ import { customerView } from '../orders/lifecycle/transitions';
 import { ordersQueries } from '../orders/orders.queries';
 import { applyAttemptOutcome } from './attempt-outcome';
 import { paymentsQueries, type PaymentTransactionRow } from './payments.queries';
+import { log } from '../../lib/log';
 
 export const PAYSTACK = 'paystack' as const;
 
@@ -55,7 +56,7 @@ export async function recordPaystackWebhook(event: { event?: string; data?: { re
     if (!reference) return;
     const tx = await paymentsQueries.findProviderTransactionByReference(PAYSTACK, reference);
     if (!tx) {
-        console.warn('[paystack] webhook for unknown reference:', reference);
+        log.warn('paystack: webhook for unknown reference', { reference });
         return;
     }
     await paymentsQueries.createProcessedPaymentEvent({

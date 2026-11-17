@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { log } from '../lib/log';
 
 /**
  * Object storage settings were once named MINIO_*. They're STORAGE_* now because production uses
@@ -81,7 +82,7 @@ const envSchema = z.object({
 export const env = envSchema.parse(rawEnv);
 
 if (legacyStorageNamesInUse.length > 0) {
-    console.warn(`[config] ${legacyStorageNamesInUse.join(', ')} are old names — rename to STORAGE_* (same values).`);
+    log.warn('old storage setting names in use: rename to STORAGE_* (same values)', { names: legacyStorageNamesInUse });
 }
 
 if (env.NODE_ENV === 'production') {

@@ -11,6 +11,7 @@ import { paymentsQueries } from '../features/payments/payments.queries';
 import { PAYSTACK, processPaystackTransaction } from '../features/payments/paystack-payments';
 import { applyOrderEvent } from '../features/orders/lifecycle/order-lifecycle';
 import { shouldCancelExpiredOrder, type ProviderCheck } from './unpaid-order-policy';
+import { log } from '../lib/log';
 
 const RUN_EVERY_MS = 5 * 60 * 1000;
 const FIRST_RUN_DELAY_MS = 30 * 1000;
@@ -25,7 +26,7 @@ async function checkProvider(orderId: number): Promise<ProviderCheck> {
         const result = await processPaystackTransaction(tx, { force: true });
         return result.status === PAYMENT_STATUS.PAID ? 'paid' : 'not_paid';
     } catch (err) {
-        console.warn(`[order-expiry] could not check ${tx.provider} for order ${orderId}:`, err);
+        log.warn('order-expiry: could not check payment provider', { err, provider: tx.provider, order_id: orderId });
         return 'error';
     }
 }
@@ -49,17 +50,17 @@ export async function expireUnpaidOrders(now: number = Date.now()): Promise<{ ch
             });
             if (result.outcome === 'changed') cancelled += 1;
         } catch (err) {
-            console.error(`[order-expiry] could not expire order ${orderId}:`, err);
+            log.error('order-expiry: could not expire order', { err, order_id: orderId });
         }
     }
 
-    if (cancelled > 0) console.log(`[order-expiry] cancelled ${cancelled} unpaid order(s), stock released`);
+    if (cancelled > 0) log.info('order-expiry: cancelled unpaid orders, stock released', { cancelled });
     return { checked: candidates.length, cancelled };
 }
 
 export function startUnpaidOrderExpiry() {
     if (env.UNPAID_ORDER_TTL_MINUTES === 0) {
-        console.log('[order-expiry] disabled (UNPAID_ORDER_TTL_MINUTES=0)');
+        log.info('order-expiry: disabled (UNPAID_ORDER_TTL_MINUTES=0)');
         return;
     }
 
@@ -70,7 +71,7 @@ export function startUnpaidOrderExpiry() {
         try {
             await expireUnpaidOrders();
         } catch (err) {
-            console.error('[order-expiry] run failed:', err);
+            log.error('order-expiry: run failed', { err });
         } finally {
             running = false;
         }
@@ -78,5 +79,5 @@ export function startUnpaidOrderExpiry() {
 
     setTimeout(run, FIRST_RUN_DELAY_MS);
     setInterval(run, RUN_EVERY_MS);
-    console.log(`[order-expiry] unpaid orders expire after ${env.UNPAID_ORDER_TTL_MINUTES} min`);
+    log.info('order-expiry: started', { ttl_minutes: env.UNPAID_ORDER_TTL_MINUTES });
 }
