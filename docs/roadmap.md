@@ -16,12 +16,12 @@ real customers; sections 2–4 can follow launch.
 ### Engineering
 - [ ] Add the image-build workflow (`.github/workflows/images.yml`, untracked locally) using a token with the `workflow` scope
 - [ ] Choose the final media URL (custom CDN subdomain recommended) **before** uploading the real catalogue, since image URLs are stored per product ([deployment.md › CDN](deployment.md#cdn))
-- [ ] Provision the droplet, Postgres volume, Spaces bucket and CDN; domain, DNS and HTTPS through Caddy
-- [ ] Production `.env` from `deploy/.env.production.example` (`TRUST_PROXY_HOPS=1`, `STORAGE_*`, Pesapal live keys); run `seed-admin` with `ADMIN_EMAIL` / `ADMIN_PASSWORD`
+- [ ] Provision the droplet and Postgres volume, the R2 bucket with its custom domain; domain, DNS and HTTPS through Caddy
+- [ ] Production `.env` from `deploy/.env.production.example` (`TRUST_PROXY_HOPS=1`, `STORAGE_*` for R2, Paystack live key); run `seed-admin` with `ADMIN_EMAIL` / `ADMIN_PASSWORD`
 - [ ] Email: sender domain set up (SPF, DKIM, DMARC) and one real end-to-end delivery test
-- [ ] Pesapal: live credentials, IPN registered, one full sandbox payment end to end (including the `PAYMENT_INIT_FAILED` alert), then test reconciliation, refund and dispute handling with Pesapal
+- [ ] Paystack: live key, webhook URL registered, one full test-mode payment end to end (including the `PAYMENT_INIT_FAILED` alert), then test reconciliation, refund and dispute handling with Paystack
 - [ ] Staff MFA (compliance launch gate)
-- [ ] Encrypted offsite backups of the database and Spaces, a tested restore, written RPO/RTO
+- [ ] Encrypted offsite backups of the database and R2, a tested restore, written RPO/RTO
 - [ ] Uptime and error monitoring ([deployment.md › Monitoring](deployment.md#monitoring))
 - [ ] Production smoke test: browse, checkout, pay, confirmation email, admin marks received, refund
 
@@ -31,7 +31,7 @@ real customers; sections 2–4 can follow launch.
 
 ### Owner, counsel and accountant (from [compliance-readiness.md](compliance-readiness.md#launch-gates-not-completed-by-code))
 - [ ] Counsel approves the registration particulars and policy wording (terms, returns, delivery, privacy, cookies)
-- [ ] ODPC registration assessed; list the actual providers (VPS, Spaces, email, CDN, delivery) and confirm processor contracts and cross-border safeguards
+- [ ] ODPC registration assessed; list the actual providers (VPS, Cloudflare R2, email, Paystack, delivery) and confirm processor contracts and cross-border safeguards
 - [ ] Accountant confirms KRA PIN, tax regime, eTIMS and whether a VAT line is needed on orders; agree the record-retention schedule
 - [ ] Supplier invoices, authenticity checks and photo licences on file for the launch catalogue
 - [ ] Owner reviews product names, materials and claims
