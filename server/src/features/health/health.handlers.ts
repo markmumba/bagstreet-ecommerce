@@ -32,10 +32,6 @@ export const healthHandlers = {
             };
         }
 
-        checks.rate_limit = {
-            store: env.RATE_LIMIT_STORE,
-            redis_configured: Boolean(env.REDIS_REST_URL && env.REDIS_REST_TOKEN),
-        };
         checks.circuits = {
             paystack: paystackCircuit.snapshot(),
         };

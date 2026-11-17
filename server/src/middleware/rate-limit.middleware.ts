@@ -1,26 +1,22 @@
 import type { Next } from 'hono';
-import { env } from '../config/env';
 import type { AppContext } from '@server/lib/hono';
 import { getClientIp } from '@server/lib/client-ip';
 
+/**
+ * Request counters, kept in this process's memory. Fine for one API instance; counters reset when
+ * the API restarts. Per-customer order limits don't depend on this (they're in Postgres).
+ */
 interface Entry {
     count: number;
     resetAt: number;
 }
 
-interface RateLimitResult {
-    allowed: boolean;
-    count: number;
-    resetAt: number;
-    store: 'memory' | 'redis';
-}
-
-const memoryStore = new Map<string, Entry>();
+const counters = new Map<string, Entry>();
 
 setInterval(() => {
     const now = Date.now();
-    for (const [key, entry] of memoryStore.entries()) {
-        if (entry.resetAt < now) memoryStore.delete(key);
+    for (const [key, entry] of counters.entries()) {
+        if (entry.resetAt < now) counters.delete(key);
     }
 }, 5 * 60 * 1000).unref();
 
@@ -30,80 +26,21 @@ function bucketKey(c: AppContext, scope: string) {
     return `rl:${scope}:${actor}:${c.req.method}:${c.req.path}`;
 }
 
-async function memoryIncrement(key: string, windowMs: number): Promise<RateLimitResult> {
+/** Counts one more hit for `key` in its current window (starting a new window if it ran out). */
+function increment(key: string, windowMs: number): Entry {
     const now = Date.now();
-    let entry = memoryStore.get(key);
-
+    let entry = counters.get(key);
     if (!entry || entry.resetAt < now) {
         entry = { count: 0, resetAt: now + windowMs };
-        memoryStore.set(key, entry);
+        counters.set(key, entry);
     }
-
     entry.count++;
-    return {
-        allowed: true,
-        count: entry.count,
-        resetAt: entry.resetAt,
-        store: 'memory',
-    };
+    return entry;
 }
 
-async function redisCommand<T>(command: unknown[]): Promise<T> {
-    const response = await fetch(`${env.REDIS_REST_URL}/pipeline`, {
-        method: 'POST',
-        headers: {
-            Authorization: `Bearer ${env.REDIS_REST_TOKEN}`,
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify([command]),
-    });
-
-    if (!response.ok) {
-        throw new Error(`Redis command failed: ${response.status}`);
-    }
-
-    const [result] = await response.json() as [{ result: T; error?: string }];
-    if (result.error) throw new Error(result.error);
-    return result.result;
-}
-
-async function redisIncrement(key: string, windowMs: number): Promise<RateLimitResult> {
-    const now = Date.now();
-    const ttlMs = await redisCommand<number | null>(['PTTL', key]);
-    const count = await redisCommand<number>(['INCR', key]);
-
-    let resetAt = now + windowMs;
-    if (count === 1 || ttlMs == null || ttlMs < 0) {
-        await redisCommand(['PEXPIRE', key, windowMs]);
-    } else {
-        resetAt = now + ttlMs;
-    }
-
-    return { allowed: true, count, resetAt, store: 'redis' };
-}
-
-async function increment(key: string, windowMs: number): Promise<RateLimitResult> {
-    const shouldUseRedis = env.RATE_LIMIT_STORE === 'redis' && env.REDIS_REST_URL && env.REDIS_REST_TOKEN;
-    if (!shouldUseRedis) return memoryIncrement(key, windowMs);
-
-    try {
-        return await redisIncrement(key, windowMs);
-    } catch (error) {
-        console.error('[rate-limit] Redis unavailable, falling back to memory:', error);
-        return memoryIncrement(key, windowMs);
-    }
-}
-
-async function peek(key: string): Promise<number> {
-    const shouldUseRedis = env.RATE_LIMIT_STORE === 'redis' && env.REDIS_REST_URL && env.REDIS_REST_TOKEN;
-    if (shouldUseRedis) {
-        try {
-            return Number(await redisCommand<string | null>(['GET', key]) ?? 0);
-        } catch (error) {
-            console.error('[rate-limit] Redis unavailable, falling back to memory:', error);
-        }
-    }
-    const entry = memoryStore.get(key);
+/** Hits so far in the current window, without counting one. */
+function peek(key: string): number {
+    const entry = counters.get(key);
     return entry && entry.resetAt >= Date.now() ? entry.count : 0;
 }
 
@@ -118,8 +55,8 @@ export function failureLimiter(options: { scope: string; limit: number; windowMs
     };
     return {
         /** True once the limit of failures has been reached in the window. */
-        blocked: async (c: AppContext) => (await peek(key(c))) >= options.limit,
-        record: async (c: AppContext) => { await increment(key(c), options.windowMs); },
+        blocked: async (c: AppContext) => peek(key(c)) >= options.limit,
+        record: async (c: AppContext) => { increment(key(c), options.windowMs); },
     };
 }
 
@@ -141,13 +78,12 @@ export function rateLimit(options: {
 
     return async (c: AppContext, next: Next) => {
         const key = bucketKey(c, scope);
-        const result = await increment(key, windowMs);
+        const result = increment(key, windowMs);
         const remaining = Math.max(0, limit - result.count);
 
         c.header('X-RateLimit-Limit', String(limit));
         c.header('X-RateLimit-Remaining', String(remaining));
         c.header('X-RateLimit-Reset', String(Math.ceil(result.resetAt / 1000)));
-        c.header('X-RateLimit-Store', result.store);
 
         if (result.count > limit) {
             const retryAfter = Math.max(1, Math.ceil((result.resetAt - Date.now()) / 1000));

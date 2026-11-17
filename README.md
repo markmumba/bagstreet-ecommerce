@@ -58,7 +58,6 @@ POSTGRES_PASSWORD=qwerty1234
 POSTGRES_DB=bagstreet
 MINIO_ACCESS_KEY=minioadmin
 MINIO_SECRET_KEY=minioadmin
-REDIS_REST_TOKEN=change-me
 ```
 
 Create `server/.env` for the API:
@@ -81,18 +80,11 @@ EMAIL_FROM=
 CLIENT_URL=http://localhost:5173
 STOREFRONT_URL=http://localhost:5174
 
-# Redis-backed rate limiting through the local Redis REST bridge
-RATE_LIMIT_STORE=redis
-REDIS_REST_URL=http://localhost:8079
-REDIS_REST_TOKEN=change-me
-
-# M-Pesa Express (Daraja STK Push). Sandbox keys from developer.safaricom.co.ke; MPESA_ENV=production for live.
+# Payments: Paystack sends the M-Pesa prompt. Test key from the Paystack dashboard
+# (sk_test_…). Without it, checkout runs in dev mock mode and no prompt is sent.
 CURRENCY=KES
-MPESA_ENV=sandbox
-MPESA_CONSUMER_KEY=
-MPESA_CONSUMER_SECRET=
-MPESA_SHORTCODE=174379
-MPESA_PASSKEY=
+PAYSTACK_SECRET_KEY=
+PAYSTACK_WEBHOOK_SECRET=
 ```
 
 ---
