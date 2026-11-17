@@ -1,6 +1,6 @@
 # Deploying Bagstreet
 
-How to run Bagstreet in production on one DigitalOcean droplet with Docker Compose, Caddy and DigitalOcean Spaces.
+How to run Bagstreet in production on one DigitalOcean droplet with Docker Compose and Caddy, with product images on Cloudflare R2.
 
 The files referred to here live in [`deploy/`](../deploy):
 
@@ -13,7 +13,7 @@ The files referred to here live in [`deploy/`](../deploy):
 | `deploy/.env.production.example` | Every setting, with comments |
 | `.github/workflows/images.yml` | Builds both images on GitHub and pushes them to GitHub Container Registry |
 
-> **Tested so far.** Before this guide was written, the full stack was built and run locally from an empty database: migrations, health checks, HTTPS through Caddy, CORS, and the rate-limit IP check in [Step 8](#8-verify-before-launch). Nothing has yet been deployed to a real droplet or a real Space, so follow the verification steps the first time.
+> **Tested so far.** Before this guide was written, the full stack was built and run locally from an empty database: migrations, health checks, HTTPS through Caddy, CORS, and the rate-limit IP check in [Step 8](#8-verify-before-launch). Nothing has yet been deployed to a real droplet or a real R2 bucket, so follow the verification steps the first time.
 
 ---
 
@@ -26,8 +26,8 @@ The files referred to here live in [`deploy/`](../deploy):
                            └─────▶ api:3000 (Bun) ──▶ postgres                  │
                          └──────────────────────────────┬──────────────────────┘
                                                         │ uploads (S3 API)
- browsers ──HTTPS──▶ Spaces CDN edge ◀── Space "bagstreet-media" (private, no listing)
-                     (product & campaign images)
+ browsers ──HTTPS──▶ Cloudflare edge ◀── R2 bucket "bagstreet-media" (custom domain only, no listing)
+                     (product & campaign images, cached)
 ```
 
 | Domain | Served by |
@@ -35,7 +35,7 @@ The files referred to here live in [`deploy/`](../deploy):
 | `example.co.ke` | Storefront (`www.` redirects here) |
 | `admin.example.co.ke` | Admin dashboard |
 | `api.example.co.ke` | API |
-| `bagstreet-media.fra1.cdn.digitaloceanspaces.com`, or your own `media.example.co.ke` | Images, from the Spaces CDN |
+| `media.example.co.ke` (the R2 bucket's custom domain) | Images, from Cloudflare R2 |
 
 Only Caddy is reachable from the internet. Postgres and the API sit on the internal Docker network with no published ports.
 
@@ -49,9 +49,11 @@ Only Caddy is reachable from the internet. Postgres and the API sit on the inter
 - **Its default `X-Forwarded-For` handling is safe.** It replaces the header with the real client IP unless the request comes from a proxy you've told it to trust. Rate limiting depends on this; see [`TRUST_PROXY_HOPS`](#trust_proxy_hops).
 - Nginx would work too, but you'd have to get each of those right by hand.
 
-### DigitalOcean Spaces for images, not self-hosted MinIO
+### Cloudflare R2 for images, not self-hosted MinIO or DigitalOcean Spaces
 - **MinIO no longer publishes downloadable images.** As of late 2025, `minio/minio` on Docker Hub refuses pulls, including pinned releases, and the `quay.io` and Bitnami images are gone. A fresh droplet can't install it the usual way. Building MinIO from source is possible, but then you build and patch it yourselves.
-- **Spaces is S3-compatible,** so the existing upload code works with configuration changes only. It costs about **$5/month for 250 GiB of storage plus 1 TiB of transfer**, and includes a CDN. There's no storage server to run, secure or back up.
+- **R2 is S3-compatible,** so the existing upload code works with configuration changes only. There's no storage server to run, secure or back up.
+- **At this size it costs nothing.** Each month includes 10 GB of storage, 1 million writes and 10 million reads free, and R2 never charges for egress (images going out to customers). Beyond the free tier, storage is $0.015 per GB-month. DigitalOcean Spaces would be a flat $5/month for the same job.
+- **Images are served from Cloudflare's edge,** which has locations in Nairobi and Mombasa, through the bucket's custom domain.
 - **Local development is unchanged.** MinIO keeps running from `docker-compose.yml`, using the copy already on your machine.
 
 ### One droplet with Docker Compose
@@ -86,7 +88,7 @@ Building the images (dependency install, TypeScript, Vite) needs about another 1
 - **Image sizes:** the API image is about 250 MB (production dependencies only) and the web image about 66 MB. GitHub's free plan includes 500 MB of private package storage, so delete old versions now and then (Packages → each image → Manage versions), or make the packages public. They contain no secrets: all configuration comes from `.env.production` at runtime.
 - **Add a 2 GB swap file anyway** ([Step 2](#2-harden-the-server)). It's a safety net against an unusual spike, not something the stack should rely on.
 
-### Storage for images (Spaces, not the droplet)
+### Storage for images (R2, not the droplet)
 Measured on the current catalogue: one uploaded photo is stored in three WebP sizes, about **125 KB** in total (thumbnail 4 KB, medium 48 KB, large 72 KB). Full-resolution phone photos will be larger, so budget **150–350 KB per photo**.
 
 | Catalogue | Photos (4 per product) | Space used |
@@ -95,7 +97,7 @@ Measured on the current catalogue: one uploaded photo is stored in three WebP si
 | 1,000 products | 4,000 | ≈ 0.6–1.4 GB |
 | 10,000 products | 40,000 | ≈ 6–14 GB |
 
-The 250 GiB included with Spaces will last a long time. **The droplet's disk doesn't hold images.**
+Even 10,000 products sit around R2's 10 GB free allowance; past it, each extra GB is $0.015/month. **The droplet's disk doesn't hold images.**
 
 ### Droplet disk (50 GB)
 | Item | Space |
@@ -107,23 +109,23 @@ The 250 GiB included with Spaces will last a long time. **The droplet's disk doe
 | Local backups | small |
 
 ### Transfer
-- A product page is about 0.5–0.7 MB of images. The 1 TiB of Spaces transfer covers roughly **1.5 million image-heavy page views a month**.
+- A product page is about 0.5–0.7 MB of images. **R2 doesn't charge for egress,** and Cloudflare's cache answers most image views without reading from R2, so image traffic costs nothing however busy the shop gets.
 - The droplet's own transfer allowance (2 TB on this size) covers the API and static files many times over.
 
 ### Starting budget
-Prices are approximate as of 2025; check DigitalOcean's pricing page.
+Prices are approximate; check DigitalOcean's and Cloudflare's pricing pages.
 
 | | Spec | Approx. monthly |
 |---|---|---|
 | **Droplet** | Basic Regular, 1 vCPU / 2 GB / 50 GB SSD, Ubuntu 24.04 LTS | ~$12 |
 | Block Storage volume | 10 GiB at `/mnt/bagstreet` for Postgres data and backups | ~$1 |
-| Spaces with CDN | 250 GiB + 1 TiB transfer | ~$5 |
+| Cloudflare R2 | free tier: 10 GB, 1M writes and 10M reads a month, no egress fees | $0 at launch |
 | Droplet backups | weekly | ~$2.40 |
-| **Total** | | **≈ $20/month** |
+| **Total** | | **≈ $15/month** |
 
 **Why use a separate volume for Postgres?** It survives rebuilding or resizing the droplet, and you can snapshot it on its own. You can grow it later without downtime.
 
-**Region:** DigitalOcean has no African region. Put the droplet and the Space in the **same** region, and pick FRA1, AMS3 or LON1 by testing latency from Kenya (DigitalOcean's speed-test pages are a quick way to do this). With the CDN, images are served from edge locations anyway, so the droplet's region mostly affects API response times.
+**Region:** DigitalOcean has no African region. Pick FRA1, AMS3 or LON1 for the droplet by testing latency from Kenya (DigitalOcean's speed-test pages are a quick way to do this); it mostly affects API response times. R2 has no African location either, but images are served from Cloudflare's edge, so the bucket's location matters little. Create it with the default **Automatic** location, or the **Western Europe** hint to sit near the droplet.
 
 ### When to upgrade
 Move up when any of these hold for a week or more, not on a single spike:
@@ -146,25 +148,23 @@ The natural next step is 2 vCPU / 4 GB (~$24/month). On that size you could also
 
 There are two layers. The first is needed from day one; the second is optional.
 
-### 1. Images: the Spaces CDN (required)
-- **Turn the CDN on** in the Space's settings. Images are then served from DigitalOcean's edge servers rather than from the Space itself.
-- **Cache settings:** every image is uploaded with `Cache-Control: public, max-age=31536000, immutable`, so edges and browsers keep it for a year.
+### 1. Images: R2 behind a custom domain (required)
+- **Connect a custom domain** to the bucket (bucket → Settings → Custom Domains), such as `media.example.co.ke`. The domain must be added to Cloudflare, in the same account, as a zone: either move its DNS to Cloudflare, or use Cloudflare's partial (CNAME) setup. The custom domain is what puts Cloudflare's cache in front of R2.
+- **Don't use the `r2.dev` address in production.** Cloudflare rate-limits it and describes it as for development only. Leave it disabled.
+- **Cache settings:** every image is uploaded with `Cache-Control: public, max-age=31536000, immutable`, so Cloudflare's edge and browsers keep it for a year. Cloudflare caches `.webp` files by default; no cache rule is needed.
 - **No cache purging is ever needed.** File names are random UUIDs, and a new or replaced photo always gets a new URL.
-- **Choose the final image URL before launch.** The full image URL (`STORAGE_PUBLIC_URL` + file name) is stored in the database for each product, so changing the CDN address later means a SQL update to rewrite stored URLs. Two options:
-  - **Recommended:** a custom subdomain such as `https://media.example.co.ke`. Add it under the Space's CDN settings; DigitalOcean issues the certificate if the domain's DNS is managed by DigitalOcean. You can then change CDN provider later without touching stored URLs.
-  - **Or:** the default `https://<space>.<region>.cdn.digitaloceanspaces.com`.
-- **Deleted images:** when an image is replaced or a product removed, the app deletes it from the Space, but edge copies can linger until they expire. That's fine for normal use. For an urgent takedown (for example a copyright complaint), purge the file in the Space's CDN settings.
+- **Choose the final image URL before launch.** The full image URL (`STORAGE_PUBLIC_URL` + file name) is stored in the database for each product, so changing the image domain later means a SQL update to rewrite stored URLs. With your own subdomain you can change storage provider later without touching stored URLs.
+- **Deleted images:** when an image is replaced or a product removed, the app deletes it from R2, but Cloudflare's cache can keep serving it until it expires. That's fine for normal use. For an urgent takedown (for example a copyright complaint), purge that URL in the Cloudflare dashboard (Caching → Configuration → Custom Purge).
 
 ### 2. Optional: Cloudflare in front of Caddy (storefront and API)
 **Why:** Cloudflare has edge locations in Nairobi and Mombasa. It would cache the storefront's JavaScript, CSS and static images close to customers, and add DDoS protection. The free plan is enough.
 
 How to set it up:
-1. Move DNS to Cloudflare and turn the orange-cloud proxy on for `example.co.ke`, `admin.` and `api.`.
+1. If the domain isn't on Cloudflare yet, move its DNS there (you may already have, for the image domain). Turn the orange-cloud proxy on for `example.co.ke`, `admin.` and `api.`.
 2. Set SSL/TLS mode to **Full (strict)**. Caddy keeps its Let's Encrypt certificates.
 3. **Caching:** the hashed files under `/assets/*` are already marked immutable, and `index.html` is `no-cache`, so Cloudflare's defaults behave correctly. **Don't add "cache everything" rules for `api.`**: the API is dynamic and per-user.
 4. **The IP chain changes.** You must update Caddy and `TRUST_PROXY_HOPS`, as described [below](#with-cloudflare-in-front).
 
-**Don't add Cloudflare in front of the Spaces CDN.** That would be two CDNs in a row.
 
 ---
 
@@ -172,20 +172,20 @@ How to set it up:
 
 | Layer | What protects it |
 |---|---|
-| **No listing** | Create the Space with **File Listing: Restricted**. Each image is individually public (`STORAGE_OBJECT_ACL=public-read`), but nobody can list the Space to discover files. Names are random UUIDs, so they can't be guessed. |
-| **Scoped key** | Create a **limited-access Spaces key** for this one Space with Read/Write/Delete. Even if the API server leaked it, no other Space and nothing else on the account would be exposed. |
-| **Uploads only through the API** | Only signed-in admins can upload, via the API. The Space accepts no anonymous writes. |
+| **No listing** | Images are public only through the custom domain, which doesn't let anyone list the bucket. Keep the `r2.dev` address disabled. R2 has no per-file permissions: the bucket's public access is the switch. Names are random UUIDs, so they can't be guessed. |
+| **Scoped key** | Create an **R2 API token with Object Read & Write, scoped to `bagstreet-media` only**. Even if the API server leaked it, no other bucket and nothing else on the Cloudflare account would be exposed. |
+| **Uploads only through the API** | Only signed-in admins can upload, via the API. The bucket accepts no anonymous writes. |
 | **Re-encoding strips payloads** | Every upload is decoded and re-encoded to WebP by `sharp`. This throws away EXIF/GPS metadata and anything hidden in the original file, and SVG and other non-image types are rejected. |
 | **Correct content type** | Images are stored as `image/webp` with long-lived cache headers. |
 | **The API's own limits** | API requests are capped at 10 MB, and Caddy caps uploads at 16 MB. |
 
 > **Known mismatch:** the upload code accepts images up to 15 MB, but the API's request limit is 10 MB, so photos between 10 and 15 MB fail. That's rare with phone photos (usually 2–5 MB). Raise the limit in `server/src/index.ts` if it causes problems.
 
-**Check after setup.** Both of these should return **403**:
+**Check after setup.** Neither of these may list files: expect an error status (such as 400, 401, 403 or 404) and no XML list of objects.
 
 ```bash
-curl -s -o /dev/null -w '%{http_code}\n' https://bagstreet-media.fra1.digitaloceanspaces.com/
-curl -s -o /dev/null -w '%{http_code}\n' "https://bagstreet-media.fra1.digitaloceanspaces.com/?list-type=2"
+curl -s -w '\n%{http_code}\n' https://media.example.co.ke/
+curl -s -w '\n%{http_code}\n' "https://<account-id>.r2.cloudflarestorage.com/bagstreet-media?list-type=2"
 ```
 
 ---
@@ -224,13 +224,14 @@ The Caddyfile is built into the web image, so commit the change and tag a releas
 
 ## Step by step
 
-### 1. Create the DigitalOcean resources
+### 1. Create the DigitalOcean and Cloudflare resources
 1. **Droplet:** Ubuntu 24.04 LTS, 1 vCPU / 2 GB ([sizing](#sizing-starting-on-the-12-droplet)), **SSH key login only**, monitoring enabled, weekly backups enabled.
 2. **Block Storage volume:** 10 GiB in the same region, attached to the droplet and mounted at `/mnt/bagstreet`. Add it to `/etc/fstab` as the DigitalOcean panel shows.
-3. **Space:** `bagstreet-media` in the same region, with **CDN enabled** and **File Listing: Restricted**. Optionally add a custom CDN subdomain such as `media.example.co.ke`.
-4. **Spaces key:** a limited-access key, Read/Write/Delete on `bagstreet-media` only.
-5. **A second, private Space for backups:** `bagstreet-backups`, with its own key.
-6. **DNS:** `A` records for `example.co.ke`, `www`, `admin` and `api`, all pointing to the droplet IP.
+3. **Domain on Cloudflare:** add the shop's domain to your Cloudflare account (free plan), so R2 can use it.
+4. **R2 bucket:** `bagstreet-media`, location Automatic (or the Western Europe hint). Under Settings → Custom Domains add `media.example.co.ke`. Leave the `r2.dev` address disabled.
+5. **R2 API token:** Object Read & Write, scoped to `bagstreet-media` only. Copy the Access Key ID and Secret Access Key straight into `.env.production`: the secret is shown only once. The account ID (for `STORAGE_ENDPOINT`) is on the R2 overview page.
+6. **A second, private bucket for backups:** `bagstreet-backups`, with no public access and its own Object Read & Write token.
+7. **DNS:** `A` records for `example.co.ke`, `www`, `admin` and `api`, all pointing to the droplet IP. Leave them DNS-only (grey cloud) unless you set up the [optional Cloudflare proxy](#2-optional-cloudflare-in-front-of-caddy-storefront-and-api).
 
 ### 2. Harden the server
 ```bash
@@ -296,12 +297,12 @@ $C run --rm -e ADMIN_EMAIL=you@example.co.ke -e ADMIN_PASSWORD='a long passphras
 ```
 Then sign in at `https://admin.example.co.ke` and invite other staff from the Users page.
 
-### 7. Pesapal (production)
-1. Register `https://api.example.co.ke/api/payments/pesapal/ipn` as the IPN URL in Pesapal.
-2. Put the IPN id in `PESAPAL_IPN_ID`, and the production consumer key and secret in `.env.production`.
+### 7. Paystack (production)
+1. In the Paystack dashboard (Settings → API Keys & Webhooks), set the webhook URL to `https://api.example.co.ke/api/payments/paystack/webhook`.
+2. Put the live secret key in `PAYSTACK_SECRET_KEY`, and the webhook signing secret in `PAYSTACK_WEBHOOK_SECRET` if the dashboard shows one.
 3. Run `$C up -d api` to restart with the new settings.
 4. Place one small real order end to end.
-5. In Admin → **Reconciliation**, import that day's Pesapal statement. It confirms the CSV columns are detected correctly and records the fee.
+5. In Admin → **Reconciliation**, import that day's Paystack transactions export. It confirms the CSV columns are detected correctly and records the fee.
 
 ### 8. Verify before launch
 - [ ] `curl https://api.example.co.ke/health/ready` reports `READY`, with the database `UP`.
@@ -315,7 +316,7 @@ Then sign in at `https://admin.example.co.ke` and invite other staff from the Us
   $C restart api   # rate-limit counters live in the API's memory
   ```
 - [ ] Upload a product photo in the admin. Its URL starts with `STORAGE_PUBLIC_URL` and loads in a private browser window.
-- [ ] Both Space listing checks [above](#securing-images) return 403.
+- [ ] Neither listing check [above](#securing-images) returns a list of files.
 - [ ] Nothing except ports 22, 80 and 443 is open. From your laptop, `nmap -Pn <droplet-ip>` should show only those.
 
 ---
@@ -345,11 +346,12 @@ $C exec postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "UPDATE email_out
 
 ## Backups
 
-The database is the irreplaceable part. Images are in Spaces, which is replicated within its region.
+The database is the irreplaceable part. Images are in R2, which stores data redundantly.
 
-Nightly Postgres dump, kept 14 days locally and copied to the private backups Space:
+Nightly Postgres dump, kept 14 days locally and copied to the private backups bucket:
 ```bash
-# /etc/cron.d/bagstreet-backup  (runs as deploy; install s3cmd and configure it with the backups key)
+# /etc/cron.d/bagstreet-backup  (runs as deploy; install s3cmd and configure it with the backups token,
+#  host <account-id>.r2.cloudflarestorage.com, region auto)
 15 2 * * * deploy cd ~/bagstreet && docker compose -f deploy/docker-compose.prod.yml --env-file .env.production exec -T postgres sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc > /backups/bagstreet-$(date +\%F).dump && find /backups -name "*.dump" -mtime +14 -delete' && s3cmd sync --delete-removed /mnt/bagstreet/backups/ s3://bagstreet-backups/postgres/
 ```
 
@@ -389,14 +391,13 @@ The template [`deploy/.env.production.example`](../deploy/.env.production.exampl
 | Variable | Production value | Why |
 |---|---|---|
 | `TRUST_PROXY_HOPS` | `1` (`2` with Cloudflare) | Real client IPs for rate limits. See above. |
-| `STORAGE_ENDPOINT`, `STORAGE_PORT`, `STORAGE_USE_SSL` | `fra1.digitaloceanspaces.com`, `443`, `true` | Spaces' S3 API |
-| `STORAGE_REGION` | `us-east-1` | The signing region DigitalOcean documents for S3 clients. **If uploads fail with a signature error, try the Space's own region (e.g. `fra1`).** |
-| `STORAGE_OBJECT_ACL` | `public-read` | Each image is public while the Space itself stays private. |
-| `STORAGE_PUBLIC_URL` | the CDN URL | Stored in image URLs; [choose it before launch](#1-images-the-spaces-cdn-required). |
+| `STORAGE_ENDPOINT`, `STORAGE_PORT`, `STORAGE_USE_SSL` | `<account-id>.r2.cloudflarestorage.com`, `443`, `true` | R2's S3 API |
+| `STORAGE_REGION` | `auto` | R2's signing region (`us-east-1` is accepted as an alias). |
+| `STORAGE_PUBLIC_URL` | `https://media.example.co.ke` | The bucket's custom domain. Stored in image URLs; [choose it before launch](#1-images-r2-behind-a-custom-domain-required). |
 | `UNPAID_ORDER_TTL_MINUTES` | `45` | Releases stock held by abandoned checkouts. |
 | `RUN_MIGRATIONS_ON_STARTUP` | `false` (set by compose) | Migrations run as an explicit step. |
-| `PESAPAL_ENV` | `production` | |
+| `PAYSTACK_SECRET_KEY` | `sk_live_…` | Live key; the test key stays in local `.env`. |
 
-**Storage settings are named `STORAGE_*`**, because production uses Spaces rather than MinIO. The old `MINIO_*` names are still read as a fallback, with a startup warning, so existing local `.env` files keep working. The `MINIO_ROOT_*` settings in the local `docker-compose.yml` configure the MinIO container itself and are unrelated.
+**Storage settings are named `STORAGE_*`**, because production uses R2 rather than MinIO. The old `MINIO_*` names are still read as a fallback, with a startup warning, so existing local `.env` files keep working. The `MINIO_ROOT_*` settings in the local `docker-compose.yml` configure the MinIO container itself and are unrelated.
 
 The compose file sets `DATABASE_URL`, `SERVER_URL`, `STOREFRONT_URL`, `CLIENT_URL` and `CORS_ORIGIN` from the domains and credentials in `.env.production`, so they can't drift out of sync.

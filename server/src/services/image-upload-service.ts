@@ -15,6 +15,8 @@ const minioClient = new Client({
 
 let bucketReady: Promise<void> | null = null;
 
+/** Creates the bucket if it's missing — for local MinIO. In production the R2 bucket is made (and
+ * made public) in the Cloudflare dashboard, so this only checks it exists. */
 async function ensureBucket() {
     const exists = await minioClient.bucketExists(env.STORAGE_BUCKET);
     if (!exists) {
@@ -63,7 +65,7 @@ const bannerSizes = [
 ] as const;
 
 /** Public URL for an object. In production the server uploads through the storage API but browsers
- * load images from STORAGE_PUBLIC_URL (e.g. the Spaces CDN), which has objects directly under it. */
+ * load images from STORAGE_PUBLIC_URL (the R2 bucket's custom domain), which has objects directly under it. */
 export function objectUrl(fileName: string) {
     if (env.STORAGE_PUBLIC_URL) {
         return `${env.STORAGE_PUBLIC_URL.replace(/\/+$/, '')}/${fileName}`;
@@ -76,8 +78,6 @@ async function uploadObject(fileName: string, buffer: Buffer, contentType: strin
     await minioClient.putObject(env.STORAGE_BUCKET, fileName, buffer, buffer.length, {
         'Content-Type': contentType,
         'Cache-Control': 'public, max-age=31536000, immutable',
-        // Spaces: each image is individually public; the Space itself stays private (no listing).
-        ...(env.STORAGE_OBJECT_ACL ? { 'x-amz-acl': env.STORAGE_OBJECT_ACL } : {}),
     });
 }
 

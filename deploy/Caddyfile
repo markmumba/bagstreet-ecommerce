@@ -62,4 +62,4 @@ www.{$SHOP_DOMAIN} {
 	reverse_proxy api:3000
 }
 
-# Product images are served by DigitalOcean Spaces' CDN, not this server (see docs/deployment.md).
+# Product images are served by Cloudflare from R2, not this server (see docs/deployment.md).

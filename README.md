@@ -12,7 +12,7 @@ A full-stack luxury e-commerce platform built with Bun, Hono, React, and Postgre
 | Frontend (Admin) | React + TanStack Router + TanStack Query |
 | Frontend (Storefront) | React + TanStack Router |
 | Shared Types | TypeScript monorepo (`shared/`) |
-| File Storage | MinIO (local) / DigitalOcean Spaces + CDN (production) |
+| File Storage | MinIO (local) / Cloudflare R2 (production) |
 | Monorepo | Turborepo |
 
 ## Project Structure
@@ -67,7 +67,7 @@ DATABASE_URL=
 JWT_SECRET=
 JWT_REFRESH_SECRET=
 CORS_ORIGIN=http://localhost:5173,http://localhost:5174,http://localhost:4173,http://localhost:4174
-# Object storage (local MinIO; see docs/deployment.md for Spaces)
+# Object storage (local MinIO; see docs/deployment.md for R2)
 STORAGE_ACCESS_KEY=
 STORAGE_SECRET_KEY=
 

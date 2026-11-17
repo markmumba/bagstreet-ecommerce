@@ -2,9 +2,9 @@ import { z } from 'zod';
 
 /**
  * Object storage settings were once named MINIO_*. They're STORAGE_* now because production uses
- * DigitalOcean Spaces, not MinIO. Old names still work as a fallback so existing .env files keep running.
+ * Cloudflare R2, not MinIO. Old names still work as a fallback so existing .env files keep running.
  */
-const STORAGE_LEGACY_NAMES = ['ENDPOINT', 'PORT', 'USE_SSL', 'ACCESS_KEY', 'SECRET_KEY', 'BUCKET', 'PUBLIC_URL', 'REGION', 'OBJECT_ACL'] as const;
+const STORAGE_LEGACY_NAMES = ['ENDPOINT', 'PORT', 'USE_SSL', 'ACCESS_KEY', 'SECRET_KEY', 'BUCKET', 'PUBLIC_URL', 'REGION'] as const;
 const storageFallbacks = Object.fromEntries(
     STORAGE_LEGACY_NAMES.map((name) => [`STORAGE_${name}`, process.env[`STORAGE_${name}`] ?? process.env[`MINIO_${name}`]]),
 );
@@ -33,7 +33,7 @@ const envSchema = z.object({
     JWT_SECRET: z.string().min(32, 'JWT_SECRET must be at least 32 characters'),
     JWT_REFRESH_SECRET: z.string().min(32, 'JWT_REFRESH_SECRET must be at least 32 characters'),
     /**
-     * Object storage — any S3-compatible service: MinIO locally, DigitalOcean Spaces in production.
+     * Object storage — any S3-compatible service: MinIO locally, Cloudflare R2 in production.
      * (Formerly MINIO_*; those names are still read as a fallback.)
      */
     STORAGE_ENDPOINT: z.string().default('localhost'),
@@ -43,15 +43,13 @@ const envSchema = z.object({
     STORAGE_SECRET_KEY: z.string().min(1, 'STORAGE_SECRET_KEY is required'),
     STORAGE_BUCKET: z.string().default('product-images'),
     /**
-     * Base URL browsers load images from, objects directly under it, e.g.
-     * https://bagstreet-media.fra1.cdn.digitaloceanspaces.com. Stored in image URLs, so it must be public.
+     * Base URL browsers load images from, objects directly under it, e.g. the R2 bucket's custom
+     * domain https://media.example.co.ke. Stored in image URLs, so it must be public.
      * Unset (local dev): http://STORAGE_ENDPOINT:STORAGE_PORT/STORAGE_BUCKET.
      */
     STORAGE_PUBLIC_URL: z.string().url().optional(),
-    /** Signing region, e.g. us-east-1 for Spaces (see docs/deployment.md). Unset: client default. */
+    /** Signing region: `auto` for R2 (see docs/deployment.md). Unset: client default. */
     STORAGE_REGION: z.string().optional(),
-    /** Canned ACL for uploads. Spaces objects are private unless set to public-read. Unset for MinIO. */
-    STORAGE_OBJECT_ACL: z.enum(['public-read']).optional(),
     SMTP_HOST: z.string().default('smtp.gmail.com'),
     SMTP_PORT: z.coerce.number().default(587),
     SMTP_SECURE: z.string().transform(v => v === 'true').default('false'),
