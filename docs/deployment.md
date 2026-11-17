@@ -23,7 +23,7 @@ The files referred to here live in [`deploy/`](../deploy):
                          ┌─────────────── DigitalOcean droplet ────────────────┐
  customers ──HTTPS──▶ Caddy :443 ──▶ storefront (static)                        │
  staff     ──HTTPS──▶      │     ──▶ admin      (static)                        │
-                           └─────▶ api:3000 (Bun) ──▶ postgres, redis           │
+                           └─────▶ api:3000 (Bun) ──▶ postgres                  │
                          └──────────────────────────────┬──────────────────────┘
                                                         │ uploads (S3 API)
  browsers ──HTTPS──▶ Spaces CDN edge ◀── Space "bagstreet-media" (private, no listing)
@@ -37,7 +37,7 @@ The files referred to here live in [`deploy/`](../deploy):
 | `api.example.co.ke` | API |
 | `bagstreet-media.fra1.cdn.digitaloceanspaces.com`, or your own `media.example.co.ke` | Images, from the Spaces CDN |
 
-Only Caddy is reachable from the internet. Postgres, Redis and the API sit on the internal Docker network with no published ports.
+Only Caddy is reachable from the internet. Postgres and the API sit on the internal Docker network with no published ports.
 
 ---
 
@@ -56,7 +56,7 @@ Only Caddy is reachable from the internet. Postgres, Redis and the API sit on th
 
 ### One droplet with Docker Compose
 - Right-sized for launch: the measured peak is about half of the $12 droplet's memory. Every service has a health check and restarts automatically.
-- To grow, resize the droplet, or move Postgres to DigitalOcean Managed Postgres. Nothing in the app assumes a single machine except the in-memory fallback for the rate limiter, which isn't used because Redis is.
+- To grow, resize the droplet, or move Postgres to DigitalOcean Managed Postgres. Nothing in the app assumes a single machine except the rate limiter, which keeps its counters in the API's memory. Before running a second API instance, add Redis back (`redis` plus the `hiett/serverless-redis-http` bridge) and set `RATE_LIMIT_STORE=redis`, `REDIS_REST_URL` and `REDIS_REST_TOKEN`.
 
 ---
 
@@ -71,10 +71,8 @@ Measured on the production stack itself (`deploy/docker-compose.prod.yml`), runn
 |---|---|
 | API (Bun) | 69 MB |
 | Postgres (empty) | 34 MB |
-| Redis REST bridge | 55 MB |
-| Redis | 6 MB |
 | Caddy | 15 MB |
-| **Whole stack** | **≈ 180 MB** |
+| **Whole stack** | **≈ 120 MB** |
 
 - **There's no message broker.** RabbitMQ used to take about 90 MB; emails now go through a Postgres outbox table ([Email delivery](#email-delivery)).
 - **Peak while two admins upload full-size 12-megapixel phone photos at once:** the API rose to **≈ 310 MB**, about 240 MB above idle.
@@ -283,7 +281,7 @@ chmod 600 .env.production
 ```bash
 C="docker compose -f deploy/docker-compose.prod.yml --env-file .env.production"
 $C pull
-$C up -d postgres redis redis-rest
+$C up -d postgres
 $C run --rm api bun run server/src/scripts/migrate.ts     # creates/updates the schema
 $C up -d
 $C ps                                                     # everything "healthy" or "Up"
@@ -306,7 +304,7 @@ Then sign in at `https://admin.example.co.ke` and invite other staff from the Us
 5. In Admin → **Reconciliation**, import that day's Pesapal statement. It confirms the CSV columns are detected correctly and records the fee.
 
 ### 8. Verify before launch
-- [ ] `curl https://api.example.co.ke/health/ready` reports `READY`, with the database `UP` and the rate-limit store `redis`.
+- [ ] `curl https://api.example.co.ke/health/ready` reports `READY`, with the database `UP` and the rate-limit store `memory`.
 - [ ] The storefront and admin load over HTTPS. `http://` and `www.` redirect.
 - [ ] **The IP check.** The 11th request must return `429`. If every request gets `400`, the limiter is being fooled; check `TRUST_PROXY_HOPS` and make sure the API publishes no ports.
   ```bash
@@ -314,7 +312,7 @@ Then sign in at `https://admin.example.co.ke` and invite other staff from the Us
   ```
   This blocks **your own IP** from placing orders for an hour. To reset it:
   ```bash
-  $C exec -T redis redis-cli --scan --pattern 'rl:order-placement:*' | xargs -r $C exec -T redis redis-cli del
+  $C restart api   # rate-limit counters live in the API's memory
   ```
 - [ ] Upload a product photo in the admin. Its URL starts with `STORAGE_PUBLIC_URL` and loads in a private browser window.
 - [ ] Both Space listing checks [above](#securing-images) return 403.
@@ -401,4 +399,4 @@ The template [`deploy/.env.production.example`](../deploy/.env.production.exampl
 
 **Storage settings are named `STORAGE_*`**, because production uses Spaces rather than MinIO. The old `MINIO_*` names are still read as a fallback, with a startup warning, so existing local `.env` files keep working. The `MINIO_ROOT_*` settings in the local `docker-compose.yml` configure the MinIO container itself and are unrelated.
 
-The compose file sets `DATABASE_URL`, `SERVER_URL`, `STOREFRONT_URL`, `CLIENT_URL`, `CORS_ORIGIN`, `PESAPAL_CALLBACK_URL` and `REDIS_REST_URL` from the domains and credentials in `.env.production`, so they can't drift out of sync.
+The compose file sets `DATABASE_URL`, `SERVER_URL`, `STOREFRONT_URL`, `CLIENT_URL`, `CORS_ORIGIN` and `RATE_LIMIT_STORE` from the domains and credentials in `.env.production`, so they can't drift out of sync.
