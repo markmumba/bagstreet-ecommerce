@@ -1,7 +1,7 @@
 # Storefront + admin (static builds) served by Caddy, which also proxies the API and images.
 # Build from the repo root:
 #   docker build -f deploy/Dockerfile.web --build-arg VITE_SERVER_URL=https://api.example.co.ke -t bagstreet-web .
-FROM oven/bun:1.3.3-slim AS deps
+FROM oven/bun:1.4.4-slim AS deps
 WORKDIR /app
 COPY package.json bun.lock ./
 COPY shared/package.json shared/
