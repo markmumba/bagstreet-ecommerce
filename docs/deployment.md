@@ -241,6 +241,95 @@ sudo apt update && sudo apt install -y unattended-upgrades fail2ban
 ```
 In `/etc/ssh/sshd_config`, set `PermitRootLogin no` and `PasswordAuthentication no`, then restart `ssh`.
 
+#### Move SSH off port 22, and make port 22 a trap
+Bots hammer port 22 all day. Moving SSH to another port mostly cuts that noise; the real protection is still key-only login (above). Port 22 then becomes a trap: anything that tries it is a scanner, so fail2ban bans its IP **from SSH only, for a week**.
+
+Two rules keep this safe:
+- **Never ban from the shop.** Many Kenyan mobile customers share one IP address, so a ban on ports 80/443 could cut off real customers along with one infected phone. The bans below cover the SSH port only.
+- **Don't lock yourself out.** Keep your current SSH session open until the new port works from a second terminal. If you do get locked out, the droplet's **Recovery Console** in the DigitalOcean panel still works.
+
+The examples use port **49222**. Pick your own: any unused port between 1024 and 65535.
+
+**1. Open the new port first**, before SSH moves to it:
+```bash
+sudo ufw allow 49222/tcp
+```
+If you use a DigitalOcean Cloud Firewall, allow 49222 there too.
+
+**2. Move SSH.** On Ubuntu 24.04, SSH is started by `ssh.socket`, which reads the port from `sshd_config` when systemd reloads; restarting `ssh` alone isn't enough.
+```bash
+echo 'Port 49222' | sudo tee /etc/ssh/sshd_config.d/10-port.conf
+sudo systemctl daemon-reload && sudo systemctl restart ssh.socket
+sudo ss -tlnp | grep -E ':(22|49222)\b'     # should list 49222 only
+```
+If it still lists 22, point the socket at the new port directly, then reload and restart again:
+```bash
+sudo mkdir -p /etc/systemd/system/ssh.socket.d
+printf '[Socket]\nListenStream=\nListenStream=49222\n' | sudo tee /etc/systemd/system/ssh.socket.d/port.conf
+sudo systemctl daemon-reload && sudo systemctl restart ssh.socket
+```
+
+**3. Test from a second terminal**, keeping the first one open:
+```bash
+ssh -p 49222 deploy@<droplet-ip>
+```
+On your laptop, add it to `~/.ssh/config` so plain `ssh bagstreet` works:
+```
+Host bagstreet
+  HostName <droplet-ip>
+  User deploy
+  Port 49222
+```
+
+**4. Close port 22 in the firewall, and log what hits it.** The firewall itself records every attempt on port 22 in `/var/log/ufw.log`; no extra listener is needed.
+```bash
+sudo ufw delete allow OpenSSH
+sudo ufw logging low
+```
+
+**5. Point fail2ban at the new port, and add the trap.** The existing `sshd` jail (failed logins) must ban on the new port, and the new `ssh-trap` jail bans anyone who knocks on 22. Both bans apply to port 49222 only.
+```bash
+sudo tee /etc/fail2ban/filter.d/ssh-trap.conf > /dev/null <<'EOF'
+[Definition]
+# A blocked connection attempt to port 22, as logged by ufw.
+failregex = \[UFW BLOCK\] .* SRC=<HOST> .* PROTO=TCP .* DPT=22\b
+ignoreregex =
+EOF
+
+sudo tee /etc/fail2ban/jail.d/bagstreet.local > /dev/null <<'EOF'
+[DEFAULT]
+# Never ban yourself: add your home/office IP after the spaces if it's fixed.
+ignoreip = 127.0.0.1/8 ::1
+
+[sshd]
+port = 49222
+
+[ssh-trap]
+enabled   = true
+filter    = ssh-trap
+backend   = auto
+logpath   = /var/log/ufw.log
+port      = 49222
+maxretry  = 1
+findtime  = 1d
+bantime   = 1w
+EOF
+
+sudo systemctl restart fail2ban
+sudo fail2ban-client status ssh-trap
+```
+
+**Check it works.** From a phone hotspot (not the IP you SSH from), run `nc -vz -w 3 <droplet-ip> 22`. Within a minute, `sudo fail2ban-client status ssh-trap` lists that IP under "Banned IP list", the shop still loads from it, and `ssh -p 49222` from it is refused.
+
+**Useful commands:**
+```bash
+sudo fail2ban-client status ssh-trap                   # who is banned
+sudo fail2ban-client set ssh-trap unbanip <ip>         # unban an address
+sudo grep -E 'DPT=22\b' /var/log/ufw.log | tail       # recent knocks on port 22
+```
+
+**Stronger, optional:** if your own IP is fixed, a DigitalOcean Cloud Firewall rule that allows port 49222 **only from your IP** means nobody else can reach SSH at all. The trap then just records who is scanning. Most home and mobile connections in Kenya change IP, though, so this can lock you out; keep the Recovery Console in mind.
+
 Add a 2 GB swap file as a safety net:
 ```bash
 sudo fallocate -l 2G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
@@ -317,7 +406,8 @@ Then sign in at `https://admin.example.co.ke` and invite other staff from the Us
   ```
 - [ ] Upload a product photo in the admin. Its URL starts with `STORAGE_PUBLIC_URL` and loads in a private browser window.
 - [ ] Neither listing check [above](#securing-images) returns a list of files.
-- [ ] Nothing except ports 22, 80 and 443 is open. From your laptop, `nmap -Pn <droplet-ip>` should show only those.
+- [ ] Nothing except your SSH port (e.g. 49222), 80 and 443 is open. From your laptop, `nmap -Pn -p 22,80,443,49222 <droplet-ip>` should show 22 as filtered and the other three open. (A plain `nmap` scans only common ports, so name your SSH port.)
+- [ ] The port-22 trap bans a test IP from SSH only ([check](#move-ssh-off-port-22-and-make-port-22-a-trap)).
 
 ---
 
