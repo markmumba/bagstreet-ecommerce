@@ -65,12 +65,15 @@ export function useInitiatePayment() {
   });
 }
 
-/** After an M-Pesa prompt is sent, keep checking this long — the prompt itself times out in about a minute. */
-const PROMPT_WATCH_MS = 3 * 60 * 1000;
+/**
+ * After an M-Pesa prompt is sent, keep checking this long — the prompt itself times out in one
+ * to three minutes (Safaricom directly, or through Paystack).
+ */
+const PROMPT_WATCH_MS = 4 * 60 * 1000;
 
 /** True while an M-Pesa prompt was sent recently enough that the customer may still be paying it. */
 export function isAwaitingPrompt(info: PaymentStatusResponse | undefined): boolean {
-  if (!info || info.status !== 'PENDING' || info.payment_provider !== 'mpesa' || !info.prompt_sent_at) return false;
+  if (!info || info.status !== 'PENDING' || !info.prompt_sent_at) return false;
   return Date.now() - new Date(info.prompt_sent_at).getTime() < PROMPT_WATCH_MS;
 }
 

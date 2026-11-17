@@ -2,7 +2,7 @@ import { sql } from '../../lib/db';
 import { LEDGER_ENTRY } from './order-balance';
 import type { ReconciliationOrderRow } from './reconciliation';
 import type { KnownTransaction } from './statement';
-import { MPESA } from './mpesa-payments';
+import { PAYSTACK } from './paystack-payments';
 
 const num = (v: unknown) => Number(v ?? 0);
 
@@ -72,8 +72,8 @@ export const reconciliationQueries = {
         }));
     },
 
-    /** Every M-Pesa transaction with its references and what the ledger captured for its order. */
-    knownMpesaTransactions: async (): Promise<KnownTransaction[]> => {
+    /** Every Paystack transaction with its references and what the ledger captured for its order. */
+    knownProviderTransactions: async (): Promise<KnownTransaction[]> => {
         const rows = await sql<any[]>`
             SELECT
                 t.id, t.order_id, o.order_number, t.provider_reference, t.merchant_reference, t.confirmation_code,
@@ -81,7 +81,7 @@ export const reconciliationQueries = {
                           WHERE l.order_id = t.order_id AND l.entry_type = ${LEDGER_ENTRY.PAYMENT_CAPTURED} AND l.direction = 'CREDIT'), 0) AS captured
             FROM payment_transactions t
             JOIN orders o ON o.id = t.order_id
-            WHERE t.provider = ${MPESA}
+            WHERE t.provider = ${PAYSTACK}
         `;
         return rows.map((r) => ({
             transactionId: Number(r.id),
@@ -92,14 +92,14 @@ export const reconciliationQueries = {
         }));
     },
 
-    /** M-Pesa payments captured in [from, to] — to spot ones a statement for that period leaves out. */
-    mpesaCapturesBetween: async (from: Date, to: Date) => {
+    /** Paystack payments captured in [from, to] — to spot ones a statement for that period leaves out. */
+    providerCapturesBetween: async (from: Date, to: Date) => {
         return await sql<{ transaction_id: number; order_id: number; order_number: string | null; reference: string | null; amount: string; created_at: string }[]>`
             SELECT DISTINCT ON (t.id)
                 t.id AS transaction_id, o.id AS order_id, o.order_number, COALESCE(t.provider_reference, t.merchant_reference) AS reference,
                 l.amount, l.created_at
             FROM payment_ledger_entries l
-            JOIN payment_transactions t ON t.order_id = l.order_id AND t.provider = ${MPESA} AND t.status = 'COMPLETED'
+            JOIN payment_transactions t ON t.order_id = l.order_id AND t.provider = ${PAYSTACK} AND t.status = 'COMPLETED'
             JOIN orders o ON o.id = l.order_id
             WHERE l.entry_type = ${LEDGER_ENTRY.PAYMENT_CAPTURED}
               AND l.created_at >= ${from.toISOString()} AND l.created_at <= ${to.toISOString()}

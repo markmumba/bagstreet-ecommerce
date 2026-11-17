@@ -69,22 +69,11 @@ const envSchema = z.object({
     RUN_MIGRATIONS_ON_STARTUP: z.string().optional().transform((value) => value === undefined ? undefined : value === 'true'),
     /** Currency every order, payment and ledger entry is in. */
     CURRENCY: z.string().default('KES'),
-    /** Safaricom Daraja — M-Pesa Express (STK Push). */
-    MPESA_ENV: z.enum(['sandbox', 'production']).default('sandbox'),
-    MPESA_CONSUMER_KEY: z.string().optional(),
-    MPESA_CONSUMER_SECRET: z.string().optional(),
-    /** BusinessShortCode: the Paybill, or for a Till the store number (HO). */
-    MPESA_SHORTCODE: z.string().optional(),
-    MPESA_PASSKEY: z.string().optional(),
-    /** CustomerPayBillOnline for a Paybill, CustomerBuyGoodsOnline for a Till. */
-    MPESA_TRANSACTION_TYPE: z.enum(['CustomerPayBillOnline', 'CustomerBuyGoodsOnline']).default('CustomerPayBillOnline'),
-    /** Who receives the money (PartyB). Unset: MPESA_SHORTCODE. Set to the Till number for Buy Goods. */
-    MPESA_PARTY_B: z.string().optional(),
-    /** Public HTTPS URL Safaricom posts results to. Unset: SERVER_URL/api/payments/mpesa/callback. */
-    MPESA_CALLBACK_URL: z.string().url().optional(),
-    /** Appended to the callback path so only Safaricom (who was given the URL) can reach it. */
-    MPESA_CALLBACK_SECRET: z.string().min(16).optional(),
-    MPESA_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
+    /** Paystack sends the M-Pesa PIN prompt and pays out to the business's bank. Secret key: sk_test_… / sk_live_…. */
+    PAYSTACK_SECRET_KEY: z.string().optional(),
+    /** Webhook signing secret (whsec_…) from Dashboard › Developers › API configuration. */
+    PAYSTACK_WEBHOOK_SECRET: z.string().optional(),
+    PAYSTACK_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
     /** Unpaid online orders are cancelled (stock released) after this many minutes. 0 disables expiry. */
     UNPAID_ORDER_TTL_MINUTES: z.coerce.number().int().min(0).default(45),
     CART_RECOVERY_ENABLED: z.enum(['true', 'false']).default('true').transform(value => value === 'true'),
