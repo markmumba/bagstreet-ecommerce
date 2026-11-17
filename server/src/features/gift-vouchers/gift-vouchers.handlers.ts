@@ -198,7 +198,7 @@ export const giftVouchersHandlers = {
         }, { type: 'placed_online' }, { kind: 'customer', isOwner: true, via: 'checkout' },
         { request: { ip: getClientIp(c), userAgent: c.req.header('user-agent') ?? null } });
 
-        const payment = await startOnlinePayment(order, data.amount, phone);
+        const payment = await startOnlinePayment(order, data.amount, { phone, email });
         return success(c, {
             order_id: String(order.id),
             public_id: String(order.public_id),

@@ -69,6 +69,17 @@ const envSchema = z.object({
     RUN_MIGRATIONS_ON_STARTUP: z.string().optional().transform((value) => value === undefined ? undefined : value === 'true'),
     /** Currency every order, payment and ledger entry is in. */
     CURRENCY: z.string().default('KES'),
+    /**
+     * Who sends new M-Pesa prompts: Paystack (no Paybill of our own needed) or Safaricom Daraja
+     * directly (needs the business's own Paybill/Till). Earlier attempts are always checked with
+     * the provider that made them, so switching is safe at any time.
+     */
+    PAYMENT_PROVIDER: z.enum(['paystack', 'mpesa']).default('paystack'),
+    /** Paystack secret key (sk_test_… / sk_live_…). */
+    PAYSTACK_SECRET_KEY: z.string().optional(),
+    /** Webhook signing secret (whsec_…) from Dashboard › Developers › API configuration. */
+    PAYSTACK_WEBHOOK_SECRET: z.string().optional(),
+    PAYSTACK_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
     /** Safaricom Daraja — M-Pesa Express (STK Push). */
     MPESA_ENV: z.enum(['sandbox', 'production']).default('sandbox'),
     MPESA_CONSUMER_KEY: z.string().optional(),

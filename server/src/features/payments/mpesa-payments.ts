@@ -11,8 +11,9 @@ import { readJsonColumn } from '../../lib/json-column';
 import { normalisePhone } from '../../lib/phone';
 import { queryStkPush, sendStkPush } from '../../services/mpesa';
 import { isMpesaNumber, maskPhone, type StkCallback, type StkOutcome } from '../../services/mpesa-protocol';
-import { applyOrderEvent, orderStateOf } from '../orders/lifecycle/order-lifecycle';
-import { customerView, type OrderEvent } from '../orders/lifecycle/transitions';
+import { orderStateOf } from '../orders/lifecycle/order-lifecycle';
+import { customerView } from '../orders/lifecycle/transitions';
+import { applyAttemptOutcome, type AttemptOutcome } from './attempt-outcome';
 import { ordersQueries } from '../orders/orders.queries';
 import { paymentsQueries, type PaymentTransactionRow } from './payments.queries';
 
@@ -88,25 +89,9 @@ export async function recordMpesaCallback(callback: StkCallback) {
     await processMpesaTransaction(updated, { force: true });
 }
 
-/** The query's verdict as an Order event, or null while the customer is still on the PIN screen. */
-function mpesaOrderEvent(tx: PaymentTransactionRow, outcome: StkOutcome): OrderEvent | null {
-    switch (outcome.state) {
-        case 'paid':
-            return {
-                type: 'payment_captured',
-                // STK Push charges exactly what was asked; the customer can't change it.
-                amount: parseFloat(tx.amount),
-                currency: tx.currency,
-                // The CheckoutRequestID, not the receipt: the query doesn't return the receipt, and
-                // every path must name the capture the same way for repeats to be ignored.
-                reference: `mpesa:${tx.provider_reference}`,
-                transactionId: tx.id,
-            };
-        case 'failed':
-            return { type: 'payment_failed', attemptReference: `mpesa:${tx.provider_reference}`, reason: outcome.reason };
-        default:
-            return null;
-    }
+/** The query's verdict. STK Push charges exactly what was asked, so a payment needs no amount. */
+function attemptOutcome(outcome: StkOutcome): AttemptOutcome {
+    return outcome.state === 'failed' ? { state: 'failed', reason: outcome.reason } : outcome;
 }
 
 /**
@@ -121,33 +106,11 @@ export async function processMpesaTransaction(tx: PaymentTransactionRow, opts: {
     if (!settled && tx.provider_reference && (opts.force || !recentlyAsked)) {
         lastQueriedAt.set(tx.id, Date.now());
         const result = await queryStkPush(tx.provider_reference);
-        const event = mpesaOrderEvent(tx, result.outcome);
-
-        if (event) {
-            // An older prompt failing (e.g. a late "cancelled") mustn't mark the order failed
-            // while a newer prompt is still waiting on the customer.
-            const latest = await paymentsQueries.findProviderTransactionByOrderId(tx.order_id, MPESA);
-            const applies = event.type === 'payment_captured' || latest?.id === tx.id;
-            // The order first, then the attempt: if this stops in between, the attempt still
-            // looks pending and the next check applies the (repeat-safe) event again.
-            if (applies) {
-                await applyOrderEvent(tx.order_id, event, { kind: 'payment_provider' }, {
-                    paymentMetadata: {
-                        provider: MPESA,
-                        provider_reference: tx.provider_reference,
-                        merchant_reference: tx.merchant_reference,
-                        payment_method: 'M-Pesa',
-                        mpesa_receipt: tx.confirmation_code,
-                    },
-                });
-            }
-            failureReason = result.outcome.state === 'failed' ? result.outcome.reason : null;
-            await paymentsQueries.updateProviderTransaction(tx.id, {
-                status: result.outcome.state === 'paid' ? 'COMPLETED' : 'FAILED',
-                payment_method: 'M-Pesa',
-                confirmation_code: tx.confirmation_code,
-                result_desc: failureReason ?? result.resultDesc,
-                raw_payload: { ...(readJsonColumn(tx.raw_payload) ?? {}), query: result.raw },
+        if (result.outcome.state !== 'pending') {
+            failureReason = await applyAttemptOutcome(tx, attemptOutcome(result.outcome), {
+                paymentMethod: 'M-Pesa',
+                resultDesc: result.resultDesc,
+                raw: { query: result.raw },
             });
             lastQueriedAt.delete(tx.id);
         }

@@ -19,14 +19,14 @@ import { readJsonColumn } from '../../lib/json-column';
 import { maskPhone, parseStkCallback } from '../../services/mpesa-protocol';
 import {
     MAX_PROMPTS_PER_ORDER,
-    MPESA,
     PROMPT_REUSE_MS,
     mpesaPhone,
-    processMpesaTransaction,
     promptPhoneHint,
     recordMpesaCallback,
-    sendMpesaPrompt,
 } from './mpesa-payments';
+import { recordPaystackWebhook } from './paystack-payments';
+import { activeProvider, providerOf } from './payment-providers';
+import { isValidWebhookSignature } from '../../services/paystack-protocol';
 
 function getOptionalAuthUser(c: AppContext): AuthUser | null {
     return getOptionalUser(c);
@@ -68,45 +68,49 @@ function orderPaymentSummary(order: any) {
 }
 
 /**
- * Sends (or re-sends) the M-Pesa PIN prompt for an order. A prompt sent under a minute ago to the
- * same phone is reused rather than sent twice (a double tap, or a refresh).
+ * Sends (or re-sends) the M-Pesa PIN prompt for an order, through whichever provider is switched
+ * on. A prompt sent under a minute ago to the same phone is reused rather than sent twice (a
+ * double tap, or a refresh).
  */
-async function initiateMpesa(c: AppContext, order: any, requestedPhone: string | undefined) {
+async function initiatePrompt(c: AppContext, order: any, requestedPhone: string | undefined, requestEmail: string | undefined) {
     const phone = mpesaPhone(requestedPhone || order.customer_phone);
     if (!phone) throw new BadRequestError('Enter a Safaricom number M-Pesa can send the payment request to, e.g. 0712 345 678.');
+    const provider = activeProvider();
 
-    const latest = await paymentsQueries.findProviderTransactionByOrderId(Number(order.id), MPESA);
+    const latest = await paymentsQueries.findProviderTransactionByOrderId(Number(order.id));
     if (latest?.status === 'PENDING') {
         const sameNumber = readJsonColumn<{ phone?: string }>(latest.raw_payload)?.phone === phone;
-        if (sameNumber && Date.now() - new Date(latest.created_at).getTime() < PROMPT_REUSE_MS) {
+        if (sameNumber && latest.provider === provider.name && Date.now() - new Date(latest.created_at).getTime() < PROMPT_REUSE_MS) {
             return success(c, {
                 order_id: order.id,
-                payment_provider: MPESA,
+                payment_provider: provider.name,
                 payment_reference: latest.provider_reference,
                 prompt_phone: maskPhone(phone),
             }, `We've sent a payment request to ${maskPhone(phone)}. Enter your M-Pesa PIN on your phone.`);
         }
         // The last prompt may have been paid while the customer was asking for another.
-        const previous = await processMpesaTransaction(latest, { force: true }).catch(() => null);
+        const previous = await providerOf(latest)?.check(latest, { force: true }).catch(() => null);
         if (previous?.status === PAYMENT_STATUS.PAID) {
             return success(c, { status: PAYMENT_STATUS.PAID, order_id: order.id }, 'Payment already confirmed');
         }
     }
 
-    if (await paymentsQueries.countProviderTransactions(Number(order.id), MPESA) >= MAX_PROMPTS_PER_ORDER) {
+    if (await paymentsQueries.countProviderTransactions(Number(order.id), provider.name) >= MAX_PROMPTS_PER_ORDER) {
         throw new TooManyRequestsError('Too many payment requests for this order. Please contact us and we will help you pay.');
     }
 
+    // Paystack needs an email; online orders always have one.
+    const email = String(order.customer_email ?? requestEmail ?? '');
     let tx;
     try {
-        tx = await sendMpesaPrompt(order, orderAmountDue(order), phone);
+        tx = await provider.send(order, orderAmountDue(order), { phone, email });
     } catch (err) {
-        console.error('[mpesa] STK push failed:', err);
+        console.error(`[${provider.name}] M-Pesa prompt failed:`, err);
         throw new BadRequestError("M-Pesa couldn't send the payment request right now. Please try again in a moment.");
     }
     return success(c, {
         order_id: order.id,
-        payment_provider: MPESA,
+        payment_provider: provider.name,
         payment_reference: tx.provider_reference,
         prompt_phone: maskPhone(phone),
     }, `We've sent a payment request to ${maskPhone(phone)}. Enter your M-Pesa PIN on your phone.`);
@@ -150,11 +154,11 @@ export const paymentsHandlers = {
             throw new BadRequestError('We have received a payment for this order and our team is checking it. Please don\'t pay again.');
         }
 
-        return initiateMpesa(c, order, pay_phone);
+        return initiatePrompt(c, order, pay_phone, email);
     },
 
     /**
-     * Current payment state of an order, checked live with M-Pesa when a payment was started.
+     * Current payment state of an order, checked live with the provider when a payment was started.
      * Guests prove ownership with the checkout token (or phone/email).
      */
     paymentStatus: async (c: AppContext) => {
@@ -171,12 +175,14 @@ export const paymentsHandlers = {
         if (!order) throw new NotFoundError('Order', order_ref ?? order_id ?? 'unknown');
         if (!canAccessOrder(authUser, order, phone, email, token)) throw new ForbiddenError();
 
+        // The latest attempt, with any provider.
+        const tx = await paymentsQueries.findProviderTransactionByOrderId(Number(order.id));
         // A voucher purchase: the payment screen says where the voucher was sent.
         const giftVoucher = (order as any).order_source === ORDER_SOURCE.GIFT_VOUCHER ? await giftVoucherOrderOf(sql, Number(order.id)) : undefined;
         const respond = (status: string, message: string, current: any = order, extra: Record<string, unknown> = {}) =>
             success(c, {
                 status,
-                payment_provider: MPESA,
+                payment_provider: tx?.provider ?? env.PAYMENT_PROVIDER,
                 ...extra,
                 ...orderPaymentSummary(current),
                 order_source: current.order_source,
@@ -205,27 +211,34 @@ export const paymentsHandlers = {
         if (view.status === 'PAID') return respond(PAYMENT_STATUS.PAID, 'Payment confirmed');
         if (view.status === 'REVIEW') return respond('REVIEW', 'We have received a payment and our team is checking it.');
 
-        const tx = await paymentsQueries.findProviderTransactionByOrderId(Number(order.id), MPESA);
         if (!tx) return respond(ORDER_STATUS.PENDING, 'Payment has not been started');
-        // M-Pesa: where the last prompt went and when, so the screen can say "check your phone".
+        const provider = providerOf(tx);
+        // An attempt from a retired provider: the customer starts a new one.
+        if (!provider) return respond(ORDER_STATUS.PENDING, 'Payment has not been started');
+        // Where the last prompt went and when, so the screen can say "check your phone".
         const promptInfo = { prompt_phone: promptPhoneHint(tx), prompt_sent_at: new Date(tx.created_at).toISOString() };
 
-        let result: Awaited<ReturnType<typeof processMpesaTransaction>>;
+        let result: Awaited<ReturnType<typeof provider.check>>;
         try {
-            result = await processMpesaTransaction(tx);
+            result = await provider.check(tx);
         } catch (err) {
-            console.error('[mpesa] status check failed:', err);
+            console.error(`[${tx.provider}] status check failed:`, err);
             return respond(ORDER_STATUS.PENDING, 'We could not check your payment right now. Please try again shortly.', order, promptInfo);
         }
 
         const current = await ordersQueries.findById(Number(order.id));
+        // The order still says FAILED from an earlier attempt, but the customer has asked for a
+        // new prompt that hasn't ended yet: that one is what the screen should wait on.
+        const status = result.status === PAYMENT_STATUS.FAILED && !result.failure_reason && tx.status === 'PENDING'
+            ? ORDER_STATUS.PENDING
+            : result.status;
         const message = {
             PAID: 'Payment confirmed',
             FAILED: 'Payment failed',
             REVIEW: 'We have received a payment and our team is checking it.',
             EXPIRED: 'Your payment arrived after this order expired. We will refund you.',
-        }[result.status as string] ?? 'Payment is still pending';
-        return respond(result.status, message, current ?? order, { ...promptInfo, failure_reason: result.failure_reason ?? undefined });
+        }[status as string] ?? 'Payment is still pending';
+        return respond(status, message, current ?? order, { ...promptInfo, failure_reason: result.failure_reason ?? undefined });
     },
 
     /**
@@ -241,6 +254,34 @@ export const paymentsHandlers = {
         // Answered straight away; the query that confirms it can take a few seconds.
         void recordMpesaCallback(callback).catch((err) => console.error('[mpesa] callback processing failed:', err));
         return c.json({ ResultCode: 0, ResultDesc: 'Accepted' });
+    },
+
+    /**
+     * Paystack's webhook. Only signed requests are accepted; a `charge.success` then triggers a
+     * verify of that charge (the order moves on what verify says). Answered straight away —
+     * Paystack retries anything that isn't a quick 200.
+     */
+    paystackWebhook: async (c: AppContext) => {
+        const rawBody = await c.req.text();
+        const signed = isValidWebhookSignature({
+            rawBody,
+            signatureHeader: c.req.header('paystack-signature'),
+            legacySignatureHeader: c.req.header('x-paystack-signature'),
+            signingSecret: env.PAYSTACK_WEBHOOK_SECRET,
+            secretKey: env.PAYSTACK_SECRET_KEY,
+        });
+        if (!signed) return c.json({ message: 'Invalid signature' }, 401);
+
+        let event: { event?: string; data?: { reference?: string } };
+        try {
+            event = JSON.parse(rawBody);
+        } catch {
+            return c.json({ message: 'Malformed body' }, 400);
+        }
+        if (event.event === 'charge.success') {
+            void recordPaystackWebhook(event).catch((err) => console.error('[paystack] webhook processing failed:', err));
+        }
+        return c.json({ received: true });
     },
 
 };
