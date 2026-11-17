@@ -8,7 +8,7 @@ import { PAYMENT_STATUS } from 'shared/dist';
 import { env } from '../config/env';
 import { ordersQueries } from '../features/orders/orders.queries';
 import { paymentsQueries } from '../features/payments/payments.queries';
-import { providerOf } from '../features/payments/payment-providers';
+import { PAYSTACK, processPaystackTransaction } from '../features/payments/paystack-payments';
 import { applyOrderEvent } from '../features/orders/lifecycle/order-lifecycle';
 import { shouldCancelExpiredOrder, type ProviderCheck } from './unpaid-order-policy';
 
@@ -21,9 +21,8 @@ async function checkProvider(orderId: number): Promise<ProviderCheck> {
     if (!tx?.provider_reference) return 'none';
     try {
         // Attempts from a retired provider can't be checked any more: treat as unpaid.
-        const provider = providerOf(tx);
-        if (!provider) return 'not_paid';
-        const result = await provider.check(tx, { force: true });
+        if (tx.provider !== PAYSTACK) return 'not_paid';
+        const result = await processPaystackTransaction(tx, { force: true });
         return result.status === PAYMENT_STATUS.PAID ? 'paid' : 'not_paid';
     } catch (err) {
         console.warn(`[order-expiry] could not check ${tx.provider} for order ${orderId}:`, err);

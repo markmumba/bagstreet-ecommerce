@@ -66,7 +66,7 @@ export const reconciliationHandlers = {
         const statementRows = normaliseStatementRows(rows, columns);
         const { matches, issues, matchedTransactionIds } = reconcileStatementRows(
             statementRows,
-            await reconciliationQueries.knownMpesaTransactions(),
+            await reconciliationQueries.knownProviderTransactions(),
         );
 
         // Dates on the statement bound the "missing from statement" check; skip it if they can't be read.
@@ -77,7 +77,7 @@ export const reconciliationHandlers = {
             const from = new Date(Math.min(...dates));
             const to = new Date(Math.max(...dates) + DAY_MS - 1);
             dateRange = { from: day(from), to: day(to) };
-            missing = (await reconciliationQueries.mpesaCapturesBetween(from, to))
+            missing = (await reconciliationQueries.providerCapturesBetween(from, to))
                 .filter((cap) => !matchedTransactionIds.has(Number(cap.transaction_id)))
                 .map((cap) => ({ order_id: String(cap.order_id), order_number: cap.order_number, reference: cap.reference, amount: Number(cap.amount), date: String(cap.created_at) }));
         }

@@ -14,18 +14,9 @@ import { customerView } from '../orders/lifecycle/transitions';
 import type { AuthUser } from '@server/lib/hono';
 import { getOptionalUser } from '@server/lib/hono';
 import { orderTokenRef, verifyOrderAccessToken } from '../../lib/order-received-token';
-import { timingSafeEqual } from 'node:crypto';
 import { readJsonColumn } from '../../lib/json-column';
-import { maskPhone, parseStkCallback } from '../../services/mpesa-protocol';
-import {
-    MAX_PROMPTS_PER_ORDER,
-    PROMPT_REUSE_MS,
-    mpesaPhone,
-    promptPhoneHint,
-    recordMpesaCallback,
-} from './mpesa-payments';
-import { recordPaystackWebhook } from './paystack-payments';
-import { activeProvider, providerOf } from './payment-providers';
+import { MAX_PROMPTS_PER_ORDER, PROMPT_REUSE_MS, maskPhone, mpesaPhone, promptPhoneHint } from './prompt-phone';
+import { PAYSTACK, processPaystackTransaction, recordPaystackWebhook, sendPaystackPrompt } from './paystack-payments';
 import { isValidWebhookSignature } from '../../services/paystack-protocol';
 
 function getOptionalAuthUser(c: AppContext): AuthUser | null {
@@ -68,34 +59,34 @@ function orderPaymentSummary(order: any) {
 }
 
 /**
- * Sends (or re-sends) the M-Pesa PIN prompt for an order, through whichever provider is switched
- * on. A prompt sent under a minute ago to the same phone is reused rather than sent twice (a
- * double tap, or a refresh).
+ * Sends (or re-sends) the M-Pesa PIN prompt for an order, through Paystack. A prompt sent under a
+ * minute ago to the same phone is reused rather than sent twice (a double tap, or a refresh).
  */
 async function initiatePrompt(c: AppContext, order: any, requestedPhone: string | undefined, requestEmail: string | undefined) {
     const phone = mpesaPhone(requestedPhone || order.customer_phone);
     if (!phone) throw new BadRequestError('Enter a Safaricom number M-Pesa can send the payment request to, e.g. 0712 345 678.');
-    const provider = activeProvider();
 
     const latest = await paymentsQueries.findProviderTransactionByOrderId(Number(order.id));
     if (latest?.status === 'PENDING') {
         const sameNumber = readJsonColumn<{ phone?: string }>(latest.raw_payload)?.phone === phone;
-        if (sameNumber && latest.provider === provider.name && Date.now() - new Date(latest.created_at).getTime() < PROMPT_REUSE_MS) {
+        if (sameNumber && latest.provider === PAYSTACK && Date.now() - new Date(latest.created_at).getTime() < PROMPT_REUSE_MS) {
             return success(c, {
                 order_id: order.id,
-                payment_provider: provider.name,
+                payment_provider: PAYSTACK,
                 payment_reference: latest.provider_reference,
                 prompt_phone: maskPhone(phone),
             }, `We've sent a payment request to ${maskPhone(phone)}. Enter your M-Pesa PIN on your phone.`);
         }
         // The last prompt may have been paid while the customer was asking for another.
-        const previous = await providerOf(latest)?.check(latest, { force: true }).catch(() => null);
+        const previous = latest.provider === PAYSTACK
+            ? await processPaystackTransaction(latest, { force: true }).catch(() => null)
+            : null;
         if (previous?.status === PAYMENT_STATUS.PAID) {
             return success(c, { status: PAYMENT_STATUS.PAID, order_id: order.id }, 'Payment already confirmed');
         }
     }
 
-    if (await paymentsQueries.countProviderTransactions(Number(order.id), provider.name) >= MAX_PROMPTS_PER_ORDER) {
+    if (await paymentsQueries.countProviderTransactions(Number(order.id), PAYSTACK) >= MAX_PROMPTS_PER_ORDER) {
         throw new TooManyRequestsError('Too many payment requests for this order. Please contact us and we will help you pay.');
     }
 
@@ -103,25 +94,17 @@ async function initiatePrompt(c: AppContext, order: any, requestedPhone: string 
     const email = String(order.customer_email ?? requestEmail ?? '');
     let tx;
     try {
-        tx = await provider.send(order, orderAmountDue(order), { phone, email });
+        tx = await sendPaystackPrompt(order, orderAmountDue(order), { phone, email });
     } catch (err) {
-        console.error(`[${provider.name}] M-Pesa prompt failed:`, err);
+        console.error('[paystack] M-Pesa prompt failed:', err);
         throw new BadRequestError("M-Pesa couldn't send the payment request right now. Please try again in a moment.");
     }
     return success(c, {
         order_id: order.id,
-        payment_provider: provider.name,
+        payment_provider: PAYSTACK,
         payment_reference: tx.provider_reference,
         prompt_phone: maskPhone(phone),
     }, `We've sent a payment request to ${maskPhone(phone)}. Enter your M-Pesa PIN on your phone.`);
-}
-
-/** The secret path segment Safaricom was given, compared in constant time. */
-function isMpesaCallbackSecret(given: string | undefined) {
-    const expected = env.MPESA_CALLBACK_SECRET;
-    if (!expected) return true;
-    if (!given || given.length !== expected.length) return false;
-    return timingSafeEqual(Buffer.from(given), Buffer.from(expected));
 }
 
 export const paymentsHandlers = {
@@ -182,7 +165,7 @@ export const paymentsHandlers = {
         const respond = (status: string, message: string, current: any = order, extra: Record<string, unknown> = {}) =>
             success(c, {
                 status,
-                payment_provider: tx?.provider ?? env.PAYMENT_PROVIDER,
+                payment_provider: PAYSTACK,
                 ...extra,
                 ...orderPaymentSummary(current),
                 order_source: current.order_source,
@@ -212,15 +195,14 @@ export const paymentsHandlers = {
         if (view.status === 'REVIEW') return respond('REVIEW', 'We have received a payment and our team is checking it.');
 
         if (!tx) return respond(ORDER_STATUS.PENDING, 'Payment has not been started');
-        const provider = providerOf(tx);
-        // An attempt from a retired provider: the customer starts a new one.
-        if (!provider) return respond(ORDER_STATUS.PENDING, 'Payment has not been started');
+        // An attempt from a retired provider (Pesapal, Daraja) can't be checked: the customer starts a new one.
+        if (tx.provider !== PAYSTACK) return respond(ORDER_STATUS.PENDING, 'Payment has not been started');
         // Where the last prompt went and when, so the screen can say "check your phone".
         const promptInfo = { prompt_phone: promptPhoneHint(tx), prompt_sent_at: new Date(tx.created_at).toISOString() };
 
-        let result: Awaited<ReturnType<typeof provider.check>>;
+        let result: Awaited<ReturnType<typeof processPaystackTransaction>>;
         try {
-            result = await provider.check(tx);
+            result = await processPaystackTransaction(tx);
         } catch (err) {
             console.error(`[${tx.provider}] status check failed:`, err);
             return respond(ORDER_STATUS.PENDING, 'We could not check your payment right now. Please try again shortly.', order, promptInfo);
@@ -239,21 +221,6 @@ export const paymentsHandlers = {
             EXPIRED: 'Your payment arrived after this order expired. We will refund you.',
         }[status as string] ?? 'Payment is still pending';
         return respond(status, message, current ?? order, { ...promptInfo, failure_reason: result.failure_reason ?? undefined });
-    },
-
-    /**
-     * Safaricom's STK Push result. Always acknowledged (Safaricom doesn't retry), then confirmed
-     * with an STK Push Query before the order moves — callbacks aren't signed.
-     */
-    mpesaCallback: async (c: AppContext) => {
-        if (!isMpesaCallbackSecret(c.req.param('secret'))) return c.json({ ResultCode: 1, ResultDesc: 'Not found' }, 404);
-
-        const callback = parseStkCallback(await c.req.json().catch(() => null));
-        if (!callback) return c.json({ ResultCode: 1, ResultDesc: 'Malformed callback' }, 400);
-
-        // Answered straight away; the query that confirms it can take a few seconds.
-        void recordMpesaCallback(callback).catch((err) => console.error('[mpesa] callback processing failed:', err));
-        return c.json({ ResultCode: 0, ResultDesc: 'Accepted' });
     },
 
     /**

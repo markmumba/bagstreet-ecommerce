@@ -63,7 +63,7 @@ export async function applyAttemptOutcome(
                 provider_reference: tx.provider_reference,
                 merchant_reference: tx.merchant_reference,
                 payment_method: details.paymentMethod,
-                receipt,
+                mpesa_receipt: receipt,
             },
         });
     }

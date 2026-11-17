@@ -15,7 +15,7 @@ import { ordersQueries } from '../orders/orders.queries';
 import { applyAttemptOutcome } from './attempt-outcome';
 import { paymentsQueries, type PaymentTransactionRow } from './payments.queries';
 
-export const PAYSTACK = 'paystack';
+export const PAYSTACK = 'paystack' as const;
 
 /** Status polling asks Paystack at most this often per attempt. */
 const MIN_QUERY_INTERVAL_MS = 8_000;
