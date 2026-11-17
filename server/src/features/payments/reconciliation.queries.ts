@@ -107,14 +107,14 @@ export const reconciliationQueries = {
         `;
     },
 
-    /** Records an M-Pesa charge once per transaction; returns false if it was already recorded. */
+    /** Records a Paystack fee once per transaction; returns false if it was already recorded. */
     recordProviderFee: async (input: { orderId: number; transactionId: number; amount: number; statementRow: number; reference: string }) => {
         const rows = await sql<{ id: number }[]>`
             INSERT INTO payment_ledger_entries (order_id, payment_transaction_id, entry_type, direction, amount, currency, reference, metadata)
             VALUES (
                 ${input.orderId}, ${input.transactionId}, ${LEDGER_ENTRY.PROVIDER_FEE}, 'DEBIT', ${input.amount}, 'KES',
-                ${`fee:mpesa:${input.transactionId}`},
-                ${JSON.stringify({ source: 'mpesa_statement', statement_row: input.statementRow, statement_reference: input.reference })}::jsonb
+                ${`fee:paystack:${input.transactionId}`},
+                ${JSON.stringify({ source: 'paystack_statement', statement_row: input.statementRow, statement_reference: input.reference })}::jsonb
             )
             ON CONFLICT (entry_type, reference) WHERE reference IS NOT NULL DO NOTHING
             RETURNING id

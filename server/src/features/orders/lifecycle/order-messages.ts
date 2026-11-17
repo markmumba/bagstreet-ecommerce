@@ -120,7 +120,7 @@ export function staffAlert(
             return {
                 type: 'PAYMENT_MISMATCH',
                 title: `Payment needs review: ${ref}`,
-                body: `Received ${what}. The order was not confirmed. Check the M-Pesa statement, then either "Mark as paid" to accept it or cancel and refund.`,
+                body: `Received ${what}. The order was not confirmed. Check it in the Paystack dashboard, then either "Mark as paid" to accept it or cancel and refund.`,
             };
         }
         case 'overpaid': {
@@ -147,7 +147,7 @@ export function staffAlert(
             return {
                 type: 'PAYMENT_DUPLICATE',
                 title: `Extra payment on ${ref}`,
-                body: `A further ${money(received?.amount ?? 0)} arrived for an order that was already paid. Check the M-Pesa statement and refund it if it was charged twice.`,
+                body: `A further ${money(received?.amount ?? 0)} arrived for an order that was already paid. Check it in the Paystack dashboard and refund it if it was charged twice.`,
             };
     }
 }

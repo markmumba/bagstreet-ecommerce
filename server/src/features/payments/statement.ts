@@ -1,9 +1,10 @@
 /**
- * M-Pesa statement reconciliation — pure logic (no DB), unit-tested.
+ * Paystack statement reconciliation — pure logic (no DB), unit-tested.
  *
- * The statement is the CSV export from the M-Pesa org portal. Its exact column names
- * aren't fixed here: columns are found by header keywords, and the report says which column was
- * used for what, so a mismatch is visible rather than silently wrong.
+ * The statement is the transactions CSV export from the Paystack dashboard. Its columns can be
+ * customised there, so they aren't fixed here: columns are found by header keywords, and the
+ * report says which column was used for what, so a mismatch is visible rather than silently wrong.
+ * Our charge reference (e.g. BS-0F5C1D15-mwkfzng8) is Paystack's "Reference".
  */
 import type { CsvRow } from '@server/lib/csv-import';
 import { roundMoney } from '@server/lib/pricing';
@@ -38,8 +39,9 @@ export function detectStatementColumns(headers: string[]): StatementColumns {
             [/fee/, /commission/, /charge/, /net/, /balance/, /settle/],
         ),
         fee: findColumn(headers, [/fee/, /commission/, /charges?$/]),
-        date: findColumn(headers, [/date/, /time/, /created/]),
-        status: findColumn(headers, [/status/]),
+        date: findColumn(headers, [/^paid_at$/, /date/, /time/, /created/, /_at$/]),
+        // The transaction's own status, not a settlement or payout status.
+        status: findColumn(headers, [/^status$/, /transaction_status/, /status/], [/settle/, /payout/, /transfer/]),
     };
 }
 
@@ -48,7 +50,7 @@ export function statementColumnProblems(columns: StatementColumns): string[] {
     const problems: string[] = [];
     if (!columns.amount) problems.push('No amount column found (looked for a header like "Amount").');
     if (!columns.tracking && !columns.merchantReference && !columns.confirmationCode) {
-        problems.push('No reference column found (looked for "Receipt No.", "Merchant Reference" or "Confirmation Code").');
+        problems.push('No reference column found (looked for "Reference"). Include it when exporting from Paystack.');
     }
     return problems;
 }
@@ -73,6 +75,8 @@ export interface StatementRow {
     fee: number | null;
     date: string | null;
     successful: boolean;
+    /** Paystack lists payments reversed after succeeding in its "successful" export. */
+    reversed: boolean;
 }
 
 export function normaliseStatementRows(rows: CsvRow[], columns: StatementColumns): StatementRow[] {
@@ -87,11 +91,12 @@ export function normaliseStatementRows(rows: CsvRow[], columns: StatementColumns
             date: get(columns.date) || null,
             // No status column: assume the export lists completed payments only.
             successful: !columns.status || !status || /complet|success|paid|settled/.test(status),
+            reversed: /revers/.test(status),
         };
     });
 }
 
-/** An M-Pesa transaction we know about, with what the ledger recorded for it. */
+/** A Paystack transaction we know about, with what the ledger recorded for it. */
 export interface KnownTransaction {
     transactionId: number;
     orderId: number;
@@ -100,7 +105,7 @@ export interface KnownTransaction {
     capturedAmount: number;
 }
 
-export type StatementIssueKind = 'not_in_ledger' | 'amount_mismatch' | 'unknown_reference' | 'not_successful' | 'unreadable_amount';
+export type StatementIssueKind = 'not_in_ledger' | 'amount_mismatch' | 'unknown_reference' | 'not_successful' | 'reversed' | 'unreadable_amount';
 
 export interface StatementIssue {
     row: number;
@@ -135,6 +140,18 @@ export function reconcileStatementRows(rows: StatementRow[], known: KnownTransac
 
     for (const row of rows) {
         const reference = row.references[0] ?? null;
+        const tx = row.references.map((ref) => byReference.get(ref.toUpperCase())).find(Boolean);
+        if (row.reversed) {
+            issues.push({
+                row: row.rowNumber, kind: 'reversed', reference,
+                order_id: tx ? String(tx.orderId) : null, order_number: tx?.orderNumber ?? null,
+                statement_amount: row.amount, ledger_amount: tx?.capturedAmount ?? null,
+                message: tx && tx.capturedAmount > 0
+                    ? 'Paystack reversed this payment, but the order still has it recorded as received. Check the order.'
+                    : 'Paystack reversed this payment.',
+            });
+            continue;
+        }
         if (!row.successful) {
             issues.push({ row: row.rowNumber, kind: 'not_successful', reference, order_id: null, order_number: null, statement_amount: row.amount, ledger_amount: null, message: 'Not a completed payment on the statement — skipped.' });
             continue;
@@ -144,7 +161,6 @@ export function reconcileStatementRows(rows: StatementRow[], known: KnownTransac
             continue;
         }
 
-        const tx = row.references.map((ref) => byReference.get(ref.toUpperCase())).find(Boolean);
         if (!tx) {
             issues.push({ row: row.rowNumber, kind: 'unknown_reference', reference, order_id: null, order_number: null, statement_amount: row.amount, ledger_amount: null, message: 'No Bagstreet payment has this reference.' });
             continue;
@@ -154,7 +170,7 @@ export function reconcileStatementRows(rows: StatementRow[], known: KnownTransac
         matches.push({ row: row.rowNumber, transactionId: tx.transactionId, orderId: tx.orderId, reference: reference ?? tx.references[0]!, fee: row.fee });
 
         if (tx.capturedAmount === 0) {
-            issues.push({ row: row.rowNumber, kind: 'not_in_ledger', reference, order_id: String(tx.orderId), order_number: tx.orderNumber, statement_amount: row.amount, ledger_amount: 0, message: 'M-Pesa received this payment but the order has no payment recorded.' });
+            issues.push({ row: row.rowNumber, kind: 'not_in_ledger', reference, order_id: String(tx.orderId), order_number: tx.orderNumber, statement_amount: row.amount, ledger_amount: 0, message: 'Paystack received this payment but the order has no payment recorded.' });
         } else if (Math.abs(tx.capturedAmount - row.amount) > TOLERANCE) {
             issues.push({ row: row.rowNumber, kind: 'amount_mismatch', reference, order_id: String(tx.orderId), order_number: tx.orderNumber, statement_amount: row.amount, ledger_amount: tx.capturedAmount, message: `Statement shows KES ${row.amount.toFixed(2)}, ledger recorded KES ${tx.capturedAmount.toFixed(2)}.` });
         }

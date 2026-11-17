@@ -27,6 +27,14 @@ describe('detectStatementColumns', () => {
         expect(c.amount).toBe('gross_amount');
         expect(c.fee).toBe('fee_amount');
     });
+    test('Paystack transactions export headers', () => {
+        const c = detectStatementColumns(['reference', 'amount', 'fees', 'currency', 'channel', 'status', 'settlement_status', 'paid_at', 'customer_email']);
+        expect(c).toMatchObject({ merchantReference: 'reference', amount: 'amount', fee: 'fees', status: 'status', date: 'paid_at' });
+    });
+    test('a settlement status is never taken for the transaction status', () => {
+        expect(detectStatementColumns(['reference', 'amount', 'settlement_status', 'transaction_status']).status).toBe('transaction_status');
+        expect(detectStatementColumns(['reference', 'amount', 'settlement_status']).status).toBeNull();
+    });
     test('missing columns are reported in plain words', () => {
         expect(statementColumnProblems(detectStatementColumns(['date', 'description']))).toHaveLength(2);
         expect(statementColumnProblems(detectStatementColumns(['tracking_id', 'amount']))).toHaveLength(0);
@@ -58,7 +66,7 @@ describe('reconcileStatementRows', () => {
     test('different amount → amount_mismatch', () => {
         expect(statement('Tracking ID,Amount\nTRK-2,3000').issues[0]?.kind).toBe('amount_mismatch');
     });
-    test('M-Pesa has it, ledger does not → not_in_ledger', () => {
+    test('Paystack has it, ledger does not → not_in_ledger', () => {
         const issue = statement('Tracking ID,Amount\nTRK-3,1000').issues[0];
         expect(issue?.kind).toBe('not_in_ledger');
         // Matched rows carry the order id so the admin can open the order.
@@ -73,6 +81,20 @@ describe('reconcileStatementRows', () => {
         const r = statement('Tracking ID,Amount,Status\nTRK-1,8500,Failed');
         expect(r.matches).toHaveLength(0);
         expect(r.issues[0]?.kind).toBe('not_successful');
+    });
+    test('a Paystack export: reference, fees, paid at', () => {
+        const r = statement('Reference,Amount,Fees,Currency,Status,Paid At\nMER-1,8500.00,127.50,KES,success,2026-11-17 08:41:02');
+        expect(r.issues).toHaveLength(0);
+        expect(r.matches[0]).toMatchObject({ transactionId: 1, fee: 127.5 });
+    });
+    test('reversed rows are flagged, linking the order when it still shows the money', () => {
+        const r = statement('Reference,Amount,Status\nMER-1,8500,reversed\nTRK-999,1000,Reversed');
+        expect(r.matches).toHaveLength(0);
+        expect(r.issues.map((i) => [i.kind, i.order_id])).toEqual([['reversed', '10'], ['reversed', null]]);
+        expect(r.issues[0]?.message).toContain('still has it recorded');
+    });
+    test('abandoned rows are skipped', () => {
+        expect(statement('Reference,Amount,Status\nMER-1,8500,abandoned').issues[0]?.kind).toBe('not_successful');
     });
     test('unreadable amount', () => {
         expect(statement('Tracking ID,Amount\nTRK-1,abc').issues[0]?.kind).toBe('unreadable_amount');

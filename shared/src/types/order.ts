@@ -369,7 +369,7 @@ export interface ReconciliationReport {
 
 export interface StatementIssueResponse {
     row: number;
-    kind: 'not_in_ledger' | 'amount_mismatch' | 'unknown_reference' | 'not_successful' | 'unreadable_amount';
+    kind: 'not_in_ledger' | 'amount_mismatch' | 'unknown_reference' | 'not_successful' | 'reversed' | 'unreadable_amount';
     reference: string | null;
     /** Set when the row's reference matched an order. */
     order_id: string | null;

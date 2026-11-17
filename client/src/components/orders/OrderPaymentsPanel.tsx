@@ -47,7 +47,7 @@ function entryLabel(entry: LedgerEntryResponse) {
     const last4 = entry.metadata?.voucher_last4;
     return `Paid by gift voucher${last4 ? ` ····${String(last4)}` : ''}`;
   }
-  if (entry.entry_type === 'PROVIDER_FEE') return 'M-Pesa charge';
+  if (entry.entry_type === 'PROVIDER_FEE') return 'Paystack fee';
   if (entry.entry_type === 'PAYMENT_REVERSED') return 'Taken back by the payment provider';
   if (entry.entry_type === 'REFUND_ISSUED') {
     const method = entry.metadata?.method as RefundMethod | undefined;
@@ -92,7 +92,7 @@ export function OrderPaymentsPanel({ orderId, canRefund }: { orderId: string; ca
       </dl>
       {summary.fees > 0 && (
         <p className="-mt-1 text-xs text-muted-foreground">
-          After {kes(summary.fees)} M-Pesa charges: <span className="font-medium text-foreground">{kes(summary.net_after_fees)}</span>
+          After {kes(summary.fees)} Paystack fees: <span className="font-medium text-foreground">{kes(summary.net_after_fees)}</span>
         </p>
       )}
 
@@ -103,7 +103,7 @@ export function OrderPaymentsPanel({ orderId, canRefund }: { orderId: string; ca
       )}
       {(summary.state === 'underpaid' || summary.state === 'overpaid') && (
         <p className="rounded-xl bg-[var(--color-warning-bg)] px-3 py-2 text-sm text-[var(--color-warning-text)]">
-          Received {kes(summary.captured)} against an order total of {kes(summary.order_total)}. Check the M-Pesa statement before fulfilling.
+          Received {kes(summary.captured)} against an order total of {kes(summary.order_total)}. Check the Paystack statement before fulfilling.
         </p>
       )}
       {summary.legacy_unrecorded_capture && (
