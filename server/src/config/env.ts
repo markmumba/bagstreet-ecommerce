@@ -63,9 +63,6 @@ const envSchema = z.object({
     RESEND_API_URL: z.string().url().default('https://api.resend.com/emails'),
     CLIENT_URL: z.string().default('http://localhost:5173'),
     STOREFRONT_URL: z.string().default('http://localhost:5174'),
-    REDIS_REST_URL: z.string().url().optional(),
-    REDIS_REST_TOKEN: z.string().optional(),
-    RATE_LIMIT_STORE: z.enum(['memory', 'redis']).default('memory'),
     RUN_MIGRATIONS_ON_STARTUP: z.string().optional().transform((value) => value === undefined ? undefined : value === 'true'),
     /** Currency every order, payment and ledger entry is in. */
     CURRENCY: z.string().default('KES'),

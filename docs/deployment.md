@@ -56,7 +56,7 @@ Only Caddy is reachable from the internet. Postgres and the API sit on the inter
 
 ### One droplet with Docker Compose
 - Right-sized for launch: the measured peak is about half of the $12 droplet's memory. Every service has a health check and restarts automatically.
-- To grow, resize the droplet, or move Postgres to DigitalOcean Managed Postgres. Nothing in the app assumes a single machine except the rate limiter, which keeps its counters in the API's memory. Before running a second API instance, add Redis back (`redis` plus the `hiett/serverless-redis-http` bridge) and set `RATE_LIMIT_STORE=redis`, `REDIS_REST_URL` and `REDIS_REST_TOKEN`.
+- To grow, resize the droplet, or move Postgres to DigitalOcean Managed Postgres. Nothing in the app assumes a single machine except the rate limiter, which keeps its counters in the API's memory. A second API instance would need a shared counter store (e.g. Redis) first.
 
 ---
 
@@ -304,7 +304,7 @@ Then sign in at `https://admin.example.co.ke` and invite other staff from the Us
 5. In Admin → **Reconciliation**, import that day's Pesapal statement. It confirms the CSV columns are detected correctly and records the fee.
 
 ### 8. Verify before launch
-- [ ] `curl https://api.example.co.ke/health/ready` reports `READY`, with the database `UP` and the rate-limit store `memory`.
+- [ ] `curl https://api.example.co.ke/health/ready` reports `READY`, with the database `UP`.
 - [ ] The storefront and admin load over HTTPS. `http://` and `www.` redirect.
 - [ ] **The IP check.** The 11th request must return `429`. If every request gets `400`, the limiter is being fooled; check `TRUST_PROXY_HOPS` and make sure the API publishes no ports.
   ```bash
@@ -399,4 +399,4 @@ The template [`deploy/.env.production.example`](../deploy/.env.production.exampl
 
 **Storage settings are named `STORAGE_*`**, because production uses Spaces rather than MinIO. The old `MINIO_*` names are still read as a fallback, with a startup warning, so existing local `.env` files keep working. The `MINIO_ROOT_*` settings in the local `docker-compose.yml` configure the MinIO container itself and are unrelated.
 
-The compose file sets `DATABASE_URL`, `SERVER_URL`, `STOREFRONT_URL`, `CLIENT_URL`, `CORS_ORIGIN` and `RATE_LIMIT_STORE` from the domains and credentials in `.env.production`, so they can't drift out of sync.
+The compose file sets `DATABASE_URL`, `SERVER_URL`, `STOREFRONT_URL`, `CLIENT_URL` and `CORS_ORIGIN` from the domains and credentials in `.env.production`, so they can't drift out of sync.

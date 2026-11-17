@@ -61,9 +61,6 @@ services:
       CORS_ORIGIN: https://${SHOP_DOMAIN},https://${ADMIN_DOMAIN}
       # Caddy is the one proxy in front of the API. Change only if you add another (see docs).
       TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-1}
-      # One API instance, so rate-limit counters live in its memory (they reset on restart).
-      # Running several instances? Add Redis back and set RATE_LIMIT_STORE=redis.
-      RATE_LIMIT_STORE: memory
       # Migrations run as an explicit deploy step, not on every start.
       RUN_MIGRATIONS_ON_STARTUP: "false"
     depends_on:
