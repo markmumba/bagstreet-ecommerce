@@ -21,7 +21,7 @@ app.onError(errorHandler);
 app.route('/api/auth', authRoutes);
 
 const COOKIE = 'bagstreet_storefront_refresh_token';
-const headers = { 'Content-Type': 'application/json', 'X-Bagstreet-App': 'storefront' };
+const headers = { 'Content-Type': 'application/json', 'X-Bagstreet-App': 'storefront', Origin: env.CORS_ORIGIN[0]! };
 
 function refreshCookieOf(response: Response): string | undefined {
     for (const line of response.headers.getSetCookie()) {
@@ -42,6 +42,16 @@ try {
         RETURNING id
     `;
     userId = Number(user.id);
+
+    const forged = await app.request('/api/auth/login', {
+        method: 'POST',
+        headers: { ...headers, Origin: 'https://untrusted.invalid', 'Content-Type': 'text/plain' },
+        body: JSON.stringify({ email, password }),
+    });
+    check('login from a foreign origin is rejected without setting a cookie', forged.status === 403 && !refreshCookieOf(forged));
+    const { Origin: _origin, ...withoutOrigin } = headers;
+    const anonymous = await app.request('/api/auth/login', { method: 'POST', headers: withoutOrigin, body: JSON.stringify({ email, password }) });
+    check('login with no Origin or Referer is rejected', anonymous.status === 403);
 
     const login = await app.request('/api/auth/login', { method: 'POST', headers, body: JSON.stringify({ email, password }) });
     const first = refreshCookieOf(login);

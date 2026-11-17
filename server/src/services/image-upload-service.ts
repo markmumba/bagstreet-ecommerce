@@ -4,7 +4,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { BadRequestError } from "@server/lib/errors";
 import sharp from "sharp";
 
-const minioClient = new Client({
+const storageClient = new Client({
     endPoint: env.STORAGE_ENDPOINT,
     port: env.STORAGE_PORT,
     useSSL: env.STORAGE_USE_SSL,
@@ -18,10 +18,10 @@ let bucketReady: Promise<void> | null = null;
 /** Creates the bucket if it's missing — for local MinIO. In production the R2 bucket is made (and
  * made public) in the Cloudflare dashboard, so this only checks it exists. */
 async function ensureBucket() {
-    const exists = await minioClient.bucketExists(env.STORAGE_BUCKET);
+    const exists = await storageClient.bucketExists(env.STORAGE_BUCKET);
     if (!exists) {
-        await minioClient.makeBucket(env.STORAGE_BUCKET);
-        await minioClient.setBucketPolicy(env.STORAGE_BUCKET, JSON.stringify({
+        await storageClient.makeBucket(env.STORAGE_BUCKET);
+        await storageClient.setBucketPolicy(env.STORAGE_BUCKET, JSON.stringify({
             Version: '2012-10-17',
             Statement: [{
                 Effect: 'Allow',
@@ -75,7 +75,7 @@ export function objectUrl(fileName: string) {
 }
 
 async function uploadObject(fileName: string, buffer: Buffer, contentType: string) {
-    await minioClient.putObject(env.STORAGE_BUCKET, fileName, buffer, buffer.length, {
+    await storageClient.putObject(env.STORAGE_BUCKET, fileName, buffer, buffer.length, {
         'Content-Type': contentType,
         'Cache-Control': 'public, max-age=31536000, immutable',
     });
@@ -119,7 +119,7 @@ async function uploadSizes<const S extends readonly { key: string; width: number
         }
     } catch {
         await Promise.allSettled(
-            Object.values<{ filename: string }>(uploaded).map((image) => minioClient.removeObject(env.STORAGE_BUCKET, image.filename)),
+            Object.values<{ filename: string }>(uploaded).map((image) => storageClient.removeObject(env.STORAGE_BUCKET, image.filename)),
         );
         throw new BadRequestError('Image could not be processed. Please upload a JPEG, PNG, WebP, HEIC, or HEIF image.');
     }
@@ -149,7 +149,7 @@ export const imageUploadService = {
 
     delete: async (filename: string) => {
         await Promise.allSettled(
-            optimizedSiblingNames(filename).map((name) => minioClient.removeObject(env.STORAGE_BUCKET, name)),
+            optimizedSiblingNames(filename).map((name) => storageClient.removeObject(env.STORAGE_BUCKET, name)),
         );
     },
 };

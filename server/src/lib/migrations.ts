@@ -1,5 +1,6 @@
 import { migrations } from '../db/migrations';
 import { sql } from './db';
+import { log } from './log';
 
 const MIGRATION_LOCK_KEY = 741_932_118;
 
@@ -57,7 +58,7 @@ export async function migrateDatabase() {
             });
 
             appliedIds.add(migration.id);
-            console.log(`Applied migration ${migration.id}_${migration.name}`);
+            log.info('applied migration', { migration: `${migration.id}_${migration.name}` });
         }
     } finally {
         await sql`SELECT pg_advisory_unlock(${MIGRATION_LOCK_KEY})`;

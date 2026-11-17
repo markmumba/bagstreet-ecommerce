@@ -472,8 +472,34 @@ Nightly Postgres dump, kept 14 days locally and copied to the private backups bu
 - **Uptime:** a DigitalOcean Uptime check on `https://api.example.co.ke/health/ready`, plus one on the storefront, with email or Slack alerts.
 - **Resources:** DigitalOcean monitoring alerts at disk > 80%, memory > 85% and CPU > 80% sustained.
 - **Email:** alert if `/health/ready` reports `email_outbox.backlog_warning: true`.
-- **Logs:** `$C logs -f api`. They're size-capped, so they won't fill the disk.
+- **Logs:** see [Reading the logs](#reading-the-logs). Docker caps them at 5 × 10 MB per container, so they won't fill the disk.
 - **Money:** open Admin → Reconciliation weekly. Payments "held for review" and "refund owed" also notify staff in the admin.
+
+### Reading the logs
+In production the API writes one JSON object per line: `time`, `level` (`info`, `warn`, `error`), `msg`, and a `request_id` on everything logged while handling a request. Each request ends with one `"msg":"request"` line holding `method`, `path`, `status`, `duration_ms`, and `user_id` / `error_code` when there is one. Successful health checks are not logged. Unexpected errors log `"msg":"request failed"` with the full stack under `err`.
+
+Every response carries an `X-Request-Id` header, and a 500 tells the customer `Internal server error (reference <id>)`. When someone reports a failure, ask for that reference or find the request by time and path.
+
+Install `jq` once (`sudo apt install -y jq`), then:
+
+```bash
+# Follow live, readable
+$C logs -f --no-log-prefix api | jq -R 'fromjson? // .'
+
+# Errors in the last 24 hours
+$C logs --since 24h --no-log-prefix api | jq -cR 'fromjson? | select(.level == "error")'
+
+# Everything for one request (the reference a customer saw)
+$C logs --since 48h --no-log-prefix api | jq -cR 'fromjson? | select(.request_id == "PASTE-ID")'
+
+# Everything about one order (payments, expiry, emails)
+$C logs --since 48h --no-log-prefix api | jq -cR 'fromjson? | select(.order_id == 123)'
+
+# Slowest requests in the last hour
+$C logs --since 1h --no-log-prefix api | jq -rR 'fromjson? | select(.msg == "request") | [.duration_ms, .method, .path, .status] | @tsv' | sort -n -r | head -20
+```
+
+`LOG_LEVEL=debug|info|warn|error` (default `info`) and `LOG_FORMAT=json|pretty` (default `json` in production, `pretty` locally) change this; neither needs setting normally. Logs record ids, not phone numbers or email addresses: keep it that way when adding new log lines.
 
 ## Environment variables specific to production
 The template [`deploy/.env.production.example`](../deploy/.env.production.example) explains every variable. The ones that differ from local development:
