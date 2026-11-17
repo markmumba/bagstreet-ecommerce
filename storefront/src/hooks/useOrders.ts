@@ -66,8 +66,8 @@ export function useInitiatePayment() {
 }
 
 /**
- * After an M-Pesa prompt is sent, keep checking this long — the prompt itself times out in one
- * to three minutes (Safaricom directly, or through Paystack).
+ * After an M-Pesa prompt is sent, keep checking this long — Paystack gives the customer three
+ * minutes to enter their PIN.
  */
 const PROMPT_WATCH_MS = 4 * 60 * 1000;
 
