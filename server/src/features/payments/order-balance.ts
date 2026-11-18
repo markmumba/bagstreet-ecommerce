@@ -1,4 +1,4 @@
-import type { OrderPaymentState, OrderPaymentSummary } from 'shared/dist';
+import { LEDGER_DIRECTION, ORDER_STATUS, PAYMENT_STATUS, REFUND_METHOD, type LedgerDirection, type OrderPaymentState, type OrderPaymentSummary } from 'shared/dist';
 import { roundMoney } from '@server/lib/pricing';
 import { readJsonColumn } from '@server/lib/json-column';
 
@@ -14,19 +14,18 @@ export const LEDGER_ENTRY = {
     VOUCHER_REDEEMED: 'VOUCHER_REDEEMED',
 } as const;
 
-/** Differences smaller than this (KES) are rounding noise, not under/overpayment. */
+export type LedgerEntryType = typeof LEDGER_ENTRY[keyof typeof LEDGER_ENTRY];
+
+/** Differences smaller than this (in the shop currency) are rounding noise, not under/overpayment. */
 const TOLERANCE = 0.5;
 
 export interface BalanceEntry {
     entry_type: string;
-    direction: 'CREDIT' | 'DEBIT';
+    direction: LedgerDirection;
     amount: number | string;
     /** A refund's `method` says whether it went back onto a gift voucher. */
     metadata?: unknown;
 }
-
-/** Refunds with this method went back onto the order's gift voucher (see the Order lifecycle). */
-const GIFT_VOUCHER_REFUND = 'GIFT_VOUCHER';
 
 export interface BalanceOrder {
     total_amount: number | string;
@@ -40,24 +39,24 @@ export interface BalanceOrder {
  */
 export function summariseOrderPayments(order: BalanceOrder, entries: BalanceEntry[]): OrderPaymentSummary {
     const orderTotal = roundMoney(Number(order.total_amount));
-    const sum = (type: string, direction: 'CREDIT' | 'DEBIT') => roundMoney(
+    const sum = (type: LedgerEntryType, direction: LedgerDirection) => roundMoney(
         entries
             .filter((e) => e.entry_type === type && e.direction === direction)
             .reduce((total, e) => total + Number(e.amount), 0),
     );
 
-    const paidByVoucher = sum(LEDGER_ENTRY.VOUCHER_REDEEMED, 'CREDIT');
-    let captured = roundMoney(sum(LEDGER_ENTRY.PAYMENT_CAPTURED, 'CREDIT') + paidByVoucher);
-    const refunded = sum(LEDGER_ENTRY.REFUND_ISSUED, 'DEBIT');
+    const paidByVoucher = sum(LEDGER_ENTRY.VOUCHER_REDEEMED, LEDGER_DIRECTION.CREDIT);
+    let captured = roundMoney(sum(LEDGER_ENTRY.PAYMENT_CAPTURED, LEDGER_DIRECTION.CREDIT) + paidByVoucher);
+    const refunded = sum(LEDGER_ENTRY.REFUND_ISSUED, LEDGER_DIRECTION.DEBIT);
     const returnedToVoucher = roundMoney(entries
-        .filter((e) => e.entry_type === LEDGER_ENTRY.REFUND_ISSUED && e.direction === 'DEBIT'
-            && (readJsonColumn<{ method?: string }>(e.metadata) ?? {}).method === GIFT_VOUCHER_REFUND)
+        .filter((e) => e.entry_type === LEDGER_ENTRY.REFUND_ISSUED && e.direction === LEDGER_DIRECTION.DEBIT
+            && (readJsonColumn<{ method?: string }>(e.metadata) ?? {}).method === REFUND_METHOD.GIFT_VOUCHER)
         .reduce((total, e) => total + Number(e.amount), 0));
-    const reversed = sum(LEDGER_ENTRY.PAYMENT_REVERSED, 'DEBIT');
-    const fees = sum(LEDGER_ENTRY.PROVIDER_FEE, 'DEBIT');
+    const reversed = sum(LEDGER_ENTRY.PAYMENT_REVERSED, LEDGER_DIRECTION.DEBIT);
+    const fees = sum(LEDGER_ENTRY.PROVIDER_FEE, LEDGER_DIRECTION.DEBIT);
 
     // Orders paid before the ledger existed have no capture entry; trust their PAID flag.
-    const legacyUnrecordedCapture = captured === 0 && order.payment_status === 'PAID';
+    const legacyUnrecordedCapture = captured === 0 && order.payment_status === PAYMENT_STATUS.PAID;
     if (legacyUnrecordedCapture) captured = orderTotal;
 
     const net = roundMoney(captured - refunded - reversed);
@@ -83,7 +82,7 @@ function paymentState(status: string, total: number, captured: number, refunded:
     if (captured === 0) return 'unpaid';
     if (reversed > 0 && net <= TOLERANCE) return 'reversed';
     if (refunded > 0 && net <= TOLERANCE) return 'refunded';
-    if (status === 'CANCELLED' && net > TOLERANCE) return 'refund_owed';
+    if (status === ORDER_STATUS.CANCELLED && net > TOLERANCE) return 'refund_owed';
     if (refunded > 0) return 'partially_refunded';
     if (captured < total - TOLERANCE) return 'underpaid';
     if (captured > total + TOLERANCE) return 'overpaid';
@@ -97,7 +96,7 @@ export type CaptureVerdict = 'match' | 'underpaid' | 'overpaid' | 'currency_mism
  * Underpaid / wrong-currency payments must not auto-confirm the order; overpaid ones confirm
  * but leave the difference owed back to the customer.
  */
-export function assessCapturedAmount(orderTotal: number, captured: number, currency: string | null | undefined, expectedCurrency = 'KES'): CaptureVerdict {
+export function assessCapturedAmount(orderTotal: number, captured: number, currency: string | null | undefined, expectedCurrency: string): CaptureVerdict {
     if (currency && currency.toUpperCase() !== expectedCurrency.toUpperCase()) return 'currency_mismatch';
     if (captured < orderTotal - TOLERANCE) return 'underpaid';
     if (captured > orderTotal + TOLERANCE) return 'overpaid';

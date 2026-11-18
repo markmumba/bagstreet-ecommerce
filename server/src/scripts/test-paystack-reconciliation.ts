@@ -7,6 +7,7 @@
 import 'dotenv/config';
 import { sql, closeDatabase } from '../lib/db';
 import { env } from '../config/env';
+import type { PaymentAttemptStatus } from '../features/payments/attempt-status';
 import { paymentsQueries } from '../features/payments/payments.queries';
 import { applyOrderEvent, createOrder } from '../features/orders/lifecycle/order-lifecycle';
 import type { Actor } from '../features/orders/lifecycle/transitions';
@@ -74,7 +75,7 @@ async function newOrder(): Promise<{ id: number; order_number: string }> {
     return { id, order_number: row.order_number };
 }
 
-async function newAttempt(orderId: number, reference: string, status: string) {
+async function newAttempt(orderId: number, reference: string, status: PaymentAttemptStatus) {
     const tx = await paymentsQueries.createProviderTransaction({
         order_id: orderId, provider: PAYSTACK, provider_reference: reference, merchant_reference: reference,
         amount: 1000, currency: 'KES', status, raw_payload: { zz: true },

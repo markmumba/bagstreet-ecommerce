@@ -32,6 +32,14 @@ import {
     type OurAttempt,
     type ProviderIssue,
 } from '../features/payments/paystack-reconciliation';
+import { LEDGER_DIRECTION } from 'shared/dist';
+
+/** paystack_reconciliation_runs.status (stored: never change the values). */
+export const RUN_STATUS = {
+    RUNNING: 'RUNNING',
+    COMPLETED: 'COMPLETED',
+    FAILED: 'FAILED',
+} as const;
 
 /** Check every 15 minutes whether yesterday still needs doing. */
 const TICK_MS = 15 * 60 * 1000;
@@ -71,13 +79,13 @@ const REAL_DEPS: ReconciliationDeps = { listTransactions, verifyTransaction, ale
 async function claimRun(day: string, force: boolean): Promise<number | null> {
     const rows = await sql<{ attempts: number }[]>`
         INSERT INTO paystack_reconciliation_runs (day, status)
-        VALUES (${day}, 'RUNNING')
+        VALUES (${day}, ${RUN_STATUS.RUNNING})
         ON CONFLICT (day) DO UPDATE
-        SET status = 'RUNNING', attempts = paystack_reconciliation_runs.attempts + 1,
+        SET status = ${RUN_STATUS.RUNNING}, attempts = paystack_reconciliation_runs.attempts + 1,
             started_at = CURRENT_TIMESTAMP, finished_at = NULL, error = NULL
         WHERE ${force}
-           OR (paystack_reconciliation_runs.status = 'FAILED' AND paystack_reconciliation_runs.attempts < ${MAX_ATTEMPTS})
-           OR (paystack_reconciliation_runs.status = 'RUNNING'
+           OR (paystack_reconciliation_runs.status = ${RUN_STATUS.FAILED} AND paystack_reconciliation_runs.attempts < ${MAX_ATTEMPTS})
+           OR (paystack_reconciliation_runs.status = ${RUN_STATUS.RUNNING}
                AND paystack_reconciliation_runs.started_at < CURRENT_TIMESTAMP - make_interval(mins => ${STALE_RUN_MINUTES}))
         RETURNING attempts
     `;
@@ -98,7 +106,7 @@ async function alertGaveUp(deps: ReconciliationDeps, day: string, attempt: numbe
     }).catch((err) => log.error('paystack-reconciliation: could not alert staff', { err, day }));
 }
 
-async function finishRun(day: string, status: 'COMPLETED' | 'FAILED', summary: unknown, error: string | null) {
+async function finishRun(day: string, status: typeof RUN_STATUS.COMPLETED | typeof RUN_STATUS.FAILED, summary: unknown, error: string | null) {
     await sql`
         UPDATE paystack_reconciliation_runs
         SET status = ${status}, finished_at = CURRENT_TIMESTAMP,
@@ -115,7 +123,7 @@ function toAttempt(r: any): OurAttempt {
         reference: r.provider_reference,
         status: r.status,
         captured: num(r.captured),
-        currency: r.currency ?? 'KES',
+        currency: r.currency ?? env.CURRENCY,
         inWindow: Boolean(r.in_window),
     };
 }
@@ -128,7 +136,7 @@ async function loadAttempts(window: ReturnType<typeof nairobiDayWindow>, listedR
         SELECT t.id, t.order_id, o.order_number, t.provider_reference, t.status, t.currency,
                (t.created_at >= ${start} AND t.created_at < ${end}) AS in_window,
                COALESCE((SELECT SUM(l.amount) FROM payment_ledger_entries l
-                         WHERE l.entry_type = ${LEDGER_ENTRY.PAYMENT_CAPTURED} AND l.direction = 'CREDIT'
+                         WHERE l.entry_type = ${LEDGER_ENTRY.PAYMENT_CAPTURED} AND l.direction = ${LEDGER_DIRECTION.CREDIT}
                            AND l.reference = ${CAPTURE_PREFIX} || t.provider_reference), 0) AS captured
         FROM payment_transactions t
         JOIN orders o ON o.id = t.order_id
@@ -145,7 +153,7 @@ async function loadAttempts(window: ReturnType<typeof nairobiDayWindow>, listedR
             SELECT t.id, t.order_id, o.order_number, t.provider_reference, t.status, t.currency,
                    (t.created_at >= ${start} AND t.created_at < ${end}) AS in_window,
                    COALESCE((SELECT SUM(l.amount) FROM payment_ledger_entries l
-                             WHERE l.entry_type = ${LEDGER_ENTRY.PAYMENT_CAPTURED} AND l.direction = 'CREDIT'
+                             WHERE l.entry_type = ${LEDGER_ENTRY.PAYMENT_CAPTURED} AND l.direction = ${LEDGER_DIRECTION.CREDIT}
                                AND l.reference = ${CAPTURE_PREFIX} || t.provider_reference), 0) AS captured
             FROM payment_transactions t
             JOIN orders o ON o.id = t.order_id
@@ -169,7 +177,7 @@ async function transactionRow(id: number): Promise<PaymentTransactionRow> {
 async function capturedFor(reference: string): Promise<number> {
     const [row] = await sql<{ total: string }[]>`
         SELECT COALESCE(SUM(amount), 0) AS total FROM payment_ledger_entries
-        WHERE entry_type = ${LEDGER_ENTRY.PAYMENT_CAPTURED} AND direction = 'CREDIT' AND reference = ${CAPTURE_PREFIX + reference}
+        WHERE entry_type = ${LEDGER_ENTRY.PAYMENT_CAPTURED} AND direction = ${LEDGER_DIRECTION.CREDIT} AND reference = ${CAPTURE_PREFIX + reference}
     `;
     return num(row?.total);
 }
@@ -300,15 +308,15 @@ export async function reconcilePaystackDay(day: string, opts: { force?: boolean;
         }
 
         // Some actions failed (Paystack hiccup): leave the day FAILED so the next tick retries it.
-        const status = summary.action_errors > 0 ? 'FAILED' : 'COMPLETED';
-        const error = status === 'FAILED' ? `${summary.action_errors} action(s) failed` : null;
+        const status = summary.action_errors > 0 ? RUN_STATUS.FAILED : RUN_STATUS.COMPLETED;
+        const error = status === RUN_STATUS.FAILED ? `${summary.action_errors} action(s) failed` : null;
         await finishRun(day, status, summary, error);
         if (error) await alertGaveUp(deps, day, attempt, error);
         log.info('paystack-reconciliation: run finished', { ...summary, recovered_payments: summary.recovered_payments.length, status });
         return summary;
     } catch (err) {
         const reason = err instanceof Error ? err.message : String(err);
-        await finishRun(day, 'FAILED', null, reason).catch(() => {});
+        await finishRun(day, RUN_STATUS.FAILED, null, reason).catch(() => {});
         await alertGaveUp(deps, day, attempt, reason);
         throw err;
     }

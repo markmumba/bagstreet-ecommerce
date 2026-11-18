@@ -1,4 +1,5 @@
 import type { BaseType } from './baseType';
+import type { GiftVoucherDeliverTo } from './gift-voucher';
 
 export const ORDER_STATUS = {
     PENDING: 'PENDING',
@@ -57,6 +58,29 @@ export const WALK_IN_PAYMENT_METHOD = {
 } as const;
 
 export type WalkInPaymentMethod = typeof WALK_IN_PAYMENT_METHOD[keyof typeof WALK_IN_PAYMENT_METHOD];
+
+/** Which way a payment ledger entry moves money: CREDIT is money in for the order, DEBIT is money out. */
+export const LEDGER_DIRECTION = {
+    CREDIT: 'CREDIT',
+    DEBIT: 'DEBIT',
+} as const;
+
+export type LedgerDirection = typeof LEDGER_DIRECTION[keyof typeof LEDGER_DIRECTION];
+
+/**
+ * What the storefront's payment status poll reports.
+ * `EXPIRED`: cancelled for non-payment (if `payment_status` is PAID, money arrived late and is owed back).
+ * `REVIEW`: money arrived but not the right amount — held for staff; don't ask the customer to pay again.
+ */
+export const CHECKOUT_PAYMENT_STATUS = {
+    PENDING: ORDER_STATUS.PENDING,
+    PAID: PAYMENT_STATUS.PAID,
+    FAILED: PAYMENT_STATUS.FAILED,
+    EXPIRED: 'EXPIRED',
+    REVIEW: 'REVIEW',
+} as const;
+
+export type CheckoutPaymentStatus = typeof CHECKOUT_PAYMENT_STATUS[keyof typeof CHECKOUT_PAYMENT_STATUS];
 
 export interface ShippingAddress {
     full_name: string;
@@ -183,11 +207,8 @@ export interface PaymentRetryResponse {
 }
 
 export interface PaymentStatusResponse {
-    /**
-     * `EXPIRED`: cancelled for non-payment (if `payment_status` is PAID, money arrived late and is owed back).
-     * `REVIEW`: money arrived but not the right amount — held for staff; don't ask the customer to pay again.
-     */
-    status: typeof ORDER_STATUS.PENDING | typeof PAYMENT_STATUS.PAID | typeof PAYMENT_STATUS.FAILED | 'EXPIRED' | 'REVIEW';
+    /** See CHECKOUT_PAYMENT_STATUS. */
+    status: CheckoutPaymentStatus;
     order_id: number;
     order_ref?: string;
     order_number?: string | null;
@@ -196,7 +217,7 @@ export interface PaymentStatusResponse {
     amount_due?: number;
     order_source?: OrderSource;
     /** For a gift voucher purchase: what was bought and where the code is emailed. */
-    gift_voucher?: { amount: number; deliver_to: 'RECIPIENT' | 'BUYER'; recipient_name: string | null; recipient_email: string | null };
+    gift_voucher?: { amount: number; deliver_to: GiftVoucherDeliverTo; recipient_name: string | null; recipient_email: string | null };
     order_status?: string;
     payment_status?: string;
     receipt_number?: string;
@@ -309,7 +330,7 @@ export interface OrderPaymentSummary {
 export interface LedgerEntryResponse {
     id: string;
     entry_type: string;
-    direction: 'CREDIT' | 'DEBIT';
+    direction: LedgerDirection;
     amount: number;
     currency: string;
     reference: string | null;

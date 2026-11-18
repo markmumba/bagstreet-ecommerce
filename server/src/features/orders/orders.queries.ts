@@ -1,12 +1,14 @@
 import { sql } from '../../lib/db';
 import { assertRecoveryCheckoutUnpaid, attachRecoveryOrder } from '../cart-recovery/recovery.queries';
 import { toJsonbParam } from '../../lib/json-column';
-import { ORDER_SOURCE, ORDER_STATUS, PAYMENT_STATUS, LEGAL_POLICIES } from 'shared/dist';
-import type { Order, OrderSource, OrderStatus, PaymentStatus, ShippingAddress } from 'shared/dist';
+import { LEDGER_DIRECTION, ORDER_SOURCE, ORDER_STATUS, PAYMENT_STATUS, LEGAL_POLICIES } from 'shared/dist';
+import type { GiftVoucherDeliverTo, Order, OrderSource, OrderStatus, PaymentStatus, ShippingAddress } from 'shared/dist';
 import { randomBytes } from 'node:crypto';
 import { TooManyRequestsError } from '../../lib/errors';
 import { orderLimitViolation, type CustomerOrderCounts } from './order-limits';
 import type { OrderAgreementSnapshot } from '../compliance/order-agreement';
+import { PAYMENT_ATTEMPT_STATUS } from '../payments/attempt-status';
+import { LEDGER_ENTRY } from '../payments/order-balance';
 
 export interface OrderRow extends Omit<Order, 'id' | 'created_at' | 'updated_at'> {
     id: number;
@@ -108,7 +110,7 @@ export interface OrderDraft {
     /** A gift voucher being bought (order source GIFT_VOUCHER): issued once the order is paid. */
     giftVoucherPurchase?: {
         amount: number;
-        deliverTo: 'RECIPIENT' | 'BUYER';
+        deliverTo: GiftVoucherDeliverTo;
         recipientName: string | null;
         recipientEmail: string | null;
         message: string | null;
@@ -335,7 +337,7 @@ export const ordersQueries = {
                     VALUES (
                         ${order.id}, ${draft.payment.provider}, ${draft.payment.providerReference ?? null},
                         ${draft.payment.merchantReference}, ${null}, ${draft.payment.amount}, ${draft.payment.currency},
-                        ${'COMPLETED'}, ${draft.payment.paymentMethod ?? null},
+                        ${PAYMENT_ATTEMPT_STATUS.COMPLETED}, ${draft.payment.paymentMethod ?? null},
                         ${draft.payment.providerReference ?? draft.payment.merchantReference},
                         ${'Payment recorded at checkout counter'}, ${toJsonbParam(draft.payment.rawPayload)}::jsonb
                     )
@@ -364,7 +366,7 @@ export const ordersQueries = {
               -- Money already received (e.g. underpaid, held for review): staff resolve it, not the timer.
               AND NOT EXISTS (
                   SELECT 1 FROM payment_ledger_entries ple
-                  WHERE ple.order_id = orders.id AND ple.entry_type = 'PAYMENT_CAPTURED'
+                  WHERE ple.order_id = orders.id AND ple.entry_type = ${LEDGER_ENTRY.PAYMENT_CAPTURED}
               )
             ORDER BY created_at ASC
             LIMIT ${limit}
@@ -375,9 +377,9 @@ export const ordersQueries = {
         const daily = await sql<{ date: string; revenue: string }[]>`
             SELECT
                 TO_CHAR(created_at::date, 'YYYY-MM-DD') AS date,
-                COALESCE(SUM(CASE WHEN direction = 'CREDIT' THEN amount ELSE -amount END), 0) AS revenue
+                COALESCE(SUM(CASE WHEN direction = ${LEDGER_DIRECTION.CREDIT} THEN amount ELSE -amount END), 0) AS revenue
             FROM payment_ledger_entries
-            WHERE entry_type IN ('PAYMENT_CAPTURED', 'REFUND_ISSUED', 'PAYMENT_REVERSED')
+            WHERE entry_type IN ${sql([LEDGER_ENTRY.PAYMENT_CAPTURED, LEDGER_ENTRY.REFUND_ISSUED, LEDGER_ENTRY.PAYMENT_REVERSED])}
               AND created_at >= NOW() - INTERVAL '30 days'
             GROUP BY created_at::date
             ORDER BY created_at::date ASC

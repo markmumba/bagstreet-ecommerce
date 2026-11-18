@@ -15,8 +15,10 @@ import { ordersQueries } from '../orders/orders.queries';
 import { applyAttemptOutcome } from './attempt-outcome';
 import { paymentsQueries, type PaymentTransactionRow } from './payments.queries';
 import { log } from '../../lib/log';
+import { PAYMENT_ATTEMPT_STATUS, PAYMENT_PROVIDER } from './attempt-status';
+import { env } from '../../config/env';
 
-export const PAYSTACK = 'paystack' as const;
+export const PAYSTACK = PAYMENT_PROVIDER.PAYSTACK;
 
 /** Status polling asks Paystack at most this often per attempt. */
 const MIN_QUERY_INTERVAL_MS = 8_000;
@@ -44,8 +46,8 @@ export async function sendPaystackPrompt(
         // One row per prompt: the order may need several (cancelled, wrong PIN, phone off).
         merchant_reference: charge.reference,
         amount: charge.amount,
-        currency: 'KES',
-        status: 'PENDING',
+        currency: env.CURRENCY,
+        status: PAYMENT_ATTEMPT_STATUS.PENDING,
         raw_payload: { phone: payer.phone, charge: charge.raw },
     });
 }
@@ -73,9 +75,9 @@ export async function recordPaystackWebhook(event: { event?: string; data?: { re
  * `force` skips the polling throttle (webhook and expiry job).
  */
 export async function processPaystackTransaction(tx: PaymentTransactionRow, opts: { force?: boolean } = {}) {
-    const settled = tx.status === 'COMPLETED' || tx.status === 'FAILED';
+    const settled = tx.status === PAYMENT_ATTEMPT_STATUS.COMPLETED || tx.status === PAYMENT_ATTEMPT_STATUS.FAILED;
     const recentlyAsked = Date.now() - (lastQueriedAt.get(tx.id) ?? 0) < MIN_QUERY_INTERVAL_MS;
-    let failureReason: string | null = settled && tx.status === 'FAILED' ? tx.result_desc : null;
+    let failureReason: string | null = settled && tx.status === PAYMENT_ATTEMPT_STATUS.FAILED ? tx.result_desc : null;
 
     if (!settled && tx.provider_reference && (opts.force || !recentlyAsked)) {
         lastQueriedAt.set(tx.id, Date.now());
