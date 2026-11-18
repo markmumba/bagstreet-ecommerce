@@ -96,6 +96,62 @@ export async function chargeMpesa(params: {
     };
 }
 
+/** One transaction from Paystack's List Transactions API, as much as reconciliation needs. */
+export interface PaystackListedTransaction {
+    reference: string;
+    /** success, failed, abandoned, reversed, pending, ongoing, … */
+    status: string;
+    /** In shillings (Paystack sends cents). */
+    amount: number;
+    currency: string;
+    createdAt: string | null;
+    raw: unknown;
+}
+
+/** Page size for List Transactions (Paystack's maximum is 100). */
+const LIST_PAGE_SIZE = 100;
+/** A day's worth for a small shop is a page or two; stop rather than loop forever on a bad `meta`. */
+const LIST_MAX_PAGES = 50;
+
+/**
+ * Every Paystack transaction created in [from, to], all statuses. Empty when Paystack isn't
+ * configured (development). Throws if any page fails, so a partial list is never reconciled.
+ */
+export async function listTransactions(from: Date, to: Date): Promise<PaystackListedTransaction[]> {
+    if (!isPaystackConfigured()) {
+        if (env.NODE_ENV === 'production') throw new Error('Paystack is not configured');
+        return [];
+    }
+
+    const all: PaystackListedTransaction[] = [];
+    for (let page = 1; page <= LIST_MAX_PAGES; page++) {
+        const query = new URLSearchParams({
+            perPage: String(LIST_PAGE_SIZE),
+            page: String(page),
+            from: from.toISOString(),
+            to: to.toISOString(),
+        });
+        const { status, ok, data } = await paystackRequest('GET', `/transaction?${query}`);
+        if (!ok || data?.status !== true || !Array.isArray(data?.data)) {
+            throw new Error(`Paystack list transactions failed: ${status} ${data?.message ?? ''}`.trim());
+        }
+        for (const t of data.data) {
+            if (typeof t?.reference !== 'string' || typeof t?.status !== 'string') continue;
+            all.push({
+                reference: t.reference,
+                status: t.status,
+                amount: Number(t.amount) / 100,
+                currency: String(t.currency ?? 'KES'),
+                createdAt: t.created_at ?? t.createdAt ?? null,
+                raw: t,
+            });
+        }
+        const pageCount = Number(data?.meta?.pageCount ?? 1);
+        if (data.data.length < LIST_PAGE_SIZE || page >= pageCount) return all;
+    }
+    throw new Error(`Paystack list transactions: more than ${LIST_MAX_PAGES} pages, refusing a partial list`);
+}
+
 /**
  * Asks Paystack how a charge stands. Returns the transaction `data` (see outcomeOfTransaction),
  * or null when Paystack doesn't know the reference yet (just after the charge).
