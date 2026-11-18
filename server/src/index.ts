@@ -16,6 +16,7 @@ import { authRateLimit, generalRateLimit, orderPlacementRateLimit, orderRateLimi
 import { startEmailOutboxWorker } from './services/email-outbox';
 import { startUnpaidOrderExpiry } from './services/unpaid-order-expiry';
 import { startReviewInvites } from './services/review-invites';
+import { startPaystackReconciliation } from './services/paystack-daily-reconciliation';
 import shippingRoutes from './features/shipping/shipping.routes';
 import paymentsRoutes from './features/payments/payments.routes';
 import discountsRoutes from './features/discounts/discounts.routes';
@@ -109,6 +110,7 @@ prepareDatabase()
         startEmailOutboxWorker();
         startCartRecovery();
         startReviewInvites();
+        startPaystackReconciliation();
   })
   .catch((error) => {
     log.error('database preparation failed', { err: error });

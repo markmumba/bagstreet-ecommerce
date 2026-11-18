@@ -19,7 +19,9 @@
     "test:sessions": "bun run src/scripts/test-sessions.ts",
     "test:vouchers": "bun run src/scripts/test-gift-vouchers.ts",
     "test:reviews": "bun run src/scripts/test-reviews.ts",
-    "test:recommendations": "bun run src/scripts/test-recommendations.ts"
+    "test:recommendations": "bun run src/scripts/test-recommendations.ts",
+    "test:paystack-reconciliation": "bun run src/scripts/test-paystack-reconciliation.ts",
+    "reconcile:paystack": "bun run src/scripts/reconcile-paystack.ts"
   },
   "dependencies": {
     "@hono/zod-openapi": "^1.2.0",

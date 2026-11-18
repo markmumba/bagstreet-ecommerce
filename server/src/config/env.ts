@@ -70,6 +70,8 @@ const envSchema = z.object({
     /** Webhook signing secret (whsec_…) from Dashboard › Developers › API configuration. */
     PAYSTACK_WEBHOOK_SECRET: z.string().optional(),
     PAYSTACK_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
+    /** Daily check of Paystack's transaction list against our payments (after 03:00 Nairobi). On unless set to false. */
+    PAYSTACK_RECONCILIATION_ENABLED: z.string().transform(v => v !== 'false').default('true'),
     /** Unpaid online orders are cancelled (stock released) after this many minutes. 0 disables expiry. */
     UNPAID_ORDER_TTL_MINUTES: z.coerce.number().int().min(0).default(45),
     CART_RECOVERY_ENABLED: z.enum(['true', 'false']).default('true').transform(value => value === 'true'),
