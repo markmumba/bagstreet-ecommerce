@@ -4,6 +4,7 @@
  */
 import { createHash, randomInt } from 'node:crypto';
 import { roundMoney } from '../../lib/pricing';
+import { GIFT_VOUCHER_STATUS, type GiftVoucherStatus } from 'shared/dist';
 
 /** No 0/O or 1/I, so a code read off a card can't be mistyped into another valid code. */
 const ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
@@ -24,7 +25,7 @@ export interface VoucherRuleRow {
     voided_at: string | Date | null;
 }
 
-export type VoucherStatus = 'active' | 'used' | 'expired' | 'voided';
+export type VoucherStatus = GiftVoucherStatus;
 
 export const VOUCHER_NOT_FOUND = 'Gift voucher not found';
 
@@ -61,20 +62,20 @@ export function hashVoucherCode(bare: string): string {
 }
 
 export function voucherStatus(voucher: VoucherRuleRow, now: number = Date.now()): VoucherStatus {
-    if (voucher.voided_at) return 'voided';
-    if (new Date(voucher.expires_at).getTime() <= now) return 'expired';
-    if (roundMoney(Number(voucher.balance)) <= 0) return 'used';
-    return 'active';
+    if (voucher.voided_at) return GIFT_VOUCHER_STATUS.VOIDED;
+    if (new Date(voucher.expires_at).getTime() <= now) return GIFT_VOUCHER_STATUS.EXPIRED;
+    if (roundMoney(Number(voucher.balance)) <= 0) return GIFT_VOUCHER_STATUS.USED;
+    return GIFT_VOUCHER_STATUS.ACTIVE;
 }
 
 /** Can this voucher pay right now, and how much? */
 export function evaluateVoucher(voucher: VoucherRuleRow | undefined, now: number = Date.now()): VoucherVerdict {
     if (!voucher) return { ok: false, reason: VOUCHER_NOT_FOUND };
     switch (voucherStatus(voucher, now)) {
-        case 'voided': return { ok: false, reason: 'This gift voucher has been cancelled' };
-        case 'expired': return { ok: false, reason: `This gift voucher expired on ${formatDate(voucher.expires_at)}` };
-        case 'used': return { ok: false, reason: 'This gift voucher has no balance left' };
-        case 'active': return { ok: true, available: roundMoney(Number(voucher.balance)) };
+        case GIFT_VOUCHER_STATUS.VOIDED: return { ok: false, reason: 'This gift voucher has been cancelled' };
+        case GIFT_VOUCHER_STATUS.EXPIRED: return { ok: false, reason: `This gift voucher expired on ${formatDate(voucher.expires_at)}` };
+        case GIFT_VOUCHER_STATUS.USED: return { ok: false, reason: 'This gift voucher has no balance left' };
+        case GIFT_VOUCHER_STATUS.ACTIVE: return { ok: true, available: roundMoney(Number(voucher.balance)) };
     }
 }
 

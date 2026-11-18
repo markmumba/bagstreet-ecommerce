@@ -10,12 +10,12 @@ import { BadRequestError } from '../../lib/errors';
 import { roundMoney } from '../../lib/pricing';
 import { LEDGER_ENTRY } from '../payments/order-balance';
 import { paymentsQueries } from '../payments/payments.queries';
-import { GIFT_VOUCHER_REFUND } from '../orders/lifecycle/transitions';
 import { evaluateVoucher, expiryAfterGiveBack, type VoucherRuleRow } from './voucher-rules';
+import { GIFT_VOUCHER_MOVEMENT, LEDGER_DIRECTION, REFUND_METHOD, type GiftVoucherMovementKind } from 'shared/dist';
 
 type Executor = typeof sql;
 
-export type VoucherMovementKind = 'ISSUED' | 'HELD' | 'REDEEMED' | 'RELEASED' | 'RETURNED' | 'VOIDED' | 'ADJUSTED';
+export type VoucherMovementKind = GiftVoucherMovementKind;
 
 /** The order fields voucher money needs. */
 export interface VoucherOrder {
@@ -53,9 +53,9 @@ export async function orderVoucherMoney(tx: Executor, orderId: number): Promise<
     `;
     const total = (kind: VoucherMovementKind) => roundMoney(Number(rows.find((r) => r.kind === kind)?.total ?? 0));
     return {
-        held: roundMoney(Math.max(0, total('HELD') - total('REDEEMED') - total('RELEASED'))),
-        redeemed: total('REDEEMED'),
-        returned: total('RETURNED'),
+        held: roundMoney(Math.max(0, total(GIFT_VOUCHER_MOVEMENT.HELD) - total(GIFT_VOUCHER_MOVEMENT.REDEEMED) - total(GIFT_VOUCHER_MOVEMENT.RELEASED))),
+        redeemed: total(GIFT_VOUCHER_MOVEMENT.REDEEMED),
+        returned: total(GIFT_VOUCHER_MOVEMENT.RETURNED),
     };
 }
 
@@ -111,7 +111,7 @@ export const voucherBalance = {
         if (verdict.available + 0.005 < amount) {
             throw new BadRequestError('This gift voucher no longer has enough balance. Please review your order.');
         }
-        await move(tx, voucher, { kind: 'HELD', delta: -amount, amount, orderId: order.id, by });
+        await move(tx, voucher, { kind: GIFT_VOUCHER_MOVEMENT.HELD, delta: -amount, amount, orderId: order.id, by });
         return amount;
     },
 
@@ -121,11 +121,11 @@ export const voucherBalance = {
         const { held } = await orderVoucherMoney(tx, order.id);
         if (held <= 0) return;
         const voucher = await lockVoucher(tx, order.voucher_id);
-        const movementId = await move(tx, voucher, { kind: 'REDEEMED', delta: 0, amount: held, orderId: order.id, by });
+        const movementId = await move(tx, voucher, { kind: GIFT_VOUCHER_MOVEMENT.REDEEMED, delta: 0, amount: held, orderId: order.id, by });
         await paymentsQueries.createLedgerEntry({
             order_id: order.id,
             entry_type: LEDGER_ENTRY.VOUCHER_REDEEMED,
-            direction: 'CREDIT',
+            direction: LEDGER_DIRECTION.CREDIT,
             amount: held,
             currency,
             reference: `voucher-redeemed:${movementId}`,
@@ -145,20 +145,20 @@ export const voucherBalance = {
         const voucher = await lockVoucher(tx, order.voucher_id);
         if (money.held > 0) {
             // Released holds keep the voucher's expiry: abandoning a checkout must not extend it.
-            await move(tx, voucher, { kind: 'RELEASED', delta: money.held, amount: money.held, orderId: order.id, by, note });
+            await move(tx, voucher, { kind: GIFT_VOUCHER_MOVEMENT.RELEASED, delta: money.held, amount: money.held, orderId: order.id, by, note });
         }
         if (spent > 0) {
             const movementId = await move(tx, voucher, {
-                kind: 'RETURNED', delta: spent, amount: spent, orderId: order.id, by, note, expiresAt: expiryAfterGiveBack(voucher.expires_at),
+                kind: GIFT_VOUCHER_MOVEMENT.RETURNED, delta: spent, amount: spent, orderId: order.id, by, note, expiresAt: expiryAfterGiveBack(voucher.expires_at),
             });
             await paymentsQueries.createLedgerEntry({
                 order_id: order.id,
                 entry_type: LEDGER_ENTRY.REFUND_ISSUED,
-                direction: 'DEBIT',
+                direction: LEDGER_DIRECTION.DEBIT,
                 amount: spent,
                 currency,
                 reference: `voucher-returned:${movementId}`,
-                metadata: { method: GIFT_VOUCHER_REFUND, reason: note, voucher_id: voucher.id, voucher_last4: voucher.code_last4, recorded_by: by },
+                metadata: { method: REFUND_METHOD.GIFT_VOUCHER, reason: note, voucher_id: voucher.id, voucher_last4: voucher.code_last4, recorded_by: by },
             }, tx);
         }
     },
@@ -169,7 +169,7 @@ export const voucherBalance = {
         const voucher = await lockVoucher(tx, order.voucher_id);
         if (voucher.voided_at) throw new BadRequestError('This gift voucher has been cancelled. Issue a new voucher for the amount instead.');
         await move(tx, voucher, {
-            kind: 'RETURNED', delta: amount, amount, orderId: order.id, by, note, expiresAt: expiryAfterGiveBack(voucher.expires_at),
+            kind: GIFT_VOUCHER_MOVEMENT.RETURNED, delta: amount, amount, orderId: order.id, by, note, expiresAt: expiryAfterGiveBack(voucher.expires_at),
         });
     },
 };

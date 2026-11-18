@@ -9,13 +9,14 @@ import { roundMoney } from '../../lib/pricing';
 import { enqueueEmail } from '../../services/email-outbox';
 import type { EmailJob } from '../../services/email-jobs';
 import { insertVoucher, voidVoucher } from './gift-vouchers.queries';
+import { GIFT_VOUCHER_DELIVER_TO, GIFT_VOUCHER_MOVEMENT, GIFT_VOUCHER_SOLD_VIA, VOUCHER_SALE_PAYMENT_METHOD, type GiftVoucherDeliverTo } from 'shared/dist';
 
 type Executor = typeof sql;
 
 export interface GiftVoucherOrderRow {
     order_id: number;
     amount: string;
-    deliver_to: 'RECIPIENT' | 'BUYER';
+    deliver_to: GiftVoucherDeliverTo;
     recipient_name: string | null;
     recipient_email: string | null;
     message: string | null;
@@ -44,7 +45,7 @@ export async function giftVoucherSaleFacts(tx: Executor, orderId: number): Promi
     if (!row) return undefined;
     if (!row.voucher_id) return { issued: false, untouched: true };
     const [used] = await tx`
-        SELECT 1 FROM gift_voucher_movements WHERE voucher_id = ${row.voucher_id} AND kind NOT IN ('ISSUED', 'CODE_REPLACED') LIMIT 1
+        SELECT 1 FROM gift_voucher_movements WHERE voucher_id = ${row.voucher_id} AND kind NOT IN (${GIFT_VOUCHER_MOVEMENT.ISSUED}, ${GIFT_VOUCHER_MOVEMENT.CODE_REPLACED}) LIMIT 1
     `;
     return { issued: true, untouched: !used };
 }
@@ -58,15 +59,15 @@ export async function issueGiftVoucherForOrder(tx: Executor, order: VoucherSaleO
     const buyerName = order.customer_name?.trim() || 'Customer';
     const voucher = await insertVoucher(tx, {
         amount,
-        salePaymentMethod: 'MPESA',
+        salePaymentMethod: VOUCHER_SALE_PAYMENT_METHOD.MPESA,
         saleReference: order.order_number,
         purchaserName: buyerName,
         recipientName: row.recipient_name,
         recipientPhone: null,
-        recipientEmail: row.deliver_to === 'RECIPIENT' ? row.recipient_email : order.customer_email,
+        recipientEmail: row.deliver_to === GIFT_VOUCHER_DELIVER_TO.RECIPIENT ? row.recipient_email : order.customer_email,
         message: row.message,
         issuedBy: null,
-        soldVia: 'ONLINE',
+        soldVia: GIFT_VOUCHER_SOLD_VIA.ONLINE,
         purchaseOrderId: order.id,
         note: `Bought online, order ${order.order_number}`,
     });
@@ -90,7 +91,7 @@ export function voucherSaleEmails(
     voucher: { code: string; amount: number; expiresAt: Date },
 ): { job: EmailJob; dedupeKey: string }[] {
     const buyerName = order.customer_name?.trim() || 'Customer';
-    const toRecipient = row.deliver_to === 'RECIPIENT' && Boolean(row.recipient_email);
+    const toRecipient = row.deliver_to === GIFT_VOUCHER_DELIVER_TO.RECIPIENT && Boolean(row.recipient_email);
     const to = toRecipient ? row.recipient_email! : order.customer_email;
     if (!to) return [];
     const emails: { job: EmailJob; dedupeKey: string }[] = [{
