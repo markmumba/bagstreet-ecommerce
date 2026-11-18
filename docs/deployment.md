@@ -358,7 +358,7 @@ chmod 600 .env.production
 - Use a GitHub **deploy key** (read-only) for the clone.
 - `.env.production` is in `.gitignore`; **never commit it**.
 
-### 5. Build the images, then pull, migrate and start
+### 5. Build the images, then pull and start
 **On GitHub (once):**
 1. Add a repository **variable** `API_DOMAIN` (e.g. `api.example.co.ke`) under Settings → Secrets and variables → Actions → Variables.
 2. Push a release tag:
@@ -370,12 +370,9 @@ chmod 600 .env.production
 **On the droplet** (set `IMAGE_TAG=v1.0.0` in `.env.production`):
 ```bash
 C="docker compose -f deploy/docker-compose.prod.yml --env-file .env.production"
-$C pull
-$C up -d postgres
-$C run --rm api bun run server/src/scripts/migrate.ts     # creates/updates the schema
-$C up -d
-$C ps                                                     # everything "healthy" or "Up"
+deploy/deploy.sh   # pulls, backs up, migrates, then starts everything (see "Migrations" below)
 ```
+At the end it prints `$C ps`. Everything should be "healthy" or "Up", and `migrate` and `pre-deploy-backup` should show "Exited (0)".
 - Caddy gets the HTTPS certificates on first start, so DNS must already point at the droplet.
 - **Never build on the 2 GB droplet.** Always `$C pull` first: `up` only falls back to building when an image is missing, which would run the droplet out of memory.
 
@@ -460,13 +457,24 @@ Nightly Postgres dump, kept 14 days locally and copied to the private backups bu
    ```bash
    cd ~/bagstreet && git pull                     # updates deploy/ files and migrations
    sed -i 's/^IMAGE_TAG=.*/IMAGE_TAG=v1.1.0/' .env.production
-   $C pull
-   $C run --rm api bun run server/src/scripts/migrate.ts
-   $C up -d          # recreates only containers whose image changed
-   docker image prune -f
+   deploy/deploy.sh   # pull, back up, migrate, then recreate containers whose image changed
    ```
-- **Rollback:** set `IMAGE_TAG` back to the previous release, then run `$C pull && $C up -d`. Migrations are forward-only, so if the release changed the schema, restore the dump taken before the deploy.
-- **Take a backup before deploying a release with migrations.** Run the backup command by hand first.
+- **Rollback:** set `IMAGE_TAG` back to the previous release, then run `deploy/deploy.sh`. Migrations only go forward. Migrations written to the rule below keep working with the old release. If one doesn't, restore the `pre-deploy-*.dump` written just before the deploy.
+
+### Migrations
+`deploy/deploy.sh` runs three steps in order, and each waits for the one before it to succeed:
+
+1. **`pre-deploy-backup`** dumps the database to `$DATA_DIR/backups/pre-deploy-<date-time>.dump`. The nightly cron's 14-day cleanup removes old ones.
+2. **`migrate`** applies any pending migrations from the new image, then exits. Each migration is one transaction, and a database lock stops two from running at once.
+3. **`api`** starts. It checks that no migration is pending, and refuses to start if one is.
+
+**Deploy with the script, not a bare `$C up -d`.** When the API image changes, `up` removes the old API container *before* it runs `migrate`. That means the shop is down while migrations run, and stays down if one fails. The script runs `$C run --rm migrate` first, which leaves the running API alone, and calls `up` only if that succeeds. A bare `up` is still safe for the data, because the new API waits for `migrate` and never starts on an old schema. It just isn't safe for uptime.
+
+**If a migration fails,** the script stops and the old release keeps serving. That migration rolled back. Its error is in the script's output. Fix the cause, then run the script again. If you have to roll the release back, set `IMAGE_TAG` to the previous release and run the script: `migrate` from the old image finds nothing to do.
+
+**Each deploy writes two dumps,** one from `run` and one from `up`, because `up` runs both jobs again. Each takes seconds for a shop this size, and the second `migrate` finds nothing to do. After a droplet reboot, Docker restarts only the long-running containers, not these jobs.
+
+**Write migrations that the running release can survive.** The old API keeps serving traffic while `migrate` runs, and during a rollback the old release runs against the new schema. So add columns and tables, and remove or rename them only in a later release. Keep each migration short: it runs with a 5 s lock timeout and a 60 s statement timeout.
 
 ## Monitoring
 - **Uptime:** a DigitalOcean Uptime check on `https://api.example.co.ke/health/ready`, plus one on the storefront, with email or Slack alerts.
@@ -511,7 +519,7 @@ The template [`deploy/.env.production.example`](../deploy/.env.production.exampl
 | `STORAGE_REGION` | `auto` | R2's signing region (`us-east-1` is accepted as an alias). |
 | `STORAGE_PUBLIC_URL` | `https://media.example.co.ke` | The bucket's custom domain. Stored in image URLs; [choose it before launch](#1-images-r2-behind-a-custom-domain-required). |
 | `UNPAID_ORDER_TTL_MINUTES` | `45` | Releases stock held by abandoned checkouts. |
-| `RUN_MIGRATIONS_ON_STARTUP` | `false` (set by compose) | Migrations run as an explicit step. |
+| `RUN_MIGRATIONS_ON_STARTUP` | `false` (set by compose) | The `migrate` job applies migrations before the API starts ([Migrations](#migrations)). |
 | `PAYSTACK_SECRET_KEY` | `sk_live_…` | Live key; the test key stays in local `.env`. |
 
 **Storage settings are named `STORAGE_*`**, because production uses R2 rather than MinIO. The old `MINIO_*` names are still read as a fallback, with a startup warning, so existing local `.env` files keep working. The `MINIO_ROOT_*` settings in the local `docker-compose.yml` configure the MinIO container itself and are unrelated.
