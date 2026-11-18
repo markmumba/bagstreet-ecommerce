@@ -1,4 +1,4 @@
-import type { User } from 'shared/dist';
+import { USER_ROLE, type User } from 'shared/dist';
 import { sql } from '../../lib/db';
 
 interface InvitationRow {
@@ -59,7 +59,7 @@ export const UsersQueries = {
         return await sql<User[]>`
             SELECT id, email, full_name, role, is_active, created_at, updated_at
             FROM users
-            WHERE role = 'ADMIN' AND is_active = true
+            WHERE role = ${USER_ROLE.ADMIN} AND is_active = true
             ORDER BY full_name ASC
         `;
     },
@@ -70,8 +70,8 @@ export const UsersQueries = {
             FROM users
             WHERE is_active = true
               AND (
-                role = 'ADMIN'
-                OR (${managerId}::int IS NOT NULL AND id = ${managerId}::int AND role = 'MANAGER')
+                role = ${USER_ROLE.ADMIN}
+                OR (${managerId}::int IS NOT NULL AND id = ${managerId}::int AND role = ${USER_ROLE.MANAGER})
               )
             ORDER BY role ASC, full_name ASC
         `;

@@ -1,4 +1,4 @@
-import type { GiftVoucherMovementKind, GiftVoucherStatus, GiftVoucherSummaryResponse } from 'shared/dist';
+import { GIFT_VOUCHER_MOVEMENT, GIFT_VOUCHER_SOLD_VIA, type GiftVoucherMovementKind, type GiftVoucherSoldVia, type GiftVoucherStatus, type GiftVoucherSummaryResponse } from 'shared/dist';
 import { sql } from '../../lib/db';
 import { BadRequestError, ConflictError, NotFoundError } from '../../lib/errors';
 import { roundMoney } from '../../lib/pricing';
@@ -22,7 +22,7 @@ export interface GiftVoucherRow extends VoucherRuleRow {
     recipient_email: string | null;
     message: string | null;
     purchaser_name: string | null;
-    sold_via: string;
+    sold_via: GiftVoucherSoldVia;
     sale_payment_method: string;
     sale_reference: string | null;
     issued_by: number | null;
@@ -57,7 +57,7 @@ const STATUS_SQL: Record<GiftVoucherStatus, string> = {
 
 /** Money set aside for unpaid orders, per voucher. */
 const HELD_SQL = `
-    COALESCE((SELECT SUM(CASE m.kind WHEN 'HELD' THEN m.amount WHEN 'REDEEMED' THEN -m.amount WHEN 'RELEASED' THEN -m.amount ELSE 0 END)
+    COALESCE((SELECT SUM(CASE m.kind WHEN '${GIFT_VOUCHER_MOVEMENT.HELD}' THEN m.amount WHEN '${GIFT_VOUCHER_MOVEMENT.REDEEMED}' THEN -m.amount WHEN '${GIFT_VOUCHER_MOVEMENT.RELEASED}' THEN -m.amount ELSE 0 END)
               FROM gift_voucher_movements m WHERE m.voucher_id = v.id), 0)`;
 
 async function selectVouchers(db: Executor, where: string, params: unknown[], tail = ''): Promise<GiftVoucherRow[]> {
@@ -81,7 +81,7 @@ export interface NewVoucher {
     recipientEmail: string | null;
     message: string | null;
     issuedBy: number | null;
-    soldVia: 'SHOP' | 'ONLINE';
+    soldVia: GiftVoucherSoldVia;
     purchaseOrderId: number | null;
     /** For the ISSUED movement. */
     note: string;
@@ -110,7 +110,7 @@ export async function insertVoucher(tx: Executor, data: NewVoucher): Promise<{ i
         if (!created) continue;
         await tx`
             INSERT INTO gift_voucher_movements (voucher_id, kind, delta, amount, balance_after, created_by, note)
-            VALUES (${created.id}, 'ISSUED', ${amount}, ${amount}, ${amount}, ${data.issuedBy}, ${data.note})
+            VALUES (${created.id}, ${GIFT_VOUCHER_MOVEMENT.ISSUED}, ${amount}, ${amount}, ${amount}, ${data.issuedBy}, ${data.note})
         `;
         return { id: Number(created.id), code: formatVoucherCode(bare), last4: bare.slice(-4), expiresAt };
     }
@@ -129,7 +129,7 @@ export async function voidVoucher(tx: Executor, id: number, reason: string, by: 
     `;
     await tx`
         INSERT INTO gift_voucher_movements (voucher_id, kind, delta, amount, balance_after, created_by, note)
-        VALUES (${id}, 'VOIDED', ${-balance}, ${balance}, 0, ${by}, ${reason})
+        VALUES (${id}, ${GIFT_VOUCHER_MOVEMENT.VOIDED}, ${-balance}, ${balance}, 0, ${by}, ${reason})
     `;
 }
 
@@ -180,7 +180,7 @@ export const giftVouchersQueries = {
     issue: async (data: Omit<NewVoucher, 'soldVia' | 'purchaseOrderId' | 'note'> & { issuedBy: number }): Promise<{ voucher: GiftVoucherRow; code: string }> => {
         return await sql.begin(async (tx: Executor) => {
             const { id, code } = await insertVoucher(tx, {
-                ...data, soldVia: 'SHOP', purchaseOrderId: null, note: `Sold in the shop (${data.salePaymentMethod})`,
+                ...data, soldVia: GIFT_VOUCHER_SOLD_VIA.SHOP, purchaseOrderId: null, note: `Sold in the shop (${data.salePaymentMethod})`,
             });
             return { voucher: (await giftVouchersQueries.findById(id, tx))!, code };
         }) as { voucher: GiftVoucherRow; code: string };
@@ -204,7 +204,7 @@ export const giftVouchersQueries = {
                 if (!updated) continue;
                 await tx`
                     INSERT INTO gift_voucher_movements (voucher_id, kind, delta, amount, balance_after, created_by, note)
-                    VALUES (${id}, 'CODE_REPLACED', 0, 0, ${locked.balance}, ${by}, ${`Replaced code ····${locked.code_last4}`})
+                    VALUES (${id}, ${GIFT_VOUCHER_MOVEMENT.CODE_REPLACED}, 0, 0, ${locked.balance}, ${by}, ${`Replaced code ····${locked.code_last4}`})
                 `;
                 return { voucher: (await giftVouchersQueries.findById(id, tx))!, code: formatVoucherCode(bare), oldLast4: locked.code_last4 };
             }
@@ -239,7 +239,7 @@ export const giftVouchersQueries = {
             await tx`UPDATE gift_vouchers SET balance = ${balanceAfter}, updated_at = CURRENT_TIMESTAMP WHERE id = ${id}`;
             await tx`
                 INSERT INTO gift_voucher_movements (voucher_id, kind, delta, amount, balance_after, created_by, note)
-                VALUES (${id}, 'ADJUSTED', ${roundMoney(delta)}, ${Math.abs(roundMoney(delta))}, ${balanceAfter}, ${by}, ${reason})
+                VALUES (${id}, ${GIFT_VOUCHER_MOVEMENT.ADJUSTED}, ${roundMoney(delta)}, ${Math.abs(roundMoney(delta))}, ${balanceAfter}, ${by}, ${reason})
             `;
             return { before, after: (await giftVouchersQueries.findById(id, tx))! };
         }) as { before: GiftVoucherRow; after: GiftVoucherRow };
@@ -259,7 +259,7 @@ export const giftVouchersQueries = {
             FROM gift_vouchers v
         `) as Record<string, string | number>[];
         const [spent] = await sql<{ redeemed: string }[]>`
-            SELECT COALESCE(SUM(CASE kind WHEN 'REDEEMED' THEN amount WHEN 'RETURNED' THEN -amount ELSE 0 END), 0) AS redeemed
+            SELECT COALESCE(SUM(CASE kind WHEN '${GIFT_VOUCHER_MOVEMENT.REDEEMED}' THEN amount WHEN '${GIFT_VOUCHER_MOVEMENT.RETURNED}' THEN -amount ELSE 0 END), 0) AS redeemed
             FROM gift_voucher_movements
         `;
         const n = (key: string) => roundMoney(Number(row?.[key] ?? 0));

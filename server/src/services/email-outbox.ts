@@ -10,7 +10,7 @@
 import { sql } from '../lib/db';
 import { readJsonColumn, toJsonbParam } from '../lib/json-column';
 import { redactDeliveredJob, sendEmailJob, type EmailJob } from './email-jobs';
-import { afterFailure, describeError } from './email-outbox-policy';
+import { EMAIL_OUTBOX_STATUS, afterFailure, describeError } from './email-outbox-policy';
 import { alertStaff } from '../features/staff-alerts/staff-alerts';
 import { log } from '../lib/log';
 
@@ -56,8 +56,8 @@ async function claimBatch(limit: number, onlyIds?: number[]): Promise<OutboxRow[
             SELECT id, job_type, recipient, payload, attempts
             FROM email_outbox
             WHERE (
-                (status = 'PENDING' AND next_attempt_at <= now())
-                OR (status = 'SENDING' AND locked_until < now())
+                (status = ${EMAIL_OUTBOX_STATUS.PENDING} AND next_attempt_at <= now())
+                OR (status = ${EMAIL_OUTBOX_STATUS.SENDING} AND locked_until < now())
             )
             ${onlyIds ? tx`AND id IN ${tx(onlyIds)}` : tx``}
             ORDER BY id
@@ -67,7 +67,7 @@ async function claimBatch(limit: number, onlyIds?: number[]): Promise<OutboxRow[
         if (rows.length === 0) return [];
         await tx`
             UPDATE email_outbox
-            SET status = 'SENDING', attempts = attempts + 1,
+            SET status = ${EMAIL_OUTBOX_STATUS.SENDING}, attempts = attempts + 1,
                 locked_until = now() + (${CLAIM_TTL_MINUTES} * interval '1 minute')
             WHERE id IN ${tx(rows.map((row) => row.id))}
         `;
@@ -101,8 +101,8 @@ export async function processEmailOutboxBatch(
             const delivered = await send(job);
             await sql`
                 UPDATE email_outbox
-                SET status = ${delivered === false ? 'SKIPPED' : 'SENT'}, sent_at = now(), locked_until = NULL, last_error = NULL
-                WHERE id = ${row.id} AND status = 'SENDING'
+                SET status = ${delivered === false ? EMAIL_OUTBOX_STATUS.SKIPPED : EMAIL_OUTBOX_STATUS.SENT}, sent_at = now(), locked_until = NULL, last_error = NULL
+                WHERE id = ${row.id} AND status = ${EMAIL_OUTBOX_STATUS.SENDING}
             `;
             await redactPayload(row.id, job);
             if (delivered === false) result.skipped += 1;
@@ -110,9 +110,9 @@ export async function processEmailOutboxBatch(
         } catch (err) {
             const next = afterFailure(row.attempts);
             const error = describeError(err);
-            if (next.status === 'FAILED') {
+            if (next.status === EMAIL_OUTBOX_STATUS.FAILED) {
                 await sql`
-                    UPDATE email_outbox SET status = 'FAILED', locked_until = NULL, last_error = ${error}
+                    UPDATE email_outbox SET status = ${EMAIL_OUTBOX_STATUS.FAILED}, locked_until = NULL, last_error = ${error}
                     WHERE id = ${row.id}
                 `;
                 const job = readJsonColumn<EmailJob>(row.payload);
@@ -124,7 +124,7 @@ export async function processEmailOutboxBatch(
                 const delayMs = next.nextAttemptAt.getTime() - Date.now();
                 await sql`
                     UPDATE email_outbox
-                    SET status = 'PENDING', locked_until = NULL, last_error = ${error},
+                    SET status = ${EMAIL_OUTBOX_STATUS.PENDING}, locked_until = NULL, last_error = ${error},
                         next_attempt_at = now() + (${delayMs} * interval '1 millisecond')
                     WHERE id = ${row.id}
                 `;
@@ -161,8 +161,8 @@ async function alertAdminsEmailFailed(row: OutboxRow, error: string) {
 async function cleanupOutbox() {
     await sql`
         DELETE FROM email_outbox
-        WHERE (status IN ('SENT', 'SKIPPED') AND sent_at < now() - (${SENT_RETENTION_DAYS} * interval '1 day'))
-           OR (status = 'FAILED' AND created_at < now() - (${FAILED_RETENTION_DAYS} * interval '1 day'))
+        WHERE (status IN (${EMAIL_OUTBOX_STATUS.SENT}, ${EMAIL_OUTBOX_STATUS.SKIPPED}) AND sent_at < now() - (${SENT_RETENTION_DAYS} * interval '1 day'))
+           OR (status = ${EMAIL_OUTBOX_STATUS.FAILED} AND created_at < now() - (${FAILED_RETENTION_DAYS} * interval '1 day'))
     `;
 }
 
@@ -170,9 +170,9 @@ async function cleanupOutbox() {
 export async function emailOutboxStats() {
     const [row] = await sql<{ pending: number; failed: number; oldest_pending_seconds: number | null }[]>`
         SELECT
-            count(*) FILTER (WHERE status IN ('PENDING', 'SENDING'))::int AS pending,
-            count(*) FILTER (WHERE status = 'FAILED')::int AS failed,
-            EXTRACT(EPOCH FROM now() - min(created_at) FILTER (WHERE status IN ('PENDING', 'SENDING')))::int AS oldest_pending_seconds
+            count(*) FILTER (WHERE status IN (${EMAIL_OUTBOX_STATUS.PENDING}, ${EMAIL_OUTBOX_STATUS.SENDING}))::int AS pending,
+            count(*) FILTER (WHERE status = ${EMAIL_OUTBOX_STATUS.FAILED})::int AS failed,
+            EXTRACT(EPOCH FROM now() - min(created_at) FILTER (WHERE status IN (${EMAIL_OUTBOX_STATUS.PENDING}, ${EMAIL_OUTBOX_STATUS.SENDING})))::int AS oldest_pending_seconds
         FROM email_outbox
     `;
     return row ?? { pending: 0, failed: 0, oldest_pending_seconds: null };

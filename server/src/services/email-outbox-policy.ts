@@ -1,5 +1,20 @@
 /** Retry schedule for outbox emails. Pure, so it's unit-tested. */
 
+/** email_outbox.status (stored: never change the values). */
+export const EMAIL_OUTBOX_STATUS = {
+    /** Waiting to be sent (first try, or a retry at next_attempt_at). */
+    PENDING: 'PENDING',
+    /** Claimed by a worker until locked_until. */
+    SENDING: 'SENDING',
+    SENT: 'SENT',
+    /** The sender chose not to deliver it (e.g. the recipient opted out since it was queued). */
+    SKIPPED: 'SKIPPED',
+    /** Gave up after MAX_ATTEMPTS. */
+    FAILED: 'FAILED',
+} as const;
+
+export type EmailOutboxStatus = typeof EMAIL_OUTBOX_STATUS[keyof typeof EMAIL_OUTBOX_STATUS];
+
 /** Delay before retry N (after the Nth failed attempt). Index 0 = after the first failure. */
 export const RETRY_DELAYS_MS = [
     60_000,          // 1 minute
@@ -13,10 +28,10 @@ export const RETRY_DELAYS_MS = [
 export const MAX_ATTEMPTS = RETRY_DELAYS_MS.length + 1;
 
 /** What to do after a failed attempt: retry at a time, or give up. `attempts` includes the one that just failed. */
-export function afterFailure(attempts: number, now: number = Date.now()): { status: 'PENDING'; nextAttemptAt: Date } | { status: 'FAILED' } {
-    if (attempts >= MAX_ATTEMPTS) return { status: 'FAILED' };
+export function afterFailure(attempts: number, now: number = Date.now()): { status: typeof EMAIL_OUTBOX_STATUS.PENDING; nextAttemptAt: Date } | { status: typeof EMAIL_OUTBOX_STATUS.FAILED } {
+    if (attempts >= MAX_ATTEMPTS) return { status: EMAIL_OUTBOX_STATUS.FAILED };
     const delay = RETRY_DELAYS_MS[Math.max(0, attempts - 1)] ?? RETRY_DELAYS_MS[RETRY_DELAYS_MS.length - 1]!;
-    return { status: 'PENDING', nextAttemptAt: new Date(now + delay) };
+    return { status: EMAIL_OUTBOX_STATUS.PENDING, nextAttemptAt: new Date(now + delay) };
 }
 
 /** Errors stored for staff to read: trimmed, and without anything that looks like a credential. */

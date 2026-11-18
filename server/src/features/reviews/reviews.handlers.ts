@@ -15,6 +15,7 @@ import {
     adminListSchema, orderAccessSchema, productReviewsQuerySchema, rejectSchema, replySchema, upsertReviewSchema,
 } from './reviews.schema';
 import { log } from '../../lib/log';
+import { REVIEW_STATUS } from 'shared/dist';
 
 const iso = (v: string | Date | null) => (v ? new Date(v).toISOString() : null);
 
@@ -184,8 +185,8 @@ export const reviewsHandlers = {
         return success(c, response);
     },
 
-    approve: async (c: AppContext) => moderate(c, 'APPROVED'),
-    reject: async (c: AppContext) => moderate(c, 'REJECTED'),
+    approve: async (c: AppContext) => moderate(c, REVIEW_STATUS.APPROVED),
+    reject: async (c: AppContext) => moderate(c, REVIEW_STATUS.REJECTED),
 
     reply: async (c: AppContext) => {
         const id = reviewId(c);
@@ -203,18 +204,18 @@ function reviewId(c: AppContext) {
     return id;
 }
 
-async function moderate(c: AppContext, status: 'APPROVED' | 'REJECTED') {
+async function moderate(c: AppContext, status: typeof REVIEW_STATUS.APPROVED | typeof REVIEW_STATUS.REJECTED) {
     const id = reviewId(c);
-    const reason = status === 'REJECTED' ? (await parse(await c.req.json().catch(() => null), rejectSchema)).reason : null;
+    const reason = status === REVIEW_STATUS.REJECTED ? (await parse(await c.req.json().catch(() => null), rejectSchema)).reason : null;
     const before = await reviewsQueries.findById(id);
     if (!before) throw new NotFoundError('Review', id);
     const updated = await reviewsQueries.moderate(id, status, reason, Number(getRequiredUser(c).sub));
     await auditFromContext(c, {
-        action: status === 'APPROVED' ? 'REVIEW_APPROVED' : 'REVIEW_REJECTED',
+        action: status === REVIEW_STATUS.APPROVED ? 'REVIEW_APPROVED' : 'REVIEW_REJECTED',
         entityType: 'product_review',
         entityId: id,
         before: { status: before.status },
         after: { status, reason },
     });
-    return success(c, toPublic(updated!), status === 'APPROVED' ? 'Review published' : 'Review rejected');
+    return success(c, toPublic(updated!), status === REVIEW_STATUS.APPROVED ? 'Review published' : 'Review rejected');
 }

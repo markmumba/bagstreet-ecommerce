@@ -5,6 +5,10 @@ import { toJsonbParam } from '../lib/json-column';
 import { migrateDatabase } from '../lib/migrations';
 import { imageUploadService } from '../services/image-upload-service';
 import { slugify } from '../lib/util';
+import { ORDER_STATUS, PAYMENT_STATUS, USER_ROLE } from 'shared/dist';
+import type { FulfilmentStatus } from '../features/orders/lifecycle/transitions';
+import { PAYMENT_ATTEMPT_STATUS } from '../features/payments/attempt-status';
+import { env } from '../config/env';
 
 type SeedVariant = {
     sku: string;
@@ -47,8 +51,8 @@ type SeedDiscountCode = {
 
 type SeedOrder = {
     ref: string;
-    status: 'PENDING' | 'CONFIRMED' | 'DELIVERED' | 'CANCELLED' | 'REFUNDED';
-    payment_status: 'UNPAID' | 'PAID' | 'FAILED';
+    status: FulfilmentStatus;
+    payment_status: typeof PAYMENT_STATUS.UNPAID | typeof PAYMENT_STATUS.PAID | typeof PAYMENT_STATUS.FAILED;
     customer_name: string;
     customer_phone: string;
     shipping_location: string;
@@ -259,8 +263,8 @@ const discountCodes: SeedDiscountCode[] = [
 const orders: SeedOrder[] = [
     {
         ref: 'demo-order-paid-1',
-        status: 'DELIVERED',
-        payment_status: 'PAID',
+        status: ORDER_STATUS.DELIVERED,
+        payment_status: PAYMENT_STATUS.PAID,
         customer_name: 'James Kiratu',
         customer_phone: '254798169252',
         shipping_location: 'Nairobi CBD',
@@ -274,8 +278,8 @@ const orders: SeedOrder[] = [
     },
     {
         ref: 'demo-order-processing-1',
-        status: 'CONFIRMED',
-        payment_status: 'PAID',
+        status: ORDER_STATUS.CONFIRMED,
+        payment_status: PAYMENT_STATUS.PAID,
         customer_name: 'Amina Wanjiku',
         customer_phone: '254711222333',
         shipping_location: 'Westlands',
@@ -291,8 +295,8 @@ const orders: SeedOrder[] = [
     },
     {
         ref: 'demo-order-pending-1',
-        status: 'PENDING',
-        payment_status: 'UNPAID',
+        status: ORDER_STATUS.PENDING,
+        payment_status: PAYMENT_STATUS.UNPAID,
         customer_name: 'Grace Njeri',
         customer_phone: '254722444555',
         shipping_location: 'Kilimani',
@@ -304,8 +308,8 @@ const orders: SeedOrder[] = [
     },
     {
         ref: 'demo-order-shipped-1',
-        status: 'CONFIRMED',
-        payment_status: 'PAID',
+        status: ORDER_STATUS.CONFIRMED,
+        payment_status: PAYMENT_STATUS.PAID,
         customer_name: 'Linda Moraa',
         customer_phone: '254733555777',
         shipping_location: 'Karen',
@@ -319,8 +323,8 @@ const orders: SeedOrder[] = [
     },
     {
         ref: 'demo-order-cancelled-1',
-        status: 'CANCELLED',
-        payment_status: 'FAILED',
+        status: ORDER_STATUS.CANCELLED,
+        payment_status: PAYMENT_STATUS.FAILED,
         customer_name: 'Peter Mwangi',
         customer_phone: '254700111222',
         shipping_location: 'Thika Road',
@@ -541,7 +545,7 @@ async function ensureCustomer(order: SeedOrder) {
     const passwordHash = await Bun.password.hash('Customer@1234');
     const [created] = await sql<{ id: number }[]>`
         INSERT INTO users(email, full_name, password_hash, role, is_active)
-        VALUES (${email}, ${order.customer_name}, ${passwordHash}, 'CUSTOMER', true)
+        VALUES (${email}, ${order.customer_name}, ${passwordHash}, ${USER_ROLE.CUSTOMER}, true)
         RETURNING id
     `;
     return created!.id;
@@ -641,7 +645,7 @@ async function seedOrder(order: SeedOrder, shippingLocationIds: Map<string, numb
         `;
     }
 
-    if (order.payment_status === 'PAID') {
+    if (order.payment_status === PAYMENT_STATUS.PAID) {
         await sql`
             INSERT INTO payment_transactions(
                 order_id, provider, provider_reference, merchant_reference, checkout_url, amount,
@@ -649,7 +653,7 @@ async function seedOrder(order: SeedOrder, shippingLocationIds: Map<string, numb
             )
             VALUES (
                 ${createdOrder!.id}, 'mpesa', ${`seed-mpesa-${order.ref}`}, ${`BS-SEED-${order.ref}`},
-                ${null}, ${totalAmount}, 'KES', 'COMPLETED', 'SEED', ${`SEED${createdOrder!.id}`},
+                ${null}, ${totalAmount}, ${env.CURRENCY}, ${PAYMENT_ATTEMPT_STATUS.COMPLETED}, 'SEED', ${`SEED${createdOrder!.id}`},
                 'Seed payment completed', ${toJsonbParam({ seed: true, order_ref: order.ref })}::jsonb,
                 ${createdAt}, ${createdAt}
             )

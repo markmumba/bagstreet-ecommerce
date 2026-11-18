@@ -18,7 +18,28 @@ export const VOUCHER_SALE_PAYMENT_METHOD = {
 } as const;
 export type VoucherSalePaymentMethod = typeof VOUCHER_SALE_PAYMENT_METHOD[keyof typeof VOUCHER_SALE_PAYMENT_METHOD];
 
-export type GiftVoucherMovementKind = 'ISSUED' | 'HELD' | 'REDEEMED' | 'RELEASED' | 'RETURNED' | 'VOIDED' | 'ADJUSTED' | 'CODE_REPLACED';
+/** Where a voucher was sold (gift_vouchers.sold_via). */
+export const GIFT_VOUCHER_SOLD_VIA = {
+    SHOP: 'SHOP',
+    ONLINE: 'ONLINE',
+} as const;
+export type GiftVoucherSoldVia = typeof GIFT_VOUCHER_SOLD_VIA[keyof typeof GIFT_VOUCHER_SOLD_VIA];
+
+/** What happened to a voucher's balance (gift_voucher_movements.kind). */
+export const GIFT_VOUCHER_MOVEMENT = {
+    ISSUED: 'ISSUED',
+    /** Reserved for an unpaid order. */
+    HELD: 'HELD',
+    REDEEMED: 'REDEEMED',
+    /** A hold given back (order cancelled before it was paid). */
+    RELEASED: 'RELEASED',
+    /** Money refunded back onto the voucher. */
+    RETURNED: 'RETURNED',
+    VOIDED: 'VOIDED',
+    ADJUSTED: 'ADJUSTED',
+    CODE_REPLACED: 'CODE_REPLACED',
+} as const;
+export type GiftVoucherMovementKind = typeof GIFT_VOUCHER_MOVEMENT[keyof typeof GIFT_VOUCHER_MOVEMENT];
 
 export interface GiftVoucherResponse {
     id: string;
@@ -40,7 +61,7 @@ export interface GiftVoucherResponse {
     sale_payment_method: string;
     sale_reference: string | null;
     /** SHOP (sold at the till) or ONLINE (bought on the storefront). */
-    sold_via: string;
+    sold_via: GiftVoucherSoldVia;
     /** The online order it was bought with. */
     purchase_order_number: string | null;
     issued_by_email: string | null;

@@ -16,10 +16,11 @@ import { BadRequestError } from '../../lib/errors';
 import type { AfterCommit } from '../../lib/after-commit';
 import { alertStaff } from '../staff-alerts/staff-alerts';
 import { stockCrossing, type StockLevel } from './stock-policy';
+import { STOCK_MOVEMENT_REASON, type StockMovementReason } from 'shared/dist';
 
 type Executor = typeof sql;
 
-export type MovementReason = 'ORDER_PLACED' | 'ORDER_CANCELLED' | 'ADMIN_ADJUSTMENT' | 'RESTOCK';
+export type MovementReason = StockMovementReason;
 
 export interface StockLine {
     variantId: number;
@@ -152,18 +153,18 @@ export const inventory = {
 
     /** Takes stock for an order. Throws `InsufficientStockError` (nothing taken) if any line is short. */
     reserve: (tx: Executor, lines: StockLine[], details: MovementDetails, after: AfterCommit) =>
-        applyChanges(tx, lines.map((l) => ({ variantId: l.variantId, delta: -l.quantity })), 'ORDER_PLACED', details, after),
+        applyChanges(tx, lines.map((l) => ({ variantId: l.variantId, delta: -l.quantity })), STOCK_MOVEMENT_REASON.ORDER_PLACED, details, after),
 
     /** Puts an order's stock back. */
     release: (tx: Executor, lines: StockLine[], details: MovementDetails, after: AfterCommit) =>
-        applyChanges(tx, lines.map((l) => ({ variantId: l.variantId, delta: l.quantity })), 'ORDER_CANCELLED', details, after),
+        applyChanges(tx, lines.map((l) => ({ variantId: l.variantId, delta: l.quantity })), STOCK_MOVEMENT_REASON.ORDER_CANCELLED, details, after),
 
     /** A staff change: a count correction, a restock, or a new variant's opening stock. */
     adjust: (
         tx: Executor,
         variantId: number,
         delta: number,
-        reason: 'ADMIN_ADJUSTMENT' | 'RESTOCK',
+        reason: typeof STOCK_MOVEMENT_REASON.ADMIN_ADJUSTMENT | typeof STOCK_MOVEMENT_REASON.RESTOCK,
         details: MovementDetails,
         after: AfterCommit,
     ) => applyChanges(tx, [{ variantId, delta }], reason, details, after),

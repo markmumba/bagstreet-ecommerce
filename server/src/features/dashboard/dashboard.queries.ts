@@ -1,6 +1,11 @@
 import { sql } from '@server/lib/db';
-import { ORDER_STATUS, PAYMENT_STATUS } from 'shared/dist';
+import { LEDGER_DIRECTION, ORDER_SOURCE, ORDER_STATUS, PAYMENT_STATUS } from 'shared/dist';
 import { env } from '@server/config/env';
+import { LEDGER_ENTRY } from '../payments/order-balance';
+
+/** Ledger entries that make up revenue: money in for an order, and money given back. */
+const MONEY_IN_ENTRY_TYPES = [LEDGER_ENTRY.PAYMENT_CAPTURED, LEDGER_ENTRY.VOUCHER_REDEEMED];
+const REVENUE_ENTRY_TYPES = [...MONEY_IN_ENTRY_TYPES, LEDGER_ENTRY.REFUND_ISSUED, LEDGER_ENTRY.PAYMENT_REVERSED];
 
 type Numeric = number | string | null | undefined;
 
@@ -111,30 +116,30 @@ export const dashboardQueries = {
         }[]>`
             SELECT
                 (
-                    SELECT COALESCE(SUM(CASE WHEN direction = 'CREDIT' THEN amount ELSE -amount END), 0)
+                    SELECT COALESCE(SUM(CASE WHEN direction = ${LEDGER_DIRECTION.CREDIT} THEN amount ELSE -amount END), 0)
                     FROM payment_ledger_entries
-                    WHERE entry_type IN ('PAYMENT_CAPTURED', 'VOUCHER_REDEEMED', 'REFUND_ISSUED', 'PAYMENT_REVERSED')
-                      AND NOT EXISTS (SELECT 1 FROM orders vo WHERE vo.id = order_id AND vo.order_source = 'GIFT_VOUCHER')
+                    WHERE entry_type IN ${sql(REVENUE_ENTRY_TYPES)}
+                      AND NOT EXISTS (SELECT 1 FROM orders vo WHERE vo.id = order_id AND vo.order_source = ${ORDER_SOURCE.GIFT_VOUCHER})
                       AND created_at >= CURRENT_DATE
                 ) AS paid_revenue_today,
                 (
-                    SELECT COALESCE(SUM(CASE WHEN direction = 'CREDIT' THEN amount ELSE -amount END), 0)
+                    SELECT COALESCE(SUM(CASE WHEN direction = ${LEDGER_DIRECTION.CREDIT} THEN amount ELSE -amount END), 0)
                     FROM payment_ledger_entries
-                    WHERE entry_type IN ('PAYMENT_CAPTURED', 'VOUCHER_REDEEMED', 'REFUND_ISSUED', 'PAYMENT_REVERSED')
-                      AND NOT EXISTS (SELECT 1 FROM orders vo WHERE vo.id = order_id AND vo.order_source = 'GIFT_VOUCHER')
+                    WHERE entry_type IN ${sql(REVENUE_ENTRY_TYPES)}
+                      AND NOT EXISTS (SELECT 1 FROM orders vo WHERE vo.id = order_id AND vo.order_source = ${ORDER_SOURCE.GIFT_VOUCHER})
                       AND created_at >= NOW() - INTERVAL '7 days'
                 ) AS paid_revenue_7d,
                 (
-                    SELECT COALESCE(SUM(CASE WHEN direction = 'CREDIT' THEN amount ELSE -amount END), 0)
+                    SELECT COALESCE(SUM(CASE WHEN direction = ${LEDGER_DIRECTION.CREDIT} THEN amount ELSE -amount END), 0)
                     FROM payment_ledger_entries
-                    WHERE entry_type IN ('PAYMENT_CAPTURED', 'VOUCHER_REDEEMED', 'REFUND_ISSUED', 'PAYMENT_REVERSED')
-                      AND NOT EXISTS (SELECT 1 FROM orders vo WHERE vo.id = order_id AND vo.order_source = 'GIFT_VOUCHER')
+                    WHERE entry_type IN ${sql(REVENUE_ENTRY_TYPES)}
+                      AND NOT EXISTS (SELECT 1 FROM orders vo WHERE vo.id = order_id AND vo.order_source = ${ORDER_SOURCE.GIFT_VOUCHER})
                       AND created_at >= NOW() - INTERVAL '30 days'
                 ) AS paid_revenue_30d,
                 COUNT(*) FILTER (
                     WHERE payment_status = ${PAYMENT_STATUS.PAID}
                       AND status NOT IN (${ORDER_STATUS.CANCELLED}, ${ORDER_STATUS.REFUNDED})
-                      AND order_source <> 'GIFT_VOUCHER'
+                      AND order_source <> ${ORDER_SOURCE.GIFT_VOUCHER}
                       AND paid_at >= CURRENT_DATE
                 ) AS paid_orders_today,
                 COUNT(*) FILTER (
@@ -178,14 +183,14 @@ export const dashboardQueries = {
             )
             SELECT
                 TO_CHAR(days.day, 'YYYY-MM-DD') AS date,
-                COALESCE(SUM(CASE WHEN ple.direction = 'CREDIT' THEN ple.amount ELSE -ple.amount END), 0) AS revenue,
-                COUNT(DISTINCT CASE WHEN ple.entry_type IN ('PAYMENT_CAPTURED', 'VOUCHER_REDEEMED') THEN ple.order_id END) AS orders
+                COALESCE(SUM(CASE WHEN ple.direction = ${LEDGER_DIRECTION.CREDIT} THEN ple.amount ELSE -ple.amount END), 0) AS revenue,
+                COUNT(DISTINCT CASE WHEN ple.entry_type IN ${sql(MONEY_IN_ENTRY_TYPES)} THEN ple.order_id END) AS orders
             FROM days
             LEFT JOIN payment_ledger_entries ple
               ON ple.created_at::date = days.day
-             AND ple.entry_type IN ('PAYMENT_CAPTURED', 'VOUCHER_REDEEMED', 'REFUND_ISSUED', 'PAYMENT_REVERSED')
+             AND ple.entry_type IN ${sql(REVENUE_ENTRY_TYPES)}
              -- A voucher sale is money owed to the holder, not revenue: it counts when the voucher is spent.
-             AND NOT EXISTS (SELECT 1 FROM orders vo WHERE vo.id = ple.order_id AND vo.order_source = 'GIFT_VOUCHER')
+             AND NOT EXISTS (SELECT 1 FROM orders vo WHERE vo.id = ple.order_id AND vo.order_source = ${ORDER_SOURCE.GIFT_VOUCHER})
             GROUP BY days.day
             ORDER BY days.day ASC
         `;
@@ -287,14 +292,14 @@ export const dashboardQueries = {
 
         const [metrics] = await sql<{ placed: string; paid: string; started: string; placed_7d: string; dispatched: string; median_dispatch: string | null }[]>`
             SELECT
-                (SELECT count(*) FROM orders WHERE order_source = 'ONLINE'
+                (SELECT count(*) FROM orders WHERE order_source = ${ORDER_SOURCE.ONLINE}
                     AND created_at >= now() - interval '30 days'
                     AND created_at < now() - (${env.UNPAID_ORDER_TTL_MINUTES} * interval '1 minute')) AS placed,
-                (SELECT count(*) FROM orders WHERE order_source = 'ONLINE' AND paid_at IS NOT NULL
+                (SELECT count(*) FROM orders WHERE order_source = ${ORDER_SOURCE.ONLINE} AND paid_at IS NOT NULL
                     AND created_at >= now() - interval '30 days'
                     AND created_at < now() - (${env.UNPAID_ORDER_TTL_MINUTES} * interval '1 minute')) AS paid,
                 (SELECT count(*) FROM cart_recovery_snapshots WHERE created_at >= now() - interval '7 days') AS started,
-                (SELECT count(*) FROM orders WHERE order_source = 'ONLINE' AND created_at >= now() - interval '7 days') AS placed_7d,
+                (SELECT count(*) FROM orders WHERE order_source = ${ORDER_SOURCE.ONLINE} AND created_at >= now() - interval '7 days') AS placed_7d,
                 (SELECT count(*) FROM orders WHERE dispatched_at >= now() - interval '30 days' AND paid_at IS NOT NULL) AS dispatched,
                 (SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM dispatched_at - paid_at) / 60)
                     FROM orders WHERE dispatched_at >= now() - interval '30 days' AND paid_at IS NOT NULL) AS median_dispatch

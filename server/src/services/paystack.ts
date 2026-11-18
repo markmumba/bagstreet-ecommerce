@@ -1,10 +1,11 @@
 import { env } from '../config/env';
 import { Bulkhead, CircuitBreaker, fetchWithTimeout } from '../lib/resilience';
 import { paystackPhone, toSubunits } from './paystack-protocol';
+import { PAYMENT_PROVIDER } from '../features/payments/attempt-status';
 
 const BASE_URL = 'https://api.paystack.co';
 
-const PROVIDER = 'paystack';
+const PROVIDER = PAYMENT_PROVIDER.PAYSTACK;
 
 export const paystackCircuit = new CircuitBreaker({
     name: PROVIDER,
@@ -141,7 +142,7 @@ export async function listTransactions(from: Date, to: Date): Promise<PaystackLi
                 reference: t.reference,
                 status: t.status,
                 amount: Number(t.amount) / 100,
-                currency: String(t.currency ?? 'KES'),
+                currency: String(t.currency ?? env.CURRENCY),
                 createdAt: t.created_at ?? t.createdAt ?? null,
                 raw: t,
             });

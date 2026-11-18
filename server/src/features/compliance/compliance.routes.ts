@@ -9,7 +9,8 @@ import { BadRequestError, NotFoundError, ValidationError } from '../../lib/error
 import { requireAuth, requireRole } from '../../middleware/auth.middleware';
 import { rateLimit } from '../../middleware/rate-limit.middleware';
 import { auditFromContext, createAuditLog } from '../../lib/audit';
-import { USER_ROLE, PRIVACY_REQUEST_KIND, PRIVACY_REQUEST_STATUS, ACCOUNTING_DATASET,
+import { USER_ROLE, PRIVACY_REQUEST_KIND, PRIVACY_REQUEST_STATUS, PRIVACY_REQUEST_STATUSES, CLOSED_PRIVACY_REQUEST_STATUS, ACCOUNTING_DATASET,
+    INCIDENT_SEVERITY, INCIDENT_STATUS, INCIDENT_STATUSES, NOTIFICATION_DECISION, NOTIFICATION_DECISIONS,
     type PrivacyRequest, type ComplianceIncident, type ProductEvidence } from 'shared/dist';
 import { customerData, createPrivacyRequest, eraseCustomerAccount, accountingExport } from './compliance.queries';
 import { monthSchema } from './compliance.policy';
@@ -59,11 +60,11 @@ routes.patch('/admin/requests/:id', async c => {
     const row = await sql.begin(async tx => {
         const [before] = await tx<PrivacyRequest[]>`SELECT * FROM privacy_requests WHERE id = ${requestId} FOR UPDATE`;
         if (!before) throw new NotFoundError('Privacy request');
-        if (['COMPLETED', 'REJECTED'].includes(before.status)) throw new BadRequestError('This request is closed. Record a new request for further action.');
-        if (data.status === 'COMPLETED' && !before.identity_verified_at && !data.verify_identity) throw new BadRequestError('Verify the requester identity before completing a request.');
+        if (CLOSED_PRIVACY_REQUEST_STATUS.includes(before.status)) throw new BadRequestError('This request is closed. Record a new request for further action.');
+        if (data.status === PRIVACY_REQUEST_STATUSES.COMPLETED && !before.identity_verified_at && !data.verify_identity) throw new BadRequestError('Verify the requester identity before completing a request.');
         const [updated] = await tx<PrivacyRequest[]>`UPDATE privacy_requests SET status = ${data.status}, resolution = ${data.resolution},
             identity_verified_at = CASE WHEN ${data.verify_identity} THEN COALESCE(identity_verified_at, now()) ELSE identity_verified_at END,
-            resolved_at = CASE WHEN ${['COMPLETED','REJECTED'].includes(data.status)} THEN now() ELSE NULL END WHERE id = ${requestId} RETURNING *`;
+            resolved_at = CASE WHEN ${CLOSED_PRIVACY_REQUEST_STATUS.includes(data.status)} THEN now() ELSE NULL END WHERE id = ${requestId} RETURNING *`;
         await createAuditLog({ actor: getRequiredUser(c), action: 'PRIVACY_REQUEST_UPDATED', entityType: 'privacy_request', entityId: requestId,
             before: { status: before.status }, after: { status: data.status }, metadata: { resolution: data.resolution, verified: Boolean(updated?.identity_verified_at) } }, tx);
         return updated;
@@ -83,7 +84,7 @@ routes.post('/admin/requests/:id/erase-account', async c => {
 });
 routes.get('/admin/incidents', async c => success(c, await sql<ComplianceIncident[]>`SELECT * FROM compliance_incidents ORDER BY aware_at DESC LIMIT 100`));
 routes.post('/admin/incidents', async c => {
-    const data = parse(z.object({ title: z.string().trim().min(5).max(200), severity: z.enum(['LOW','MEDIUM','HIGH','CRITICAL']),
+    const data = parse(z.object({ title: z.string().trim().min(5).max(200), severity: z.enum(INCIDENT_SEVERITY),
         aware_at: z.string().datetime().refine(value => Date.parse(value) <= Date.now(), 'Awareness time cannot be in the future'), summary: note }), await c.req.json().catch(() => null));
     const incidentId = randomUUID();
     const row = await sql.begin(async tx => {
@@ -96,9 +97,9 @@ routes.post('/admin/incidents', async c => {
 });
 routes.patch('/admin/incidents/:id', async c => {
     const incidentId = parse(id, c.req.param('id'));
-    const data = parse(z.object({ status: z.enum(['OPEN','CONTAINED','CLOSED']), notification_decision: z.enum(['PENDING','REQUIRED','NOT_REQUIRED']),
+    const data = parse(z.object({ status: z.enum(INCIDENT_STATUS), notification_decision: z.enum(NOTIFICATION_DECISION),
         decision_reason: note, regulator_notified_at: notificationTime, customers_notified_at: notificationTime }), await c.req.json().catch(() => null));
-    if (data.status === 'CLOSED' && data.notification_decision === 'PENDING') throw new BadRequestError('Record a notification assessment before closing an incident.');
+    if (data.status === INCIDENT_STATUSES.CLOSED && data.notification_decision === NOTIFICATION_DECISIONS.PENDING) throw new BadRequestError('Record a notification assessment before closing an incident.');
     const row = await sql.begin(async tx => {
         const [before] = await tx<ComplianceIncident[]>`SELECT * FROM compliance_incidents WHERE id = ${incidentId} FOR UPDATE`;
         if (!before) throw new NotFoundError('Incident');

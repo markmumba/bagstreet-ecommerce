@@ -3,6 +3,7 @@
  * The HTTP side is in services/paystack.ts.
  */
 import { createHmac, timingSafeEqual } from 'node:crypto';
+import { env } from '../config/env';
 
 /** What a Paystack charge came to, as far as Paystack can tell us right now. */
 export type PaystackOutcome =
@@ -65,7 +66,7 @@ export function outcomeOfTransaction(data: unknown, ageMs: number): PaystackOutc
             return {
                 state: 'paid',
                 amount: amount / 100,
-                currency: String(d.currency ?? 'KES'),
+                currency: String(d.currency ?? env.CURRENCY),
                 receipt: receipt == null || receipt === '' ? null : String(receipt),
             };
         }

@@ -20,3 +20,13 @@ export interface ProductVariantRequest {
   price_override?: number;
   is_active?: boolean;
 }
+
+/** Why a variant's stock changed (inventory_movements.reason). Stored: never change the values. */
+export const STOCK_MOVEMENT_REASON = {
+    ORDER_PLACED: 'ORDER_PLACED',
+    ORDER_CANCELLED: 'ORDER_CANCELLED',
+    /** A staff count correction. */
+    ADMIN_ADJUSTMENT: 'ADMIN_ADJUSTMENT',
+    RESTOCK: 'RESTOCK',
+} as const;
+export type StockMovementReason = typeof STOCK_MOVEMENT_REASON[keyof typeof STOCK_MOVEMENT_REASON];

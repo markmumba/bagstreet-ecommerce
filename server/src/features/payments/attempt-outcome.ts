@@ -9,6 +9,7 @@ import { applyOrderEvent } from '../orders/lifecycle/order-lifecycle';
 import type { OrderEvent } from '../orders/lifecycle/transitions';
 import { readJsonColumn } from '../../lib/json-column';
 import { paymentsQueries, type PaymentTransactionRow } from './payments.queries';
+import { PAYMENT_ATTEMPT_STATUS } from './attempt-status';
 
 /** How a payment attempt stands, as reported by its provider. */
 export type AttemptOutcome =
@@ -70,7 +71,7 @@ export async function applyAttemptOutcome(
 
     const failureReason = outcome.state === 'failed' ? outcome.reason : null;
     await paymentsQueries.updateProviderTransaction(tx.id, {
-        status: outcome.state === 'paid' ? 'COMPLETED' : 'FAILED',
+        status: outcome.state === 'paid' ? PAYMENT_ATTEMPT_STATUS.COMPLETED : PAYMENT_ATTEMPT_STATUS.FAILED,
         payment_method: details.paymentMethod,
         confirmation_code: receipt,
         result_desc: failureReason ?? details.resultDesc ?? null,

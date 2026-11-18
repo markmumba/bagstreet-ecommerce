@@ -2,19 +2,49 @@ export const POLICY_VERSION = '2026-11-17.1';
 /** When the current policy version took effect (shown on each policy page). */
 export const POLICY_EFFECTIVE_DATE = '17 November 2026';
 
-export const PRIVACY_REQUEST_KIND = ['ACCESS', 'CORRECTION', 'ERASURE', 'OBJECTION'] as const;
-export const PRIVACY_REQUEST_STATUS = ['OPEN', 'IN_PROGRESS', 'COMPLETED', 'REJECTED'] as const;
+/** Stored values (privacy_requests, compliance_incidents): never change them. Lists are for selects and validation. */
+export const PRIVACY_REQUEST_KINDS = {
+  ACCESS: 'ACCESS',
+  CORRECTION: 'CORRECTION',
+  ERASURE: 'ERASURE',
+  OBJECTION: 'OBJECTION',
+} as const;
+export const PRIVACY_REQUEST_KIND = [
+  PRIVACY_REQUEST_KINDS.ACCESS, PRIVACY_REQUEST_KINDS.CORRECTION, PRIVACY_REQUEST_KINDS.ERASURE, PRIVACY_REQUEST_KINDS.OBJECTION,
+] as const;
+export const PRIVACY_REQUEST_STATUSES = {
+  OPEN: 'OPEN',
+  IN_PROGRESS: 'IN_PROGRESS',
+  COMPLETED: 'COMPLETED',
+  REJECTED: 'REJECTED',
+} as const;
+export const PRIVACY_REQUEST_STATUS = [
+  PRIVACY_REQUEST_STATUSES.OPEN, PRIVACY_REQUEST_STATUSES.IN_PROGRESS, PRIVACY_REQUEST_STATUSES.COMPLETED, PRIVACY_REQUEST_STATUSES.REJECTED,
+] as const;
+/** A request in one of these statuses is finished and can't be changed. */
+export const CLOSED_PRIVACY_REQUEST_STATUS: readonly PrivacyRequestStatus[] = [PRIVACY_REQUEST_STATUSES.COMPLETED, PRIVACY_REQUEST_STATUSES.REJECTED];
 export type PrivacyRequestKind = typeof PRIVACY_REQUEST_KIND[number];
 export type PrivacyRequestStatus = typeof PRIVACY_REQUEST_STATUS[number];
+
+export const INCIDENT_SEVERITIES = { LOW: 'LOW', MEDIUM: 'MEDIUM', HIGH: 'HIGH', CRITICAL: 'CRITICAL' } as const;
+export const INCIDENT_SEVERITY = [INCIDENT_SEVERITIES.LOW, INCIDENT_SEVERITIES.MEDIUM, INCIDENT_SEVERITIES.HIGH, INCIDENT_SEVERITIES.CRITICAL] as const;
+export type IncidentSeverity = typeof INCIDENT_SEVERITY[number];
+export const INCIDENT_STATUSES = { OPEN: 'OPEN', CONTAINED: 'CONTAINED', CLOSED: 'CLOSED' } as const;
+export const INCIDENT_STATUS = [INCIDENT_STATUSES.OPEN, INCIDENT_STATUSES.CONTAINED, INCIDENT_STATUSES.CLOSED] as const;
+export type IncidentStatus = typeof INCIDENT_STATUS[number];
+/** Whether a breach must be reported to the regulator / customers. */
+export const NOTIFICATION_DECISIONS = { PENDING: 'PENDING', REQUIRED: 'REQUIRED', NOT_REQUIRED: 'NOT_REQUIRED' } as const;
+export const NOTIFICATION_DECISION = [NOTIFICATION_DECISIONS.PENDING, NOTIFICATION_DECISIONS.REQUIRED, NOTIFICATION_DECISIONS.NOT_REQUIRED] as const;
+export type NotificationDecision = typeof NOTIFICATION_DECISION[number];
 export interface PrivacyRequest {
   id: string; user_id: number | null; email: string; kind: PrivacyRequestKind;
   status: PrivacyRequestStatus; details: string; identity_verified_at: string | null;
   resolution: string | null; created_at: string; resolved_at: string | null;
 }
 export interface ComplianceIncident {
-  id: string; title: string; severity: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
-  status: 'OPEN' | 'CONTAINED' | 'CLOSED'; aware_at: string; review_due_at: string;
-  summary: string; notification_decision: 'PENDING' | 'REQUIRED' | 'NOT_REQUIRED';
+  id: string; title: string; severity: IncidentSeverity;
+  status: IncidentStatus; aware_at: string; review_due_at: string;
+  summary: string; notification_decision: NotificationDecision;
   decision_reason: string | null; regulator_notified_at: string | null; customers_notified_at: string | null;
 }
 export interface ProductEvidence {

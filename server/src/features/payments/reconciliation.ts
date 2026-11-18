@@ -1,5 +1,7 @@
 import type { ReconciliationIssue } from 'shared/dist';
 import { roundMoney } from '@server/lib/pricing';
+import { ORDER_SOURCE, ORDER_STATUS, PAYMENT_STATUS } from 'shared/dist';
+import { env } from '../../config/env';
 
 const TOLERANCE = 0.5;
 
@@ -21,7 +23,7 @@ export interface ReconciliationOrderRow {
     has_completed_provider_payment: boolean;
 }
 
-const kes = (n: number) => `KES ${n.toFixed(2)}`;
+const kes = (n: number) => `${env.CURRENCY} ${n.toFixed(2)}`;
 
 /** Everything about one order that doesn't add up. Pure, so it's unit-tested. */
 export function classifyOrderForReconciliation(row: ReconciliationOrderRow): ReconciliationIssue[] {
@@ -32,12 +34,12 @@ export function classifyOrderForReconciliation(row: ReconciliationOrderRow): Rec
     // What was received and not taken back by the provider (refunds are a separate decision).
     const kept = roundMoney(captured - row.reversed);
     const net = roundMoney(kept - row.refunded);
-    const paid = row.payment_status === 'PAID';
-    const cancelled = row.status === 'CANCELLED';
+    const paid = row.payment_status === PAYMENT_STATUS.PAID;
+    const cancelled = row.status === ORDER_STATUS.CANCELLED;
 
     // A reversal waits for staff: cancel and restock, mark paid again, or write off. Nothing else
     // about the order is meaningful until then.
-    if (row.payment_status === 'REVERSED') {
+    if (row.payment_status === PAYMENT_STATUS.REVERSED) {
         if (!cancelled && !row.reversal_written_off) {
             issues.push({ ...base, kind: 'payment_reversed', amount: roundMoney(row.reversed), expected: null,
                 message: `The payment provider took back ${kes(row.reversed)}. Cancel and restock, mark it paid if they paid another way, or write it off.` });
@@ -67,7 +69,7 @@ export function classifyOrderForReconciliation(row: ReconciliationOrderRow): Rec
             message: `Order is cancelled but ${kes(net)} has not been refunded.` });
     }
     // Paid online (goods or a gift voucher purchase) but Paystack never confirmed it.
-    if (paid && !cancelled && (row.order_source === 'ONLINE' || row.order_source === 'GIFT_VOUCHER') && !row.has_completed_provider_payment) {
+    if (paid && !cancelled && (row.order_source === ORDER_SOURCE.ONLINE || row.order_source === ORDER_SOURCE.GIFT_VOUCHER) && !row.has_completed_provider_payment) {
         issues.push({ ...base, kind: 'marked_paid_manually', amount: captured || null, expected: total,
             message: 'Online order marked paid without a completed Paystack payment — confirm the money arrived.' });
     }

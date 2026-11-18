@@ -1,12 +1,14 @@
 import { sql } from '../../lib/db';
 import { toJsonbParam } from '../../lib/json-column';
+import { PAYMENT_ATTEMPT_STATUS, type PaymentAttemptStatus } from './attempt-status';
+import type { LedgerDirection } from 'shared/dist';
 
 export interface LedgerEntryRow {
     id: number;
     order_id: number;
     payment_transaction_id: number | null;
     entry_type: string;
-    direction: 'CREDIT' | 'DEBIT';
+    direction: LedgerDirection;
     amount: string;
     currency: string;
     reference: string | null;
@@ -23,7 +25,7 @@ export interface PaymentTransactionRow {
     checkout_url: string | null;
     amount: string;
     currency: string;
-    status: string;
+    status: PaymentAttemptStatus;
     payment_method: string | null;
     confirmation_code: string | null;
     result_desc: string | null;
@@ -37,7 +39,7 @@ export interface PaymentLedgerEntryRow {
     order_id: number | null;
     payment_transaction_id: number | null;
     entry_type: string;
-    direction: 'CREDIT' | 'DEBIT';
+    direction: LedgerDirection;
     amount: string;
     currency: string;
     reference: string | null;
@@ -54,7 +56,7 @@ export const paymentsQueries = {
         checkout_url?: string | null;
         amount: number;
         currency: string;
-        status?: string;
+        status?: PaymentAttemptStatus;
         raw_payload?: unknown;
     }): Promise<PaymentTransactionRow> => {
         const [row] = await sql<PaymentTransactionRow[]>`
@@ -70,7 +72,7 @@ export const paymentsQueries = {
                 ${data.checkout_url ?? null},
                 ${data.amount},
                 ${data.currency},
-                ${data.status ?? 'INITIATED'},
+                ${data.status ?? PAYMENT_ATTEMPT_STATUS.INITIATED},
                 ${toJsonbParam(data.raw_payload)}::jsonb
             )
             ON CONFLICT (provider, merchant_reference) DO UPDATE
@@ -126,7 +128,7 @@ export const paymentsQueries = {
     updateProviderTransaction: async (
         id: number,
         data: {
-            status: string;
+            status: PaymentAttemptStatus;
             payment_method?: string | null;
             confirmation_code?: string | null;
             result_desc?: string | null;
@@ -169,7 +171,7 @@ export const paymentsQueries = {
         order_id?: number | null;
         payment_transaction_id?: number | null;
         entry_type: string;
-        direction: 'CREDIT' | 'DEBIT';
+        direction: LedgerDirection;
         amount: number;
         currency: string;
         reference?: string | null;

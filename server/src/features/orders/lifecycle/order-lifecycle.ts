@@ -8,7 +8,7 @@
  *
  * Applying the same event twice is safe: the table answers "unchanged" for repeats.
  */
-import { PAYMENT_STATUS } from 'shared/dist';
+import { LEDGER_DIRECTION, ORDER_SOURCE, ORDER_STATUS, PAYMENT_STATUS, type LedgerDirection } from 'shared/dist';
 import { sql } from '../../../lib/db';
 import { env } from '../../../config/env';
 import { inventory, type StockLine } from '../../inventory/inventory';
@@ -19,7 +19,7 @@ import { roundMoney } from '../../../lib/pricing';
 import type { AuthUser } from '../../../lib/hono';
 import { enqueueEmail } from '../../../services/email-outbox';
 import { paymentsQueries } from '../../payments/payments.queries';
-import { LEDGER_ENTRY } from '../../payments/order-balance';
+import { LEDGER_ENTRY, type LedgerEntryType } from '../../payments/order-balance';
 import { ordersQueries, type OrderDraft, type OrderRow } from '../orders.queries';
 import { claimOrderDiscount, releaseDiscountUsage } from '../discount-usage';
 import {
@@ -116,8 +116,8 @@ export async function applyOrderEvent(orderId: number, event: OrderEvent, actor:
             SET status = ${next.status},
                 payment_status = ${next.payment},
                 paid_at = CASE WHEN ${next.payment === PAYMENT_STATUS.PAID} THEN COALESCE(paid_at, CURRENT_TIMESTAMP) ELSE paid_at END,
-                dispatched_at = CASE WHEN ${next.status === 'SHIPPED'} THEN COALESCE(dispatched_at, CURRENT_TIMESTAMP) ELSE dispatched_at END,
-                delivered_at = CASE WHEN ${next.status === 'DELIVERED'} THEN COALESCE(delivered_at, CURRENT_TIMESTAMP) ELSE delivered_at END,
+                dispatched_at = CASE WHEN ${next.status === ORDER_STATUS.SHIPPED} THEN COALESCE(dispatched_at, CURRENT_TIMESTAMP) ELSE dispatched_at END,
+                delivered_at = CASE WHEN ${next.status === ORDER_STATUS.DELIVERED} THEN COALESCE(delivered_at, CURRENT_TIMESTAMP) ELSE delivered_at END,
                 updated_at = CURRENT_TIMESTAMP
             WHERE id = ${order.id}
             RETURNING *
@@ -163,31 +163,31 @@ export async function createOrder(
 // ── Facts for the decision ─────────────────────────────────────────────────
 
 async function loadContext(tx: Executor, order: OrderRow, state: OrderState, event: OrderEvent): Promise<DecisionContext> {
-    const entries = await tx<{ entry_type: string; direction: string; amount: string }[]>`
+    const entries = await tx<{ entry_type: string; direction: LedgerDirection; amount: string }[]>`
         SELECT entry_type, direction, amount FROM payment_ledger_entries WHERE order_id = ${order.id}
     `;
-    const sum = (type: string, direction: string) => roundMoney(entries
+    const sum = (type: LedgerEntryType, direction: LedgerDirection) => roundMoney(entries
         .filter((e) => e.entry_type === type && e.direction === direction)
         .reduce((total, e) => total + Number(e.amount), 0));
 
     const orderTotal = roundMoney(Number(order.total_amount));
-    const captures = sum(LEDGER_ENTRY.PAYMENT_CAPTURED, 'CREDIT');
+    const captures = sum(LEDGER_ENTRY.PAYMENT_CAPTURED, LEDGER_DIRECTION.CREDIT);
     // A gift voucher's part counts as money towards the order from the moment it is held.
     const voucher = order.voucher_id ? await orderVoucherMoney(tx, order.id) : { held: 0, redeemed: 0, returned: 0 };
     const voucherMoney = roundMoney(voucher.held + voucher.redeemed);
     // Orders paid before the ledger existed have no capture entry; trust their PAID flag.
-    const legacyPaid = captures === 0 && voucherMoney === 0 && state.payment === 'PAID';
-    const captured = roundMoney((legacyPaid ? orderTotal : captures) + voucherMoney - sum(LEDGER_ENTRY.PAYMENT_REVERSED, 'DEBIT'));
+    const legacyPaid = captures === 0 && voucherMoney === 0 && state.payment === PAYMENT_STATUS.PAID;
+    const captured = roundMoney((legacyPaid ? orderTotal : captures) + voucherMoney - sum(LEDGER_ENTRY.PAYMENT_REVERSED, LEDGER_DIRECTION.DEBIT));
 
     const ctx: DecisionContext = {
         orderTotal,
         currency: env.CURRENCY,
         captured,
-        refunded: sum(LEDGER_ENTRY.REFUND_ISSUED, 'DEBIT'),
+        refunded: sum(LEDGER_ENTRY.REFUND_ISSUED, LEDGER_DIRECTION.DEBIT),
         voucherHeld: voucher.held,
         voucherRedeemed: voucher.redeemed,
         voucherReturned: voucher.returned,
-        giftVoucher: order.order_source === 'GIFT_VOUCHER' ? await giftVoucherSaleFacts(tx, order.id) : undefined,
+        giftVoucher: order.order_source === ORDER_SOURCE.GIFT_VOUCHER ? await giftVoucherSaleFacts(tx, order.id) : undefined,
     };
 
     if (event.type === 'refund_recorded') {
@@ -207,7 +207,7 @@ async function loadContext(tx: Executor, order: OrderRow, state: OrderState, eve
             LIMIT 1
         `;
         ctx.captureAlreadyRecorded = Boolean(seen);
-        if (state.status === 'CANCELLED') {
+        if (state.status === ORDER_STATUS.CANCELLED) {
             // Late payment: can the order be reinstated? Variants stay locked until commit.
             ctx.stockAvailable = await inventory.canReserve(tx, await orderStockLines(tx, order.id));
             // ...and can its gift voucher still pay its part? (The voucher row stays locked too.)
@@ -235,7 +235,7 @@ async function applyEffect(run: Run, effect: Effect): Promise<void> {
         case 'reserve_stock':
             await inventory.reserve(tx, await orderStockLines(tx, orderId), {
                 referenceId: orderId,
-                note: run.before?.status === 'CANCELLED' ? 'Reinstated after late payment'
+                note: run.before?.status === ORDER_STATUS.CANCELLED ? 'Reinstated after late payment'
                     : run.event.type === 'walk_in_sale' ? 'Walk-in sale' : null,
                 by: staffId(run.actor),
             }, run.after);
@@ -280,7 +280,7 @@ async function applyEffect(run: Run, effect: Effect): Promise<void> {
                 order_id: orderId,
                 payment_transaction_id: effect.transactionId ?? run.options.paymentTransactionId ?? null,
                 entry_type: LEDGER_ENTRY.PAYMENT_CAPTURED,
-                direction: 'CREDIT',
+                direction: LEDGER_DIRECTION.CREDIT,
                 amount: effect.amount,
                 currency: effect.currency,
                 reference: effect.reference,
@@ -293,7 +293,7 @@ async function applyEffect(run: Run, effect: Effect): Promise<void> {
             const entry = await paymentsQueries.createLedgerEntry({
                 order_id: orderId,
                 entry_type: LEDGER_ENTRY.REFUND_ISSUED,
-                direction: 'DEBIT',
+                direction: LEDGER_DIRECTION.DEBIT,
                 amount: effect.amount,
                 currency: env.CURRENCY,
                 reference: refundReference(effect.idempotencyKey),
@@ -312,7 +312,7 @@ async function applyEffect(run: Run, effect: Effect): Promise<void> {
             await paymentsQueries.createLedgerEntry({
                 order_id: orderId,
                 entry_type: LEDGER_ENTRY.PAYMENT_REVERSED,
-                direction: 'DEBIT',
+                direction: LEDGER_DIRECTION.DEBIT,
                 amount: effect.amount,
                 currency: env.CURRENCY,
                 reference: effect.reference,

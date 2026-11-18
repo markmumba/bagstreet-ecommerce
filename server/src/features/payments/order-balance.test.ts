@@ -94,14 +94,14 @@ describe('summariseOrderPayments', () => {
 import { assessCapturedAmount } from './order-balance';
 
 describe('assessCapturedAmount', () => {
-    test('exact amount → match', () => expect(assessCapturedAmount(8500, 8500, 'KES')).toBe('match'));
-    test('within rounding tolerance → match', () => expect(assessCapturedAmount(8500, 8499.6, 'KES')).toBe('match'));
-    test('less than total → underpaid', () => expect(assessCapturedAmount(8500, 8000, 'KES')).toBe('underpaid'));
-    test('more than total → overpaid', () => expect(assessCapturedAmount(8500, 9000, 'KES')).toBe('overpaid'));
+    test('exact amount → match', () => expect(assessCapturedAmount(8500, 8500, 'KES', 'KES')).toBe('match'));
+    test('within rounding tolerance → match', () => expect(assessCapturedAmount(8500, 8499.6, 'KES', 'KES')).toBe('match'));
+    test('less than total → underpaid', () => expect(assessCapturedAmount(8500, 8000, 'KES', 'KES')).toBe('underpaid'));
+    test('more than total → overpaid', () => expect(assessCapturedAmount(8500, 9000, 'KES', 'KES')).toBe('overpaid'));
     test('different currency → currency_mismatch, even if the number matches', () =>
-        expect(assessCapturedAmount(8500, 8500, 'USD')).toBe('currency_mismatch'));
-    test('currency comparison ignores case', () => expect(assessCapturedAmount(8500, 8500, 'kes')).toBe('match'));
-    test('unknown currency is not treated as a mismatch', () => expect(assessCapturedAmount(8500, 8500, null)).toBe('match'));
+        expect(assessCapturedAmount(8500, 8500, 'USD', 'KES')).toBe('currency_mismatch'));
+    test('currency comparison ignores case', () => expect(assessCapturedAmount(8500, 8500, 'kes', 'KES')).toBe('match'));
+    test('unknown currency is not treated as a mismatch', () => expect(assessCapturedAmount(8500, 8500, null, 'KES')).toBe('match'));
 
     test('a gift voucher part counts as paid, and only goes back onto the voucher', () => {
         const voucher = { entry_type: 'VOUCHER_REDEEMED', direction: 'CREDIT' as const, amount: 3000 };

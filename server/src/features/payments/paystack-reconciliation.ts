@@ -9,6 +9,7 @@
  * This sweep catches those.
  */
 import { roundMoney } from '@server/lib/pricing';
+import { PAYMENT_ATTEMPT_STATUS } from './attempt-status';
 
 const TOLERANCE = 0.5;
 
@@ -124,7 +125,7 @@ export function reconcileWithPaystack(provider: ProviderTransaction[], ours: Our
                         ? `Paystack reversed this payment, but the order still counts ${kes(attempt.captured)} as received.`
                         : `We recorded ${kes(attempt.captured)} as received, but Paystack shows the payment as ${status}.`,
                 });
-            } else if (attempt.status === 'PENDING') {
+            } else if (attempt.status === PAYMENT_ATTEMPT_STATUS.PENDING) {
                 actions.push({ kind: 'settle_stale_pending', attempt, provider: p });
             }
         }

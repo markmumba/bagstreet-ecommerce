@@ -1,7 +1,7 @@
 import { sql } from '../lib/db';
 import { env } from '../config/env';
 import { enqueueEmail, wakeEmailOutbox } from './email-outbox';
-import { dueRecoveryStage } from '../features/cart-recovery/recovery-policy';
+import { RECOVERY_STATE, dueRecoveryStage } from '../features/cart-recovery/recovery-policy';
 import { ORDER_STATUS, PAYMENT_STATUS } from 'shared/dist';
 import { recoveryState, type RecoverySnapshot } from '../features/cart-recovery/recovery.queries';
 import { log } from '../lib/log';
@@ -16,7 +16,7 @@ export async function queueRecoveryReminders() {
 export async function scheduleRecoveryReminders(tx: typeof sql, onlyIds?: string[]) {
     const rows = await tx<RecoverySnapshot[]>`
         SELECT s.* FROM cart_recovery_snapshots s JOIN email_preferences p ON p.email = s.email
-        WHERE p.recovery_opt_in AND s.state <> 'STOPPED' AND s.expires_at > now()
+        WHERE p.recovery_opt_in AND s.state <> ${RECOVERY_STATE.STOPPED} AND s.expires_at > now()
           AND s.last_activity_at <= now() - interval '2 hours'
           AND s.queued_stage = s.reminder_stage AND s.reminder_stage < 2
           AND (s.reminder_stage = 0 OR (${env.CART_RECOVERY_FOLLOWUP_ENABLED} AND s.last_activity_at <= now() - interval '24 hours'))
@@ -33,7 +33,7 @@ export async function scheduleRecoveryReminders(tx: typeof sql, onlyIds?: string
             followup: env.CART_RECOVERY_FOLLOWUP_ENABLED,
         });
         if (!stage) {
-            if (state === 'completed') await tx`UPDATE cart_recovery_snapshots SET state = 'STOPPED' WHERE id = ${row.id}`;
+            if (state === 'completed') await tx`UPDATE cart_recovery_snapshots SET state = ${RECOVERY_STATE.STOPPED} WHERE id = ${row.id}`;
             continue;
         }
         if (await enqueueEmail({ type: 'CART_RECOVERY', to: row.email, snapshotId: row.id, version: row.version, stage }, {

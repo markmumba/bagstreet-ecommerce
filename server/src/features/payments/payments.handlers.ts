@@ -4,7 +4,7 @@ import { ordersQueries } from '../orders/orders.queries';
 import { normalisePhone } from '../../lib/phone';
 import { success } from '@server/lib/response';
 import { BadRequestError, ForbiddenError, NotFoundError, TooManyRequestsError } from '@server/lib/errors';
-import { ORDER_SOURCE, ORDER_STATUS, PAYMENT_STATUS, USER_ROLE } from "shared/dist";
+import { CHECKOUT_PAYMENT_STATUS, ORDER_SOURCE, ORDER_STATUS, PAYMENT_STATUS, USER_ROLE } from "shared/dist";
 import { sql } from '../../lib/db';
 import { giftVoucherOrderOf } from '../gift-vouchers/voucher-sales';
 import { env } from '../../config/env';
@@ -19,6 +19,7 @@ import { MAX_PROMPTS_PER_ORDER, PROMPT_REUSE_MS, maskPhone, mpesaPhone, promptPh
 import { PAYSTACK, processPaystackTransaction, recordPaystackWebhook, sendPaystackPrompt } from './paystack-payments';
 import { isValidWebhookSignature } from '../../services/paystack-protocol';
 import { log } from '../../lib/log';
+import { PAYMENT_ATTEMPT_STATUS } from './attempt-status';
 
 function getOptionalAuthUser(c: AppContext): AuthUser | null {
     return getOptionalUser(c);
@@ -68,7 +69,7 @@ async function initiatePrompt(c: AppContext, order: any, requestedPhone: string 
     if (!phone) throw new BadRequestError('Enter a Safaricom number M-Pesa can send the payment request to, e.g. 0712 345 678.');
 
     const latest = await paymentsQueries.findProviderTransactionByOrderId(Number(order.id));
-    if (latest?.status === 'PENDING') {
+    if (latest?.status === PAYMENT_ATTEMPT_STATUS.PENDING) {
         const sameNumber = readJsonColumn<{ phone?: string }>(latest.raw_payload)?.phone === phone;
         if (sameNumber && latest.provider === PAYSTACK && Date.now() - new Date(latest.created_at).getTime() < PROMPT_REUSE_MS) {
             return success(c, {
@@ -128,13 +129,13 @@ export const paymentsHandlers = {
         if (!canAccessOrder(authUser, order, phone, email, token)) throw new ForbiddenError();
         // Only an order still waiting for payment can be paid; anything else would charge twice.
         const view = customerView(orderStateOf(order as any));
-        if (view.status === 'PAID') {
+        if (view.status === CHECKOUT_PAYMENT_STATUS.PAID) {
             return success(c, { status: PAYMENT_STATUS.PAID, order_id: order.id }, 'Payment already confirmed');
         }
-        if (view.status === 'EXPIRED') {
+        if (view.status === CHECKOUT_PAYMENT_STATUS.EXPIRED) {
             throw new BadRequestError('This order has expired and its items were returned to the shop. Please place a new order.');
         }
-        if (view.status === 'REVIEW') {
+        if (view.status === CHECKOUT_PAYMENT_STATUS.REVIEW) {
             throw new BadRequestError('We have received a payment for this order and our team is checking it. Please don\'t pay again.');
         }
 
@@ -181,19 +182,19 @@ export const paymentsHandlers = {
         // Order state first: a cancelled order is never "paid" to the customer, even if money arrived late.
         const state = orderStateOf(order as any);
         // "We will refund you" only while money is actually still held.
-        const moneyHeld = state.status === 'CANCELLED'
+        const moneyHeld = state.status === ORDER_STATUS.CANCELLED
             ? summariseOrderPayments(order as any, await paymentsQueries.findLedgerByOrderId(Number(order.id))).net
             : undefined;
         const view = customerView(state, moneyHeld);
-        if (view.status === 'EXPIRED') {
-            return respond('EXPIRED', view.refundOwed
+        if (view.status === CHECKOUT_PAYMENT_STATUS.EXPIRED) {
+            return respond(CHECKOUT_PAYMENT_STATUS.EXPIRED, view.refundOwed
                 ? 'Your payment arrived after this order expired. We will refund you.'
-                : state.payment === 'UNPAID' || state.payment === 'FAILED'
+                : state.payment === PAYMENT_STATUS.UNPAID || state.payment === PAYMENT_STATUS.FAILED
                     ? 'This order expired before payment was received'
                     : 'This order was cancelled and your payment has been returned.');
         }
-        if (view.status === 'PAID') return respond(PAYMENT_STATUS.PAID, 'Payment confirmed');
-        if (view.status === 'REVIEW') return respond('REVIEW', 'We have received a payment and our team is checking it.');
+        if (view.status === CHECKOUT_PAYMENT_STATUS.PAID) return respond(PAYMENT_STATUS.PAID, 'Payment confirmed');
+        if (view.status === CHECKOUT_PAYMENT_STATUS.REVIEW) return respond(CHECKOUT_PAYMENT_STATUS.REVIEW, 'We have received a payment and our team is checking it.');
 
         if (!tx) return respond(ORDER_STATUS.PENDING, 'Payment has not been started');
         // An attempt from a retired provider (Pesapal, Daraja) can't be checked: the customer starts a new one.
@@ -212,7 +213,7 @@ export const paymentsHandlers = {
         const current = await ordersQueries.findById(Number(order.id));
         // The order still says FAILED from an earlier attempt, but the customer has asked for a
         // new prompt that hasn't ended yet: that one is what the screen should wait on.
-        const status = result.status === PAYMENT_STATUS.FAILED && !result.failure_reason && tx.status === 'PENDING'
+        const status = result.status === PAYMENT_STATUS.FAILED && !result.failure_reason && tx.status === PAYMENT_ATTEMPT_STATUS.PENDING
             ? ORDER_STATUS.PENDING
             : result.status;
         const message = {
