@@ -18,6 +18,7 @@ import { giftVoucherOrdersMigration } from './017_gift_voucher_orders';
 import { productReviewsMigration } from './018_product_reviews';
 import { recommendationsMigration } from './019_recommendations';
 import { paystackReconciliationMigration } from './020_paystack_reconciliation';
+import { unwrapProviderFeeMetadataMigration } from './021_unwrap_provider_fee_metadata';
 import type { Migration } from './types';
 
 export const migrations: Migration[] = [
@@ -41,4 +42,5 @@ export const migrations: Migration[] = [
     productReviewsMigration,
     recommendationsMigration,
     paystackReconciliationMigration,
+    unwrapProviderFeeMetadataMigration,
 ];

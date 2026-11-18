@@ -1,4 +1,5 @@
 import { sql } from '../../lib/db';
+import { toJsonbParam } from '../../lib/json-column';
 import { LEDGER_ENTRY } from './order-balance';
 import type { ReconciliationOrderRow } from './reconciliation';
 import type { KnownTransaction } from './statement';
@@ -114,7 +115,7 @@ export const reconciliationQueries = {
             VALUES (
                 ${input.orderId}, ${input.transactionId}, ${LEDGER_ENTRY.PROVIDER_FEE}, 'DEBIT', ${input.amount}, 'KES',
                 ${`fee:paystack:${input.transactionId}`},
-                ${JSON.stringify({ source: 'paystack_statement', statement_row: input.statementRow, statement_reference: input.reference })}::jsonb
+                ${toJsonbParam({ source: 'paystack_statement', statement_row: input.statementRow, statement_reference: input.reference })}::jsonb
             )
             ON CONFLICT (entry_type, reference) WHERE reference IS NOT NULL DO NOTHING
             RETURNING id
