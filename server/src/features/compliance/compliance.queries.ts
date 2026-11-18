@@ -3,7 +3,7 @@ import { sql } from '../../lib/db';
 import { createAuditLog } from '../../lib/audit';
 import type { AuthUser } from '../../lib/hono';
 import { BadRequestError, NotFoundError } from '../../lib/errors';
-import { USER_ROLE, ORDER_STATUS, type PrivacyRequest, type AccountingDataset, type AccountingExport } from 'shared/dist';
+import { USER_ROLE, ORDER_STATUS, PRIVACY_REQUEST_KINDS, PRIVACY_REQUEST_STATUSES, CLOSED_PRIVACY_REQUEST_STATUS, type PrivacyRequest, type AccountingDataset, type AccountingExport } from 'shared/dist';
 import { LEDGER_ENTRY } from '../payments/order-balance';
 import { csv, monthWindow } from './compliance.policy';
 
@@ -36,7 +36,7 @@ export async function createPrivacyRequest(input: { userId?: number; email: stri
 export async function eraseCustomerAccount(requestId: string, retentionReason: string, actor: AuthUser, db = sql) {
     const erase = async (tx: typeof sql) => {
         const [request] = await tx<PrivacyRequest[]>`SELECT * FROM privacy_requests WHERE id = ${requestId} FOR UPDATE`;
-        if (!request || request.kind !== 'ERASURE' || !request.user_id || !request.identity_verified_at || ['COMPLETED', 'REJECTED'].includes(request.status)) {
+        if (!request || request.kind !== PRIVACY_REQUEST_KINDS.ERASURE || !request.user_id || !request.identity_verified_at || CLOSED_PRIVACY_REQUEST_STATUS.includes(request.status)) {
             throw new BadRequestError('An open, identity-verified account erasure request is required. Guest requests need a manual record review.');
         }
         const [customer] = await tx`SELECT id, email FROM users WHERE id = ${request.user_id} AND role = ${USER_ROLE.CUSTOMER} FOR UPDATE`;
@@ -57,7 +57,7 @@ export async function eraseCustomerAccount(requestId: string, retentionReason: s
         await tx`UPDATE users SET full_name = 'Deleted customer', email = ${`deleted-${randomUUID()}@example.invalid`},
             password_hash = ${await Bun.password.hash(randomUUID())}, is_active = false WHERE id = ${request.user_id}`;
         const resolution = `Account credentials, profile, sessions, cart and product reviews erased. Financial/delivery records and email suppression retained: ${retentionReason}`;
-        await tx`UPDATE privacy_requests SET status = 'COMPLETED', resolution = ${resolution}, resolved_at = now() WHERE id = ${requestId}`;
+        await tx`UPDATE privacy_requests SET status = ${PRIVACY_REQUEST_STATUSES.COMPLETED}, resolution = ${resolution}, resolved_at = now() WHERE id = ${requestId}`;
         await createAuditLog({ actor, action: 'CUSTOMER_ACCOUNT_ERASED', entityType: 'privacy_request', entityId: requestId,
             metadata: { user_id: request.user_id, retention_reason: retentionReason } }, tx);
         return { erased: true, retained: 'Order, payment, delivery, privacy-request and suppression records. Review under the retention schedule and any legal hold.' };

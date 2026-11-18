@@ -11,6 +11,7 @@ import { sql } from '@server/lib/db';
 import type { ProductVariantResponse } from 'shared/dist';
 import { getOptionalUser, getRequiredUser } from '@server/lib/hono';
 import { USER_ROLE } from 'shared/dist';
+import { STOCK_MOVEMENT_REASON } from 'shared/dist';
 
 function toVariantResponse(v: any): ProductVariantResponse & { low_stock_threshold?: number } {
     return {
@@ -67,7 +68,7 @@ export const variantsHandlers = {
         const variant = await sql.begin(async (tx: typeof sql) => {
             const created = await variantsQueries.create(productId, data, generateSku(), tx);
             if (openingStock > 0) {
-                await inventory.adjust(tx, Number(created.id), openingStock, 'RESTOCK', { note: 'Opening stock', by: Number(sub) }, after);
+                await inventory.adjust(tx, Number(created.id), openingStock, STOCK_MOVEMENT_REASON.RESTOCK, { note: 'Opening stock', by: Number(sub) }, after);
             }
             const [withStock] = await tx`SELECT * FROM product_variants WHERE id = ${created.id}`;
             return withStock;

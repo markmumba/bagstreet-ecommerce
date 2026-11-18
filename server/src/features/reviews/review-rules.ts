@@ -2,11 +2,12 @@
  * Product review rules (CONTEXT.md › Product review). Pure: who may review, what is shown publicly,
  * and how ratings are summarised. Storage and moderation live in reviews.queries.ts.
  */
+import { ORDER_SOURCE, ORDER_STATUS } from 'shared/dist';
 
 /** Reviews are by verified buyers: an order of goods the customer has received. */
 export function canReviewOrder(order: { status: string; order_source: string }): { ok: true } | { ok: false; reason: string } {
-    if (order.order_source === 'GIFT_VOUCHER') return { ok: false, reason: 'Gift voucher purchases can’t be reviewed' };
-    if (order.status !== 'DELIVERED') return { ok: false, reason: 'You can review this order once it has been received' };
+    if (order.order_source === ORDER_SOURCE.GIFT_VOUCHER) return { ok: false, reason: 'Gift voucher purchases can’t be reviewed' };
+    if (order.status !== ORDER_STATUS.DELIVERED) return { ok: false, reason: 'You can review this order once it has been received' };
     return { ok: true };
 }
 

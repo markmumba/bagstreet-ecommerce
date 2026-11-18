@@ -1,4 +1,5 @@
 import { SQL } from 'bun';
+import { USER_ROLE } from 'shared/dist';
 
 const DATABASE_URL = process.env.DATABASE_URL;
 if (!DATABASE_URL) {
@@ -35,7 +36,7 @@ async function seedAdmin() {
 
     const [user] = await sql<{ id: number; email: string }[]>`
         INSERT INTO users (email, full_name, password_hash, role, is_active)
-        VALUES (${EMAIL}, ${FULL_NAME}, ${password_hash}, 'ADMIN', true)
+        VALUES (${EMAIL}, ${FULL_NAME}, ${password_hash}, ${USER_ROLE.ADMIN}, true)
         RETURNING id, email
     `;
 

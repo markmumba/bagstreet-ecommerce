@@ -1,4 +1,4 @@
-import type { RecommendationRail } from 'shared/dist';
+import { ORDER_STATUS, PAYMENT_STATUS, REVIEW_STATUS, type RecommendationRail } from 'shared/dist';
 import { sql } from '../../lib/db';
 import type { Candidate, TogetherCounts } from './recommend';
 
@@ -26,7 +26,7 @@ export const recommendationsQueries = {
             ) v ON true
             LEFT JOIN LATERAL (
                 SELECT ROUND(AVG(rating)::numeric, 1) AS average, COUNT(*) AS count
-                FROM product_reviews pr WHERE pr.product_id = p.id AND pr.status = 'APPROVED'
+                FROM product_reviews pr WHERE pr.product_id = p.id AND pr.status = ${REVIEW_STATUS.APPROVED}
             ) r ON true
             WHERE p.is_active
             ORDER BY p.created_at DESC, p.id DESC
@@ -58,7 +58,7 @@ export const recommendationsQueries = {
             JOIN order_items b ON b.order_id = a.order_id AND b.product_id <> a.product_id
             JOIN orders o ON o.id = a.order_id
             WHERE a.product_id IN ${sql(productIds)}
-              AND o.payment_status = 'PAID' AND o.status NOT IN ('CANCELLED', 'REFUNDED')
+              AND o.payment_status = ${PAYMENT_STATUS.PAID} AND o.status NOT IN (${ORDER_STATUS.CANCELLED}, ${ORDER_STATUS.REFUNDED})
             GROUP BY a.product_id, b.product_id
         `;
         for (const row of rows) {

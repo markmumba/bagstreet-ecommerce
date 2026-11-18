@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { STOCK_MOVEMENT_REASON } from 'shared/dist';
 
 export const createVariantSchema = z.object({
     size: z.string().max(20).optional(),
@@ -20,6 +21,6 @@ export const updateVariantSchema = z.object({
 
 export const adjustStockSchema = z.object({
     delta: z.number().int(),
-    reason: z.enum(['ADMIN_ADJUSTMENT', 'RESTOCK']),
+    reason: z.enum([STOCK_MOVEMENT_REASON.ADMIN_ADJUSTMENT, STOCK_MOVEMENT_REASON.RESTOCK]),
     note: z.string().max(500).optional(),
 });

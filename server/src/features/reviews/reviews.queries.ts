@@ -1,4 +1,4 @@
-import type { ReviewStatus } from 'shared/dist';
+import { ORDER_SOURCE, ORDER_STATUS, REVIEW_STATUS, type ReviewStatus } from 'shared/dist';
 import { sql } from '../../lib/db';
 import { summariseRatings, variantLabel, type RatingSummary } from './review-rules';
 
@@ -47,12 +47,12 @@ export const reviewsQueries = {
         const offset = (page - 1) * limit;
         const rows = await sql<ReviewRow[]>`
             SELECT * FROM product_reviews
-            WHERE product_id = ${productId} AND status = 'APPROVED'
+            WHERE product_id = ${productId} AND status = ${REVIEW_STATUS.APPROVED}
             ORDER BY created_at DESC, id DESC
             LIMIT ${limit} OFFSET ${offset}
         `;
         const ratings = await sql<{ rating: number }[]>`
-            SELECT rating FROM product_reviews WHERE product_id = ${productId} AND status = 'APPROVED'
+            SELECT rating FROM product_reviews WHERE product_id = ${productId} AND status = ${REVIEW_STATUS.APPROVED}
         `;
         return { rows, summary: summariseRatings(ratings.map((r) => Number(r.rating))) };
     },
@@ -64,7 +64,7 @@ export const reviewsQueries = {
         const rows = await sql<{ product_id: number; average: string; count: number }[]>`
             SELECT product_id, ROUND(AVG(rating)::numeric, 1) AS average, COUNT(*)::int AS count
             FROM product_reviews
-            WHERE status = 'APPROVED' AND product_id IN ${sql(productIds)}
+            WHERE status = ${REVIEW_STATUS.APPROVED} AND product_id IN ${sql(productIds)}
             GROUP BY product_id
         `;
         for (const row of rows) result.set(Number(row.product_id), { average: Number(row.average), count: Number(row.count) });
@@ -102,7 +102,7 @@ export const reviewsQueries = {
                     ${data.rating}, ${data.title}, ${data.body})
             ON CONFLICT (order_id, product_id) DO UPDATE SET
                 rating = EXCLUDED.rating, title = EXCLUDED.title, body = EXCLUDED.body,
-                status = 'PENDING', reject_reason = NULL, moderated_by = NULL, moderated_at = NULL,
+                status = ${REVIEW_STATUS.PENDING}, reject_reason = NULL, moderated_by = NULL, moderated_at = NULL,
                 updated_at = CURRENT_TIMESTAMP
             RETURNING *
         `;
@@ -124,7 +124,7 @@ export const reviewsQueries = {
             LEFT JOIN users u ON u.id = r.moderated_by
             WHERE (${status}::text IS NULL OR r.status = ${status}::text)
             -- Oldest pending first (a queue); otherwise newest first.
-            ORDER BY CASE WHEN ${status}::text = 'PENDING' THEN r.updated_at END ASC, r.updated_at DESC, r.id DESC
+            ORDER BY CASE WHEN ${status}::text = ${REVIEW_STATUS.PENDING} THEN r.updated_at END ASC, r.updated_at DESC, r.id DESC
             LIMIT ${limit} OFFSET ${offset}
         `;
         const [count] = await sql<{ total: number }[]>`
@@ -135,9 +135,9 @@ export const reviewsQueries = {
 
     counts: async () => {
         const [row] = await sql<{ pending: number; approved: number; rejected: number }[]>`
-            SELECT COUNT(*) FILTER (WHERE status = 'PENDING')::int AS pending,
-                   COUNT(*) FILTER (WHERE status = 'APPROVED')::int AS approved,
-                   COUNT(*) FILTER (WHERE status = 'REJECTED')::int AS rejected
+            SELECT COUNT(*) FILTER (WHERE status = ${REVIEW_STATUS.PENDING})::int AS pending,
+                   COUNT(*) FILTER (WHERE status = ${REVIEW_STATUS.APPROVED})::int AS approved,
+                   COUNT(*) FILTER (WHERE status = ${REVIEW_STATUS.REJECTED})::int AS rejected
             FROM product_reviews
         `;
         return { pending: Number(row?.pending ?? 0), approved: Number(row?.approved ?? 0), rejected: Number(row?.rejected ?? 0) };
@@ -148,10 +148,10 @@ export const reviewsQueries = {
         return row;
     },
 
-    moderate: async (id: number, status: 'APPROVED' | 'REJECTED', reason: string | null, by: number): Promise<ReviewRow | undefined> => {
+    moderate: async (id: number, status: typeof REVIEW_STATUS.APPROVED | typeof REVIEW_STATUS.REJECTED, reason: string | null, by: number): Promise<ReviewRow | undefined> => {
         const [row] = await sql<ReviewRow[]>`
             UPDATE product_reviews
-            SET status = ${status}, reject_reason = ${status === 'REJECTED' ? reason : null},
+            SET status = ${status}, reject_reason = ${status === REVIEW_STATUS.REJECTED ? reason : null},
                 moderated_by = ${by}, moderated_at = CURRENT_TIMESTAMP
             WHERE id = ${id}
             RETURNING *
@@ -175,8 +175,8 @@ export const reviewsQueries = {
         return await sql<{ id: number; public_id: string; order_number: string; customer_name: string | null; customer_email: string }[]>`
             SELECT o.id, o.public_id, o.order_number, o.customer_name, o.customer_email
             FROM orders o
-            WHERE o.status = 'DELIVERED'
-              AND o.order_source <> 'GIFT_VOUCHER'
+            WHERE o.status = ${ORDER_STATUS.DELIVERED}
+              AND o.order_source <> ${ORDER_SOURCE.GIFT_VOUCHER}
               AND o.review_invite_sent_at IS NULL
               AND o.customer_email IS NOT NULL AND o.customer_email <> ''
               AND o.delivered_at <= now() - make_interval(days => ${delayDays})
