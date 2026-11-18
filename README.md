@@ -44,9 +44,11 @@ bun run dev:storefront  # Storefront       → http://localhost:5174
 bun run db:migrate
 ```
 
-In development the API applies pending migrations on startup. In production, run
-`bun run db:migrate` during deployment before starting the server. The server
-checks for pending migrations and exits instead of changing the schema at boot.
+In development the API applies pending migrations on startup. In production, a
+`deploy/deploy.sh` backs up the database and runs the one-shot `migrate` service
+before starting the new API. The API only checks for pending migrations, and
+exits rather than change the schema at boot. See
+[docs/deployment.md](docs/deployment.md#migrations).
 
 ### Environment Variables
 

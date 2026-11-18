@@ -1,7 +1,7 @@
 # Production stack for a single DigitalOcean droplet. See docs/deployment.md.
-# Images are built by GitHub Actions (.github/workflows/images.yml) and pulled here:
-#   docker compose -f deploy/docker-compose.prod.yml --env-file .env.production pull
-#   docker compose -f deploy/docker-compose.prod.yml --env-file .env.production up -d
+# Images are built by GitHub Actions (.github/workflows/images.yml) and pulled here. Deploy with
+#   deploy/deploy.sh
+# which pulls, backs up the database, runs migrations, then runs `up -d`.
 # (On a droplet with 4 GB+ RAM you can instead build on the server with `build`.)
 #
 # Only Caddy publishes ports. Everything else is reachable only on the internal Docker network —
@@ -15,6 +15,21 @@ x-logging: &logging
   options:
     max-size: "10m"
     max-file: "5"
+
+# The API and the migrate job run the same image with the same settings.
+x-api-environment: &api-environment
+  NODE_ENV: production
+  PORT: "3000"
+  DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+  SERVER_URL: https://${API_DOMAIN}
+  STOREFRONT_URL: https://${SHOP_DOMAIN}
+  CLIENT_URL: https://${ADMIN_DOMAIN}
+  CORS_ORIGIN: https://${SHOP_DOMAIN},https://${ADMIN_DOMAIN}
+  # Caddy is the one proxy in front of the API. Change only if you add another (see docs).
+  TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-1}
+  # The migrate service applies migrations. The API only checks that none are pending, and
+  # refuses to start if any are.
+  RUN_MIGRATIONS_ON_STARTUP: "false"
 
 services:
   web:
@@ -44,6 +59,41 @@ services:
         condition: service_healthy
     logging: *logging
 
+  # Applies pending database migrations, then exits. The API waits for it, so a release never
+  # starts against an old schema. Deploy with deploy/deploy.sh, which runs this job on its own
+  # before `up`. Plain `up` replaces the old API container first, so a failed migration would
+  # leave the shop down.
+  migrate:
+    image: ${IMAGE_REGISTRY:-ghcr.io/markmumba}/bagstreet-api:${IMAGE_TAG:-latest}
+    command: ["bun", "run", "server/src/scripts/migrate.ts"]
+    restart: "no"
+    env_file: ../.env.production
+    environment: *api-environment
+    depends_on:
+      postgres:
+        condition: service_healthy
+      pre-deploy-backup:
+        condition: service_completed_successfully
+    logging: *logging
+
+  # Dumps the database before migrate runs, because migrations only go forward: to roll back a
+  # release that changed the schema, restore this dump. Kept 14 days by the nightly backup cron.
+  pre-deploy-backup:
+    image: postgres:17-alpine
+    restart: "no"
+    environment:
+      PGHOST: postgres
+      PGUSER: ${POSTGRES_USER}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      PGDATABASE: ${POSTGRES_DB}
+    command: ["sh", "-c", "pg_dump -Fc -f /backups/pre-deploy-$$(date +%F-%H%M%S).dump && echo 'pre-deploy backup written'"]
+    volumes:
+      - ${DATA_DIR:-/mnt/bagstreet}/backups:/backups
+    depends_on:
+      postgres:
+        condition: service_healthy
+    logging: *logging
+
   api:
     build:
       context: ..
@@ -51,21 +101,12 @@ services:
     image: ${IMAGE_REGISTRY:-ghcr.io/markmumba}/bagstreet-api:${IMAGE_TAG:-latest}
     restart: unless-stopped
     env_file: ../.env.production
-    environment:
-      NODE_ENV: production
-      PORT: "3000"
-      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
-      SERVER_URL: https://${API_DOMAIN}
-      STOREFRONT_URL: https://${SHOP_DOMAIN}
-      CLIENT_URL: https://${ADMIN_DOMAIN}
-      CORS_ORIGIN: https://${SHOP_DOMAIN},https://${ADMIN_DOMAIN}
-      # Caddy is the one proxy in front of the API. Change only if you add another (see docs).
-      TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-1}
-      # Migrations run as an explicit deploy step, not on every start.
-      RUN_MIGRATIONS_ON_STARTUP: "false"
+    environment: *api-environment
     depends_on:
       postgres:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     logging: *logging
 
   postgres:
