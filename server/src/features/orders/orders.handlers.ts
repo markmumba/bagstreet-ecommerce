@@ -37,6 +37,7 @@ import { REFUND_METHOD } from 'shared/dist';
 import type { OrderPaymentsResponse } from 'shared/dist';
 import { z } from 'zod';
 import { clearRecoverySource, recoverySessionHash, recoverySourceOrderId } from '../cart-recovery/recovery-session';
+import { PAYSTACK } from '../payments/paystack-payments';
 
 interface ProductRow { id: number; price: string; name: string; is_active: boolean }
 interface ProductPricingRow extends ProductRow { sale_price: string | null; sale_ends_at: string | null }
@@ -120,7 +121,7 @@ function staffActor(c: AppContext): Actor {
     return {
         kind: 'staff',
         userId: user.sub,
-        role: user.role === USER_ROLE.ADMIN ? 'ADMIN' : 'MANAGER',
+        role: user.role === USER_ROLE.ADMIN ? USER_ROLE.ADMIN : USER_ROLE.MANAGER,
         email: user.email,
     };
 }
@@ -294,7 +295,7 @@ export const ordersHandlers = {
             customer_name: (order as any).customer_name ?? shippingAddress.full_name ?? 'Guest customer',
             customer_email: (order as any).customer_email ?? shippingAddress.email,
             customer_phone: (order as any).customer_phone ?? shippingAddress.phone,
-            payment_provider: payment?.provider ?? 'paystack',
+            payment_provider: payment?.provider ?? PAYSTACK,
             payment_method: payment?.payment_method ?? undefined,
             payment_reference: payment?.confirmation_code ?? payment?.provider_reference ?? null,
             currency: payment?.currency ?? env.CURRENCY,
@@ -557,7 +558,7 @@ export const ordersHandlers = {
         // Fully paid by gift voucher: the order is already confirmed, there's nothing to collect.
         const { provider: paymentProvider, reference: paymentReference } = amountDue > 0
             ? await startOnlinePayment(order, amountDue, { phone: validated.data.phone, email: customerEmail })
-            : { provider: 'paystack' as const, reference: null };
+            : { provider: PAYSTACK, reference: null };
         const message = amountDue <= 0 ? 'Order placed — paid by gift voucher'
             : paymentReference ? 'Order placed — check your phone to pay with M-Pesa'
             : 'Order placed — payment is pending';

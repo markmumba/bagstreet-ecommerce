@@ -8,6 +8,10 @@
  */
 import { assessCapturedAmount } from '../../payments/order-balance';
 import { roundMoney } from '@server/lib/pricing';
+import {
+    CHECKOUT_PAYMENT_STATUS, ORDER_STATUS, PAYMENT_STATUS, REFUND_METHOD, USER_ROLE,
+    type OrderStatus, type PaymentStatus,
+} from 'shared/dist';
 
 // ── State ───────────────────────────────────────────────────────────────────
 
@@ -15,8 +19,8 @@ import { roundMoney } from '@server/lib/pricing';
  * Fulfilment statuses an order can actually reach. SHIPPED is "out for delivery": the rider has left.
  * (PROCESSING exists in the enum but is unused.)
  */
-export type FulfilmentStatus = 'PENDING' | 'CONFIRMED' | 'SHIPPED' | 'DELIVERED' | 'CANCELLED' | 'REFUNDED';
-export type PaymentState = 'UNPAID' | 'PAID' | 'FAILED' | 'HELD' | 'REVERSED';
+export type FulfilmentStatus = Exclude<OrderStatus, typeof ORDER_STATUS.PROCESSING>;
+export type PaymentState = PaymentStatus;
 
 /** An Order's state is both columns together — never one alone. */
 export interface OrderState {
@@ -31,7 +35,7 @@ export type Actor =
     | { kind: 'system' }
     /** `checkout`: placing an order; `account`: from their account page; `received_link`: the signed link in the confirmation email. */
     | { kind: 'customer'; isOwner: boolean; via: 'checkout' | 'account' | 'received_link' }
-    | { kind: 'staff'; userId: string; role: 'ADMIN' | 'MANAGER'; email?: string };
+    | { kind: 'staff'; userId: string; role: typeof USER_ROLE.ADMIN | typeof USER_ROLE.MANAGER; email?: string };
 
 // ── Events ──────────────────────────────────────────────────────────────────
 
@@ -83,9 +87,6 @@ export interface DecisionContext {
     giftVoucher?: { issued: boolean; untouched: boolean };
 }
 
-/** Refunds with this method go back onto the order's gift voucher instead of to the customer. */
-export const GIFT_VOUCHER_REFUND = 'GIFT_VOUCHER';
-
 // ── Effects ─────────────────────────────────────────────────────────────────
 
 export type StaffAlertKind = 'payment_held' | 'overpaid' | 'refund_needed' | 'payment_reversed' | 'duplicate_payment';
@@ -131,10 +132,10 @@ export type Decision =
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
-const isStaffAdmin = (a: Actor) => a.kind === 'staff' && a.role === 'ADMIN';
+const isStaffAdmin = (a: Actor) => a.kind === 'staff' && a.role === USER_ROLE.ADMIN;
 const isStaff = (a: Actor) => a.kind === 'staff';
 const isProvider = (a: Actor) => a.kind === 'payment_provider' || a.kind === 'system';
-const awaitingPayment = (s: OrderState) => s.status === 'PENDING' && (s.payment === 'UNPAID' || s.payment === 'FAILED');
+const awaitingPayment = (s: OrderState) => s.status === ORDER_STATUS.PENDING && (s.payment === PAYMENT_STATUS.UNPAID || s.payment === PAYMENT_STATUS.FAILED);
 
 const notAllowed = (reason: NotAllowedReason, message: string): Decision => ({ kind: 'not_allowed', reason, message });
 const unchanged = (effects: Effect[] = []): Decision => ({ kind: 'unchanged', effects });
@@ -172,7 +173,7 @@ function refundable(ctx: DecisionContext): Refundable {
  * moment its voucher is issued (the code is emailed), so it goes straight to DELIVERED.
  */
 const paidState = (ctx: DecisionContext): OrderState =>
-    ctx.giftVoucher ? { status: 'DELIVERED', payment: 'PAID' } : { status: 'CONFIRMED', payment: 'PAID' };
+    ctx.giftVoucher ? { status: ORDER_STATUS.DELIVERED, payment: PAYMENT_STATUS.PAID } : { status: ORDER_STATUS.CONFIRMED, payment: PAYMENT_STATUS.PAID };
 const whenPaid = (ctx: DecisionContext, orderRef: string): Effect[] =>
     ctx.giftVoucher ? [{ type: 'issue_gift_voucher' }] : confirmationEffects(orderRef);
 
@@ -191,15 +192,15 @@ export function decideCreation(event: OrderEvent, actor: Actor, orderRef: string
             if (actor.kind !== 'customer' && actor.kind !== 'system') return notAllowed('not_permitted', 'Online orders are placed by customers');
             const taken: Effect[] = [{ type: 'reserve_stock' }, { type: 'claim_discount', allowOverLimit: false }, { type: 'hold_voucher' }];
             if (event.paidByVoucher) {
-                return to({ status: 'CONFIRMED', payment: 'PAID' }, [
+                return to({ status: ORDER_STATUS.CONFIRMED, payment: PAYMENT_STATUS.PAID }, [
                     ...taken, { type: 'redeem_voucher' }, ...confirmationEffects(orderRef), { type: 'audit', action: 'ORDER_PAID_BY_VOUCHER' },
                 ]);
             }
-            return to({ status: 'PENDING', payment: 'UNPAID' }, [...taken, { type: 'audit', action: 'ORDER_PLACED' }]);
+            return to({ status: ORDER_STATUS.PENDING, payment: PAYMENT_STATUS.UNPAID }, [...taken, { type: 'audit', action: 'ORDER_PLACED' }]);
         }
         case 'walk_in_sale':
             if (!isStaff(actor)) return notAllowed('not_permitted', 'Walk-in sales are recorded by staff');
-            return to({ status: 'DELIVERED', payment: 'PAID' }, [
+            return to({ status: ORDER_STATUS.DELIVERED, payment: PAYMENT_STATUS.PAID }, [
                 { type: 'reserve_stock' },
                 { type: 'hold_voucher' },
                 { type: 'redeem_voucher' },
@@ -230,7 +231,7 @@ export function decide(state: OrderState, event: OrderEvent, actor: Actor, ctx: 
 
             if (awaitingPayment(state)) {
                 if (verdict === 'underpaid' || verdict === 'currency_mismatch') {
-                    return to({ status: 'PENDING', payment: 'HELD' }, [capture, { type: 'alert_staff', kind: 'payment_held' }, { type: 'audit', action: 'ORDER_PAYMENT_HELD' }]);
+                    return to({ status: ORDER_STATUS.PENDING, payment: PAYMENT_STATUS.HELD }, [capture, { type: 'alert_staff', kind: 'payment_held' }, { type: 'audit', action: 'ORDER_PAYMENT_HELD' }]);
                 }
                 const effects: Effect[] = [capture, { type: 'redeem_voucher' }, ...whenPaid(ctx, orderRef), { type: 'audit', action: 'ORDER_PAYMENT_CAPTURED' }];
                 if (verdict === 'overpaid') effects.push({ type: 'alert_staff', kind: 'overpaid' });
@@ -238,14 +239,14 @@ export function decide(state: OrderState, event: OrderEvent, actor: Actor, ctx: 
             }
 
             // Late payment: the order expired (or was cancelled) before the money arrived.
-            if (state.status === 'CANCELLED' && (state.payment === 'UNPAID' || state.payment === 'FAILED')) {
+            if (state.status === ORDER_STATUS.CANCELLED && (state.payment === PAYMENT_STATUS.UNPAID || state.payment === PAYMENT_STATUS.FAILED)) {
                 // Cancelling gave the voucher its money back; the order can only be revived if the
                 // voucher can still pay its part. Otherwise the payment is short, and owed back.
                 const late = assessCapturedAmount(
                     ctx.orderTotal, roundMoney(ctx.captured + event.amount + (ctx.voucherReclaimable ?? 0)), event.currency, ctx.currency,
                 );
                 if (late === 'underpaid' || late === 'currency_mismatch') {
-                    return to({ status: 'CANCELLED', payment: 'HELD' }, [capture, { type: 'alert_staff', kind: 'refund_needed' }, { type: 'audit', action: 'ORDER_LATE_PAYMENT_HELD' }]);
+                    return to({ status: ORDER_STATUS.CANCELLED, payment: PAYMENT_STATUS.HELD }, [capture, { type: 'alert_staff', kind: 'refund_needed' }, { type: 'audit', action: 'ORDER_LATE_PAYMENT_HELD' }]);
                 }
                 if (ctx.stockAvailable) {
                     // Reinstatement: the discount is honoured even if the code has since hit its limit.
@@ -261,7 +262,7 @@ export function decide(state: OrderState, event: OrderEvent, actor: Actor, ctx: 
                     if (late === 'overpaid') effects.push({ type: 'alert_staff', kind: 'overpaid' });
                     return to(paidState(ctx), effects);
                 }
-                return to({ status: 'CANCELLED', payment: 'PAID' }, [capture, { type: 'alert_staff', kind: 'refund_needed' }, { type: 'audit', action: 'ORDER_LATE_PAYMENT_REFUND_REQUIRED' }]);
+                return to({ status: ORDER_STATUS.CANCELLED, payment: PAYMENT_STATUS.PAID }, [capture, { type: 'alert_staff', kind: 'refund_needed' }, { type: 'audit', action: 'ORDER_LATE_PAYMENT_REFUND_REQUIRED' }]);
             }
 
             // A further payment for an order that has already been paid or is held: keep the money
@@ -274,19 +275,19 @@ export function decide(state: OrderState, event: OrderEvent, actor: Actor, ctx: 
             // A failure only matters while the order is waiting for payment. It can never undo a payment.
             if (!awaitingPayment(state)) return unchanged();
             const email: Effect = { type: 'email_customer', kind: 'payment_failed', dedupeKey: `payment-failed:${orderRef}:${event.attemptReference}` };
-            return state.payment === 'FAILED'
+            return state.payment === PAYMENT_STATUS.FAILED
                 ? unchanged([email])
-                : to({ status: 'PENDING', payment: 'FAILED' }, [email, { type: 'audit', action: 'ORDER_PAYMENT_FAILED' }]);
+                : to({ status: ORDER_STATUS.PENDING, payment: PAYMENT_STATUS.FAILED }, [email, { type: 'audit', action: 'ORDER_PAYMENT_FAILED' }]);
         }
 
         case 'payment_reversed': {
             if (!isProvider(actor)) return notAllowed('not_permitted', 'Reversals are reported by the payment provider');
-            if (state.payment === 'REVERSED') return unchanged();
+            if (state.payment === PAYMENT_STATUS.REVERSED) return unchanged();
             // Nothing was captured, so nothing can be taken back.
-            if (state.payment !== 'PAID' && state.payment !== 'HELD') return unchanged();
+            if (state.payment !== PAYMENT_STATUS.PAID && state.payment !== PAYMENT_STATUS.HELD) return unchanged();
             // Only money the provider received can be taken back, never the gift voucher part.
             const amount = roundMoney(event.amount ?? refundable(ctx).cash);
-            return to({ status: state.status, payment: 'REVERSED' }, [
+            return to({ status: state.status, payment: PAYMENT_STATUS.REVERSED }, [
                 { type: 'record_reversal', amount, reference: event.reference },
                 // A voucher bought with money that was taken back can't keep its unspent balance.
                 ...(ctx.giftVoucher?.issued ? [{ type: 'cancel_gift_voucher', reason: 'payment_reversed' } as const] : []),
@@ -299,7 +300,7 @@ export function decide(state: OrderState, event: OrderEvent, actor: Actor, ctx: 
         case 'expired': {
             if (actor.kind !== 'system') return notAllowed('not_permitted', 'Only the expiry job expires orders');
             if (!awaitingPayment(state)) return unchanged();
-            return to({ status: 'CANCELLED', payment: state.payment }, [
+            return to({ status: ORDER_STATUS.CANCELLED, payment: state.payment }, [
                 { type: 'release_stock' },
                 { type: 'release_discount' },
                 { type: 'release_voucher' },
@@ -311,31 +312,31 @@ export function decide(state: OrderState, event: OrderEvent, actor: Actor, ctx: 
         }
 
         case 'cancelled': {
-            if (state.status === 'CANCELLED') return unchanged();
+            if (state.status === ORDER_STATUS.CANCELLED) return unchanged();
             const release: Effect[] = [{ type: 'release_stock' }, { type: 'release_discount' }, { type: 'release_voucher' }];
 
             if (awaitingPayment(state)) {
                 const mayCancel = isStaffAdmin(actor) || (actor.kind === 'customer' && actor.isOwner && actor.via === 'account');
                 if (!mayCancel) return notAllowed('not_permitted', 'Only the customer who placed it, or an admin, can cancel this order');
-                return to({ status: 'CANCELLED', payment: state.payment }, [...release, { type: 'audit', action: 'ORDER_CANCELLED', note: event.reason }]);
+                return to({ status: ORDER_STATUS.CANCELLED, payment: state.payment }, [...release, { type: 'audit', action: 'ORDER_CANCELLED', note: event.reason }]);
             }
-            if (state.payment === 'HELD') {
+            if (state.payment === PAYMENT_STATUS.HELD) {
                 if (!isStaffAdmin(actor)) return notAllowed('not_permitted', 'Only an admin can cancel an order with a held payment');
                 // The held money is now a Refund owed.
-                return to({ status: 'CANCELLED', payment: 'HELD' }, [...release, { type: 'audit', action: 'ORDER_CANCELLED_REFUND_OWED', note: event.reason }]);
+                return to({ status: ORDER_STATUS.CANCELLED, payment: PAYMENT_STATUS.HELD }, [...release, { type: 'audit', action: 'ORDER_CANCELLED_REFUND_OWED', note: event.reason }]);
             }
-            if (state.payment === 'REVERSED') {
+            if (state.payment === PAYMENT_STATUS.REVERSED) {
                 if (!isStaffAdmin(actor)) return notAllowed('not_permitted', 'Only an admin can cancel a reversed order');
-                return to({ status: 'CANCELLED', payment: 'REVERSED' }, [...release, { type: 'audit', action: 'ORDER_CANCELLED_AFTER_REVERSAL', note: event.reason }]);
+                return to({ status: ORDER_STATUS.CANCELLED, payment: PAYMENT_STATUS.REVERSED }, [...release, { type: 'audit', action: 'ORDER_CANCELLED_AFTER_REVERSAL', note: event.reason }]);
             }
             return notAllowed('refund_instead', 'Paid orders are refunded, not cancelled — record a refund instead');
         }
 
         case 'marked_paid': {
             if (!isStaffAdmin(actor)) return notAllowed('not_permitted', 'Only an admin can mark an order as paid');
-            if (state.payment === 'PAID') return unchanged();
+            if (state.payment === PAYMENT_STATUS.PAID) return unchanged();
             const reference = event.reference ?? `manual:${orderRef}`;
-            if (state.payment === 'HELD' && state.status === 'PENDING') {
+            if (state.payment === PAYMENT_STATUS.HELD && state.status === ORDER_STATUS.PENDING) {
                 // Accepting a held payment: the money is already on record — never invent a second capture.
                 return to(paidState(ctx), [
                     { type: 'redeem_voucher' }, ...whenPaid(ctx, orderRef), { type: 'audit', action: 'ORDER_HELD_PAYMENT_ACCEPTED' },
@@ -351,7 +352,7 @@ export function decide(state: OrderState, event: OrderEvent, actor: Actor, ctx: 
                     { type: 'audit', action: 'ORDER_MARKED_PAID' },
                 ]);
             }
-            if (state.payment === 'REVERSED' && state.status === 'PENDING') {
+            if (state.payment === PAYMENT_STATUS.REVERSED && state.status === ORDER_STATUS.PENDING) {
                 // A held payment was reversed, then the customer paid in full some other way.
                 return to(paidState(ctx), [
                     ...paid,
@@ -360,12 +361,12 @@ export function decide(state: OrderState, event: OrderEvent, actor: Actor, ctx: 
                     { type: 'audit', action: 'ORDER_REPAID_AFTER_REVERSAL' },
                 ]);
             }
-            if (state.payment === 'REVERSED' && ctx.giftVoucher?.issued) {
+            if (state.payment === PAYMENT_STATUS.REVERSED && ctx.giftVoucher?.issued) {
                 return notAllowed('invalid_in_state', 'Its voucher was cancelled when the payment was reversed: issue a new voucher from the Gift vouchers page instead');
             }
-            if (state.payment === 'REVERSED' && state.status !== 'CANCELLED') {
+            if (state.payment === PAYMENT_STATUS.REVERSED && state.status !== ORDER_STATUS.CANCELLED) {
                 // The customer paid again some other way after a reversal.
-                return to({ status: state.status, payment: 'PAID' }, [
+                return to({ status: state.status, payment: PAYMENT_STATUS.PAID }, [
                     ...paid,
                     { type: 'redeem_voucher' },
                     { type: 'audit', action: 'ORDER_REPAID_AFTER_REVERSAL' },
@@ -377,9 +378,9 @@ export function decide(state: OrderState, event: OrderEvent, actor: Actor, ctx: 
         case 'dispatched': {
             // Staff press "Out for delivery" when the rider leaves; it records the dispatch time.
             if (!isStaffAdmin(actor)) return notAllowed('not_permitted', 'Only an admin can mark an order out for delivery');
-            if (state.status === 'SHIPPED' || state.status === 'DELIVERED') return unchanged();
-            if (state.status === 'CONFIRMED' && state.payment === 'PAID') {
-                return to({ status: 'SHIPPED', payment: 'PAID' }, [{ type: 'audit', action: 'ORDER_DISPATCHED' }]);
+            if (state.status === ORDER_STATUS.SHIPPED || state.status === ORDER_STATUS.DELIVERED) return unchanged();
+            if (state.status === ORDER_STATUS.CONFIRMED && state.payment === PAYMENT_STATUS.PAID) {
+                return to({ status: ORDER_STATUS.SHIPPED, payment: PAYMENT_STATUS.PAID }, [{ type: 'audit', action: 'ORDER_DISPATCHED' }]);
             }
             return notAllowed('invalid_in_state', 'Only paid, confirmed orders can go out for delivery');
         }
@@ -388,9 +389,9 @@ export function decide(state: OrderState, event: OrderEvent, actor: Actor, ctx: 
             // The signed "I've received it" link in the confirmation email is itself the proof of ownership.
             const mayDeliver = isStaffAdmin(actor) || (actor.kind === 'customer' && actor.via === 'received_link');
             if (!mayDeliver) return notAllowed('not_permitted', 'Only an admin, or the customer via their email link, can mark this delivered');
-            if (state.status === 'DELIVERED') return unchanged();
-            if ((state.status === 'CONFIRMED' || state.status === 'SHIPPED') && state.payment === 'PAID') {
-                return to({ status: 'DELIVERED', payment: 'PAID' }, [{ type: 'audit', action: 'ORDER_DELIVERED' }]);
+            if (state.status === ORDER_STATUS.DELIVERED) return unchanged();
+            if ((state.status === ORDER_STATUS.CONFIRMED || state.status === ORDER_STATUS.SHIPPED) && state.payment === PAYMENT_STATUS.PAID) {
+                return to({ status: ORDER_STATUS.DELIVERED, payment: PAYMENT_STATUS.PAID }, [{ type: 'audit', action: 'ORDER_DELIVERED' }]);
             }
             return notAllowed('invalid_in_state', 'Only paid, confirmed orders can be marked delivered');
         }
@@ -398,15 +399,15 @@ export function decide(state: OrderState, event: OrderEvent, actor: Actor, ctx: 
         case 'refund_recorded': {
             if (!isStaffAdmin(actor)) return notAllowed('not_permitted', 'Only an admin can record a refund');
             if (ctx.refundAlreadyRecorded) return unchanged();
-            if (state.payment === 'REVERSED') return notAllowed('invalid_in_state', 'The money was already taken back by the payment provider');
-            const holdsMoney = state.payment === 'PAID' || state.payment === 'HELD';
+            if (state.payment === PAYMENT_STATUS.REVERSED) return notAllowed('invalid_in_state', 'The money was already taken back by the payment provider');
+            const holdsMoney = state.payment === PAYMENT_STATUS.PAID || state.payment === PAYMENT_STATUS.HELD;
             if (!holdsMoney) return notAllowed('invalid_in_state', 'Only orders holding money can be refunded');
             // A held payment is resolved first: accept it (then refund any overpayment) or cancel (refund owed).
-            if (state.status === 'PENDING') return notAllowed('invalid_in_state', 'Accept the payment or cancel the order before refunding it');
+            if (state.status === ORDER_STATUS.PENDING) return notAllowed('invalid_in_state', 'Accept the payment or cancel the order before refunding it');
             const left = refundable(ctx);
             const amount = roundMoney(event.amount);
             if (left.total <= 0) return notAllowed('exceeds_refundable', 'This order has already been fully refunded');
-            if (ctx.giftVoucher?.issued && state.status === 'DELIVERED') {
+            if (ctx.giftVoucher?.issued && state.status === ORDER_STATUS.DELIVERED) {
                 // A voucher purchase is refunded whole, and only while none of the voucher has been used.
                 if (!ctx.giftVoucher.untouched) {
                     return notAllowed('invalid_in_state', 'Part of this gift voucher has been spent or is held for an order, so the purchase can no longer be refunded');
@@ -414,13 +415,13 @@ export function decide(state: OrderState, event: OrderEvent, actor: Actor, ctx: 
                 if (Math.abs(amount - left.total) > 0.005) {
                     return notAllowed('exceeds_refundable', `Refund the full KES ${left.total.toFixed(2)}: refunding cancels the voucher`);
                 }
-                return to({ status: 'REFUNDED', payment: state.payment }, [
+                return to({ status: ORDER_STATUS.REFUNDED, payment: state.payment }, [
                     { type: 'record_refund', amount, method: event.method, reason: event.reason, externalReference: event.externalReference, idempotencyKey: event.idempotencyKey },
                     { type: 'cancel_gift_voucher', reason: 'refunded' },
                     { type: 'audit', action: 'ORDER_REFUNDED' },
                 ]);
             }
-            const toVoucher = event.method === GIFT_VOUCHER_REFUND;
+            const toVoucher = event.method === REFUND_METHOD.GIFT_VOUCHER; // goes back onto the order's gift voucher
             const limit = toVoucher ? left.voucher : left.cash;
             if (amount <= 0 || amount > limit) {
                 // A gift voucher is never paid out as money: its part only goes back onto the voucher.
@@ -437,15 +438,15 @@ export function decide(state: OrderState, event: OrderEvent, actor: Actor, ctx: 
             if (toVoucher) effects.push({ type: 'return_to_voucher', amount });
             const fullyRefunded = roundMoney(left.total - amount) <= 0.5;
             // Cancelled orders stay cancelled; fulfilled ones become REFUNDED once nothing is left.
-            if (fullyRefunded && (state.status === 'CONFIRMED' || state.status === 'SHIPPED' || state.status === 'DELIVERED')) {
-                return to({ status: 'REFUNDED', payment: state.payment }, [...effects, { type: 'audit', action: 'ORDER_REFUNDED' }]);
+            if (fullyRefunded && (state.status === ORDER_STATUS.CONFIRMED || state.status === ORDER_STATUS.SHIPPED || state.status === ORDER_STATUS.DELIVERED)) {
+                return to({ status: ORDER_STATUS.REFUNDED, payment: state.payment }, [...effects, { type: 'audit', action: 'ORDER_REFUNDED' }]);
             }
             return unchanged([...effects, { type: 'audit', action: 'ORDER_REFUND_RECORDED' }]);
         }
 
         case 'written_off': {
             if (!isStaffAdmin(actor)) return notAllowed('not_permitted', 'Only an admin can write off a reversal');
-            if (state.payment !== 'REVERSED') return notAllowed('invalid_in_state', 'Only a reversed payment can be written off');
+            if (state.payment !== PAYMENT_STATUS.REVERSED) return notAllowed('invalid_in_state', 'Only a reversed payment can be written off');
             if (!event.note.trim()) return notAllowed('invalid_in_state', 'Say why it is being written off');
             return unchanged([{ type: 'audit', action: 'ORDER_REVERSAL_WRITTEN_OFF', note: event.note.trim() }]);
         }
@@ -456,7 +457,7 @@ export function decide(state: OrderState, event: OrderEvent, actor: Actor, ctx: 
 
 export type AdminAction = 'cancel' | 'mark_paid' | 'mark_dispatched' | 'mark_delivered' | 'write_off' | 'refund';
 
-const ADMIN_PROBE: Actor = { kind: 'staff', userId: '0', role: 'ADMIN' };
+const ADMIN_PROBE: Actor = { kind: 'staff', userId: '0', role: USER_ROLE.ADMIN };
 const ACTION_EVENTS: Record<AdminAction, OrderEvent> = {
     cancel: { type: 'cancelled' },
     mark_paid: { type: 'marked_paid' },
@@ -472,7 +473,7 @@ const ACTION_EVENTS: Record<AdminAction, OrderEvent> = {
  * refunds at all; how much is left to refund comes from the ledger.
  */
 export function adminActions(state: OrderState): AdminAction[] {
-    const ctx: DecisionContext = { orderTotal: 0, currency: 'KES', captured: 1, refunded: 0 };
+    const ctx: DecisionContext = { orderTotal: 0, currency: 'probe', captured: 1, refunded: 0 };
     return (Object.keys(ACTION_EVENTS) as AdminAction[]).filter((action) => {
         const decision = decide(state, ACTION_EVENTS[action], ADMIN_PROBE, ctx, 'probe');
         return decision.kind === 'transition' || (decision.kind === 'unchanged' && decision.effects.length > 0);
@@ -482,47 +483,47 @@ export function adminActions(state: OrderState): AdminAction[] {
 // ── What the customer sees ─────────────────────────────────────────────────
 
 export type CustomerPaymentView =
-    | { status: 'PAID' }
-    | { status: 'PENDING' }
-    | { status: 'FAILED' }
-    | { status: 'REVIEW' }
-    | { status: 'EXPIRED'; refundOwed: boolean };
+    | { status: typeof CHECKOUT_PAYMENT_STATUS.PAID }
+    | { status: typeof CHECKOUT_PAYMENT_STATUS.PENDING }
+    | { status: typeof CHECKOUT_PAYMENT_STATUS.FAILED }
+    | { status: typeof CHECKOUT_PAYMENT_STATUS.REVIEW }
+    | { status: typeof CHECKOUT_PAYMENT_STATUS.EXPIRED; refundOwed: boolean };
 
 /**
  * The checkout/payment screen's status, from the Order state. Pass `moneyHeld` (captured − refunded −
  * reversed) when known, so a cancelled order whose money was already refunded isn't shown as owed.
  */
 export function customerView(state: OrderState, moneyHeld?: number): CustomerPaymentView {
-    if (state.status === 'CANCELLED') {
-        const couldHoldMoney = state.payment === 'PAID' || state.payment === 'HELD';
-        return { status: 'EXPIRED', refundOwed: couldHoldMoney && (moneyHeld === undefined || moneyHeld > 0.5) };
+    if (state.status === ORDER_STATUS.CANCELLED) {
+        const couldHoldMoney = state.payment === PAYMENT_STATUS.PAID || state.payment === PAYMENT_STATUS.HELD;
+        return { status: CHECKOUT_PAYMENT_STATUS.EXPIRED, refundOwed: couldHoldMoney && (moneyHeld === undefined || moneyHeld > 0.5) };
     }
     switch (state.payment) {
-        case 'PAID': return { status: 'PAID' };
-        case 'HELD':
-        case 'REVERSED': return { status: 'REVIEW' };
-        case 'FAILED': return { status: 'FAILED' };
-        case 'UNPAID': return { status: 'PENDING' };
+        case PAYMENT_STATUS.PAID: return { status: CHECKOUT_PAYMENT_STATUS.PAID };
+        case PAYMENT_STATUS.HELD:
+        case PAYMENT_STATUS.REVERSED: return { status: CHECKOUT_PAYMENT_STATUS.REVIEW };
+        case PAYMENT_STATUS.FAILED: return { status: CHECKOUT_PAYMENT_STATUS.FAILED };
+        case PAYMENT_STATUS.UNPAID: return { status: CHECKOUT_PAYMENT_STATUS.PENDING };
     }
 }
 
 /** Every reachable state, for tests and for validating stored rows. */
 export const ALL_STATES: OrderState[] = [
-    { status: 'PENDING', payment: 'UNPAID' },
-    { status: 'PENDING', payment: 'FAILED' },
-    { status: 'PENDING', payment: 'HELD' },
-    { status: 'PENDING', payment: 'REVERSED' },
-    { status: 'CONFIRMED', payment: 'PAID' },
-    { status: 'CONFIRMED', payment: 'REVERSED' },
-    { status: 'SHIPPED', payment: 'PAID' },
-    { status: 'SHIPPED', payment: 'REVERSED' },
-    { status: 'DELIVERED', payment: 'PAID' },
-    { status: 'DELIVERED', payment: 'REVERSED' },
-    { status: 'REFUNDED', payment: 'PAID' },
-    { status: 'REFUNDED', payment: 'REVERSED' },
-    { status: 'CANCELLED', payment: 'UNPAID' },
-    { status: 'CANCELLED', payment: 'FAILED' },
-    { status: 'CANCELLED', payment: 'HELD' },
-    { status: 'CANCELLED', payment: 'PAID' },
-    { status: 'CANCELLED', payment: 'REVERSED' },
+    { status: ORDER_STATUS.PENDING, payment: PAYMENT_STATUS.UNPAID },
+    { status: ORDER_STATUS.PENDING, payment: PAYMENT_STATUS.FAILED },
+    { status: ORDER_STATUS.PENDING, payment: PAYMENT_STATUS.HELD },
+    { status: ORDER_STATUS.PENDING, payment: PAYMENT_STATUS.REVERSED },
+    { status: ORDER_STATUS.CONFIRMED, payment: PAYMENT_STATUS.PAID },
+    { status: ORDER_STATUS.CONFIRMED, payment: PAYMENT_STATUS.REVERSED },
+    { status: ORDER_STATUS.SHIPPED, payment: PAYMENT_STATUS.PAID },
+    { status: ORDER_STATUS.SHIPPED, payment: PAYMENT_STATUS.REVERSED },
+    { status: ORDER_STATUS.DELIVERED, payment: PAYMENT_STATUS.PAID },
+    { status: ORDER_STATUS.DELIVERED, payment: PAYMENT_STATUS.REVERSED },
+    { status: ORDER_STATUS.REFUNDED, payment: PAYMENT_STATUS.PAID },
+    { status: ORDER_STATUS.REFUNDED, payment: PAYMENT_STATUS.REVERSED },
+    { status: ORDER_STATUS.CANCELLED, payment: PAYMENT_STATUS.UNPAID },
+    { status: ORDER_STATUS.CANCELLED, payment: PAYMENT_STATUS.FAILED },
+    { status: ORDER_STATUS.CANCELLED, payment: PAYMENT_STATUS.HELD },
+    { status: ORDER_STATUS.CANCELLED, payment: PAYMENT_STATUS.PAID },
+    { status: ORDER_STATUS.CANCELLED, payment: PAYMENT_STATUS.REVERSED },
 ];
