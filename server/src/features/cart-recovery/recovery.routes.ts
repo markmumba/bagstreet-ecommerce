@@ -14,6 +14,7 @@ import { quoteOrder } from '../quote/quote.queries';
 import { getRecoveryPreference, recoveryState, saveRecoverySnapshot, setRecoveryPreference, snapshotByToken, unsubscribeRecovery, type RecoverySnapshot } from './recovery.queries';
 import { recoverySessionHash, rememberRecoverySource } from './recovery-session';
 import { USER_ROLE, type CartQuoteRequestItem, type CartRecoveryResponse } from 'shared/dist';
+import { RECOVERY_STATE } from './recovery-policy';
 
 const routes = new Hono<AppEnv>();
 const syncSchema = cartItemsSchema.extend({ email: z.string().trim().email().max(254).optional(), consent: z.boolean().optional(), touch: z.boolean().optional() });
@@ -72,7 +73,7 @@ async function recover(c: AppContext, restore: boolean) {
     // A GET (including email scanners) changes nothing. Restore stops this reminder series; a new bag can start another.
     if (restore) {
         if (!response.quote?.item_count) throw new BadRequestError('None of these items is currently available.');
-        await sql`UPDATE cart_recovery_snapshots SET state = 'STOPPED', version = version + 1 WHERE id = ${snapshot.id} AND version = ${snapshot.version}`;
+        await sql`UPDATE cart_recovery_snapshots SET state = ${RECOVERY_STATE.STOPPED}, version = version + 1 WHERE id = ${snapshot.id} AND version = ${snapshot.version}`;
         if (snapshot.order_id) rememberRecoverySource(c, Number(snapshot.order_id), new Date(snapshot.expires_at).getTime());
     }
     return success(c, response);

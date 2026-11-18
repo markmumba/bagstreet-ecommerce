@@ -5,7 +5,7 @@ import { readJsonColumn } from '../../lib/json-column';
 import { sendCartRecoveryEmail } from '../../lib/email';
 import { quoteOrder } from '../quote/quote.queries';
 import { recoveryState, type RecoveryPreference, type RecoverySnapshot } from './recovery.queries';
-import { dueRecoveryStage, withinRecoveryBudget } from './recovery-policy';
+import { RECOVERY_STATE, dueRecoveryStage, withinRecoveryBudget } from './recovery-policy';
 import { recoveryToken, unsubscribeToken } from './recovery-token';
 
 export interface RecoveryEmail {
@@ -38,7 +38,7 @@ export async function deliverRecoveryWithExecutor(job: {
         })) return false;
         const quote = await quoteOrder({ items: readJsonColumn<CartQuoteRequestItem[]>(snapshot.items) ?? [] }, { db: tx });
         if (quote.item_count === 0) {
-            await tx`UPDATE cart_recovery_snapshots SET state = 'STOPPED' WHERE id = ${snapshot.id}`;
+            await tx`UPDATE cart_recovery_snapshots SET state = ${RECOVERY_STATE.STOPPED} WHERE id = ${snapshot.id}`;
             return false;
         }
         const recoveryUrl = new URL('/recover-bag', env.STOREFRONT_URL);
@@ -46,7 +46,7 @@ export async function deliverRecoveryWithExecutor(job: {
         const unsubscribeUrl = new URL('/email-preferences', env.STOREFRONT_URL);
         unsubscribeUrl.searchParams.set('id', preference.id);
         unsubscribeUrl.searchParams.set('token', unsubscribeToken(env.JWT_SECRET, preference.id));
-        await send({ to: job.to, quote, recoveryUrl: recoveryUrl.toString(), unsubscribeUrl: unsubscribeUrl.toString(), checkout: snapshot.state === 'ORDERED', final: stage === 2 });
+        await send({ to: job.to, quote, recoveryUrl: recoveryUrl.toString(), unsubscribeUrl: unsubscribeUrl.toString(), checkout: snapshot.state === RECOVERY_STATE.ORDERED, final: stage === 2 });
         await tx`UPDATE cart_recovery_snapshots SET reminder_stage = ${stage}, queued_stage = ${stage} WHERE id = ${snapshot.id}`;
         await tx`
             UPDATE email_preferences SET last_reminder_at = now(),

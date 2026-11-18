@@ -1,3 +1,14 @@
+/** cart_recovery_snapshots.state (stored: never change the values). */
+export const RECOVERY_STATE = {
+    /** A cart that may get reminders. */
+    ACTIVE: 'ACTIVE',
+    /** An order was placed from it; reminders stop once it's paid or cancelled. */
+    ORDERED: 'ORDERED',
+    /** No more reminders (unsubscribed, completed, or replaced). */
+    STOPPED: 'STOPPED',
+} as const;
+export type RecoveryState = typeof RECOVERY_STATE[keyof typeof RECOVERY_STATE];
+
 export const RECOVERY_TTL_MS = 7 * 24 * 60 * 60_000;
 export const FIRST_REMINDER_MS = 2 * 60 * 60_000;
 export const FOLLOWUP_REMINDER_MS = 24 * 60 * 60_000;
