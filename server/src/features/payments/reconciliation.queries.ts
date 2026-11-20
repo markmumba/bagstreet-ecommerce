@@ -1,10 +1,9 @@
 import { sql } from '../../lib/db';
 import { toJsonbParam } from '../../lib/json-column';
-import { LEDGER_ENTRY } from './order-balance';
 import type { ReconciliationOrderRow } from './reconciliation';
 import type { KnownTransaction } from './statement';
 import { PAYSTACK } from './paystack-payments';
-import { LEDGER_DIRECTION } from 'shared/dist';
+import { LEDGER_DIRECTION, LEDGER_ENTRY } from 'shared/dist';
 import { PAYMENT_ATTEMPT_STATUS } from './attempt-status';
 import { env } from '../../config/env';
 

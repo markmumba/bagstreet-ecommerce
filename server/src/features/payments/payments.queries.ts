@@ -1,13 +1,13 @@
 import { sql } from '../../lib/db';
 import { toJsonbParam } from '../../lib/json-column';
 import { PAYMENT_ATTEMPT_STATUS, type PaymentAttemptStatus } from './attempt-status';
-import type { LedgerDirection } from 'shared/dist';
+import type { LedgerDirection, LedgerEntryType } from 'shared/dist';
 
 export interface LedgerEntryRow {
     id: number;
     order_id: number;
     payment_transaction_id: number | null;
-    entry_type: string;
+    entry_type: LedgerEntryType;
     direction: LedgerDirection;
     amount: string;
     currency: string;
@@ -38,7 +38,7 @@ export interface PaymentLedgerEntryRow {
     id: number;
     order_id: number | null;
     payment_transaction_id: number | null;
-    entry_type: string;
+    entry_type: LedgerEntryType;
     direction: LedgerDirection;
     amount: string;
     currency: string;
@@ -170,7 +170,7 @@ export const paymentsQueries = {
     createLedgerEntry: async (data: {
         order_id?: number | null;
         payment_transaction_id?: number | null;
-        entry_type: string;
+        entry_type: LedgerEntryType;
         direction: LedgerDirection;
         amount: number;
         currency: string;

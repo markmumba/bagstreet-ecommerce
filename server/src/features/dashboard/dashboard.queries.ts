@@ -1,7 +1,6 @@
 import { sql } from '@server/lib/db';
-import { LEDGER_DIRECTION, ORDER_SOURCE, ORDER_STATUS, PAYMENT_STATUS } from 'shared/dist';
+import { LEDGER_DIRECTION, LEDGER_ENTRY, ORDER_SOURCE, ORDER_STATUS, PAYMENT_STATUS } from 'shared/dist';
 import { env } from '@server/config/env';
-import { LEDGER_ENTRY } from '../payments/order-balance';
 
 /** Ledger entries that make up revenue: money in for an order, and money given back. */
 const MONEY_IN_ENTRY_TYPES = [LEDGER_ENTRY.PAYMENT_CAPTURED, LEDGER_ENTRY.VOUCHER_REDEEMED];

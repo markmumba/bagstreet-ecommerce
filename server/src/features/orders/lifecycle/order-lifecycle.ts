@@ -8,7 +8,7 @@
  *
  * Applying the same event twice is safe: the table answers "unchanged" for repeats.
  */
-import { LEDGER_DIRECTION, ORDER_SOURCE, ORDER_STATUS, PAYMENT_STATUS, type LedgerDirection } from 'shared/dist';
+import { LEDGER_DIRECTION, ORDER_SOURCE, ORDER_STATUS, PAYMENT_STATUS, LEDGER_ENTRY, type LedgerDirection, type LedgerEntryType } from 'shared/dist';
 import { sql } from '../../../lib/db';
 import { env } from '../../../config/env';
 import { inventory, type StockLine } from '../../inventory/inventory';
@@ -19,7 +19,6 @@ import { roundMoney } from '../../../lib/pricing';
 import type { AuthUser } from '../../../lib/hono';
 import { enqueueEmail } from '../../../services/email-outbox';
 import { paymentsQueries } from '../../payments/payments.queries';
-import { LEDGER_ENTRY, type LedgerEntryType } from '../../payments/order-balance';
 import { ordersQueries, type OrderDraft, type OrderRow } from '../orders.queries';
 import { claimOrderDiscount, releaseDiscountUsage } from '../discount-usage';
 import {

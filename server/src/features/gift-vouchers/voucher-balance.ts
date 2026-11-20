@@ -8,10 +8,9 @@
 import type { sql } from '../../lib/db';
 import { BadRequestError } from '../../lib/errors';
 import { roundMoney } from '../../lib/pricing';
-import { LEDGER_ENTRY } from '../payments/order-balance';
 import { paymentsQueries } from '../payments/payments.queries';
 import { evaluateVoucher, expiryAfterGiveBack, type VoucherRuleRow } from './voucher-rules';
-import { GIFT_VOUCHER_MOVEMENT, LEDGER_DIRECTION, REFUND_METHOD, type GiftVoucherMovementKind } from 'shared/dist';
+import { GIFT_VOUCHER_MOVEMENT, LEDGER_DIRECTION, LEDGER_ENTRY, REFUND_METHOD, type GiftVoucherMovementKind } from 'shared/dist';
 
 type Executor = typeof sql;
 

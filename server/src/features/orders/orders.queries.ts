@@ -1,14 +1,13 @@
 import { sql } from '../../lib/db';
 import { assertRecoveryCheckoutUnpaid, attachRecoveryOrder } from '../cart-recovery/recovery.queries';
 import { toJsonbParam } from '../../lib/json-column';
-import { LEDGER_DIRECTION, ORDER_SOURCE, ORDER_STATUS, PAYMENT_STATUS, LEGAL_POLICIES } from 'shared/dist';
+import { LEDGER_DIRECTION, LEDGER_ENTRY, ORDER_SOURCE, ORDER_STATUS, PAYMENT_STATUS, LEGAL_POLICIES } from 'shared/dist';
 import type { GiftVoucherDeliverTo, Order, OrderSource, OrderStatus, PaymentStatus, ShippingAddress } from 'shared/dist';
 import { randomBytes } from 'node:crypto';
 import { TooManyRequestsError } from '../../lib/errors';
 import { orderLimitViolation, type CustomerOrderCounts } from './order-limits';
 import type { OrderAgreementSnapshot } from '../compliance/order-agreement';
 import { PAYMENT_ATTEMPT_STATUS } from '../payments/attempt-status';
-import { LEDGER_ENTRY } from '../payments/order-balance';
 
 export interface OrderRow extends Omit<Order, 'id' | 'created_at' | 'updated_at'> {
     id: number;

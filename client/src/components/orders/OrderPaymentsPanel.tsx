@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { REFUND_METHOD } from 'shared';
+import { LEDGER_ENTRY, REFUND_METHOD } from 'shared';
 import type { LedgerEntryResponse, OrderPaymentState, RefundMethod } from 'shared';
 import { ArrowDownLeft, ArrowUpRight, Undo2 } from 'lucide-react';
 import { useOrderPayments, useRecordRefund } from '@/hooks/useOrders';
@@ -39,17 +39,17 @@ const METHOD_LABELS: Record<RefundMethod, string> = {
 const kes = (amount: number) => formatMoney(amount);
 
 function entryLabel(entry: LedgerEntryResponse) {
-  if (entry.entry_type === 'PAYMENT_CAPTURED') {
+  if (entry.entry_type === LEDGER_ENTRY.PAYMENT_CAPTURED) {
     const method = entry.metadata?.payment_method ?? entry.metadata?.provider;
     return method ? `Payment received · ${String(method)}` : 'Payment received';
   }
-  if (entry.entry_type === 'VOUCHER_REDEEMED') {
+  if (entry.entry_type === LEDGER_ENTRY.VOUCHER_REDEEMED) {
     const last4 = entry.metadata?.voucher_last4;
     return `Paid by gift voucher${last4 ? ` ····${String(last4)}` : ''}`;
   }
-  if (entry.entry_type === 'PROVIDER_FEE') return 'Paystack fee';
-  if (entry.entry_type === 'PAYMENT_REVERSED') return 'Taken back by the payment provider';
-  if (entry.entry_type === 'REFUND_ISSUED') {
+  if (entry.entry_type === LEDGER_ENTRY.PROVIDER_FEE) return 'Paystack fee';
+  if (entry.entry_type === LEDGER_ENTRY.PAYMENT_REVERSED) return 'Taken back by the payment provider';
+  if (entry.entry_type === LEDGER_ENTRY.REFUND_ISSUED) {
     const method = entry.metadata?.method as RefundMethod | undefined;
     return `Refund${method ? ` · ${METHOD_LABELS[method] ?? method}` : ''}`;
   }
@@ -115,8 +115,8 @@ export function OrderPaymentsPanel({ orderId, canRefund }: { orderId: string; ca
       {entries.length > 0 && (
         <ol className="divide-y rounded-xl border text-sm">
           {entries.map((entry) => {
-            const isRefund = entry.entry_type === 'REFUND_ISSUED' || entry.entry_type === 'PAYMENT_REVERSED';
-            const isFee = entry.entry_type === 'PROVIDER_FEE';
+            const isRefund = entry.entry_type === LEDGER_ENTRY.REFUND_ISSUED || entry.entry_type === LEDGER_ENTRY.PAYMENT_REVERSED;
+            const isFee = entry.entry_type === LEDGER_ENTRY.PROVIDER_FEE;
             const reason = entry.metadata?.reason as string | undefined;
             const externalRef = (entry.metadata?.external_reference ?? entry.metadata?.provider_reference) as string | undefined;
             return (

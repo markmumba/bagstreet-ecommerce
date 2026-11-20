@@ -23,7 +23,6 @@ import { alertStaff, type StaffAlert } from '../features/staff-alerts/staff-aler
 import { applyAttemptOutcome } from '../features/payments/attempt-outcome';
 import { PAYSTACK } from '../features/payments/paystack-payments';
 import type { PaymentTransactionRow } from '../features/payments/payments.queries';
-import { LEDGER_ENTRY } from '../features/payments/order-balance';
 import {
     nairobiDayWindow,
     nairobiHour,
@@ -32,7 +31,7 @@ import {
     type OurAttempt,
     type ProviderIssue,
 } from '../features/payments/paystack-reconciliation';
-import { LEDGER_DIRECTION } from 'shared/dist';
+import { LEDGER_DIRECTION, LEDGER_ENTRY } from 'shared/dist';
 
 /** paystack_reconciliation_runs.status (stored: never change the values). */
 export const RUN_STATUS = {

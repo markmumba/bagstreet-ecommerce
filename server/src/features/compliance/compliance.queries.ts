@@ -3,8 +3,7 @@ import { sql } from '../../lib/db';
 import { createAuditLog } from '../../lib/audit';
 import type { AuthUser } from '../../lib/hono';
 import { BadRequestError, NotFoundError } from '../../lib/errors';
-import { USER_ROLE, ORDER_STATUS, PRIVACY_REQUEST_KINDS, PRIVACY_REQUEST_STATUSES, CLOSED_PRIVACY_REQUEST_STATUS, type PrivacyRequest, type AccountingDataset, type AccountingExport } from 'shared/dist';
-import { LEDGER_ENTRY } from '../payments/order-balance';
+import { USER_ROLE, ORDER_STATUS, LEDGER_ENTRY, PRIVACY_REQUEST_KINDS, PRIVACY_REQUEST_STATUSES, CLOSED_PRIVACY_REQUEST_STATUS, type PrivacyRequest, type AccountingDataset, type AccountingExport } from 'shared/dist';
 import { csv, monthWindow } from './compliance.policy';
 
 export async function customerData(userId: number, db = sql) {

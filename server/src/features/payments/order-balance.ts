@@ -1,20 +1,6 @@
-import { LEDGER_DIRECTION, ORDER_STATUS, PAYMENT_STATUS, REFUND_METHOD, type LedgerDirection, type OrderPaymentState, type OrderPaymentSummary } from 'shared/dist';
+import { LEDGER_DIRECTION, LEDGER_ENTRY, ORDER_STATUS, PAYMENT_STATUS, REFUND_METHOD, type LedgerDirection, type LedgerEntryType, type OrderPaymentState, type OrderPaymentSummary } from 'shared/dist';
 import { roundMoney } from '@server/lib/pricing';
 import { readJsonColumn } from '@server/lib/json-column';
-
-/** Ledger entry types that move money for an order. */
-export const LEDGER_ENTRY = {
-    PAYMENT_CAPTURED: 'PAYMENT_CAPTURED',
-    REFUND_ISSUED: 'REFUND_ISSUED',
-    /** Charged by Paystack; recorded from statement imports. */
-    PROVIDER_FEE: 'PROVIDER_FEE',
-    /** Captured money taken back by the provider (chargeback / reversal). Money out. */
-    PAYMENT_REVERSED: 'PAYMENT_REVERSED',
-    /** Paid from a gift voucher's balance. Money in for the order; given back as REFUND_ISSUED. */
-    VOUCHER_REDEEMED: 'VOUCHER_REDEEMED',
-} as const;
-
-export type LedgerEntryType = typeof LEDGER_ENTRY[keyof typeof LEDGER_ENTRY];
 
 /** Differences smaller than this (in the shop currency) are rounding noise, not under/overpayment. */
 const TOLERANCE = 0.5;

@@ -67,6 +67,20 @@ export const LEDGER_DIRECTION = {
 
 export type LedgerDirection = typeof LEDGER_DIRECTION[keyof typeof LEDGER_DIRECTION];
 
+/** Payment ledger entry types (payment_ledger_entries.entry_type). Stored: never change the values. */
+export const LEDGER_ENTRY = {
+    PAYMENT_CAPTURED: 'PAYMENT_CAPTURED',
+    REFUND_ISSUED: 'REFUND_ISSUED',
+    /** Charged by Paystack; recorded from statement imports. */
+    PROVIDER_FEE: 'PROVIDER_FEE',
+    /** Captured money taken back by the provider (chargeback / reversal). Money out. */
+    PAYMENT_REVERSED: 'PAYMENT_REVERSED',
+    /** Paid from a gift voucher's balance. Money in for the order; given back as REFUND_ISSUED. */
+    VOUCHER_REDEEMED: 'VOUCHER_REDEEMED',
+} as const;
+
+export type LedgerEntryType = typeof LEDGER_ENTRY[keyof typeof LEDGER_ENTRY];
+
 /**
  * What the storefront's payment status poll reports.
  * `EXPIRED`: cancelled for non-payment (if `payment_status` is PAID, money arrived late and is owed back).
@@ -329,7 +343,7 @@ export interface OrderPaymentSummary {
 
 export interface LedgerEntryResponse {
     id: string;
-    entry_type: string;
+    entry_type: LedgerEntryType;
     direction: LedgerDirection;
     amount: number;
     currency: string;
