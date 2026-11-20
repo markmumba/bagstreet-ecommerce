@@ -2,6 +2,7 @@ import { alertStaff } from '../staff-alerts/staff-alerts';
 import { PAYSTACK, sendPaystackPrompt } from './paystack-payments';
 import { mpesaPhone } from './prompt-phone';
 import { log } from '../../lib/log';
+import { NOTIFICATION_TYPE } from 'shared/dist';
 
 export interface StartedPayment {
     provider: typeof PAYSTACK;
@@ -37,7 +38,7 @@ async function notifyPaymentInitFailed(order: { id: number; order_number?: strin
     try {
         await alertStaff({
             audience: 'money',
-            type: 'PAYMENT_INIT_FAILED',
+            type: NOTIFICATION_TYPE.PAYMENT_INIT_FAILED,
             title: `Payment could not start for ${order.order_number ?? `#${order.id}`}`,
             body: `KES ${amount.toFixed(2)} — Paystack error: ${err instanceof Error ? err.message : 'unknown'}. The customer can retry from checkout.`,
             link: '/orders',

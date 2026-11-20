@@ -20,6 +20,7 @@ import type { EmailJob } from '../../services/email-jobs';
 import { notificationsQueries } from '../notifications/notifications.queries';
 import { settingsQueries } from '../settings/settings.queries';
 import { UsersQueries } from '../users/user.queries';
+import type { NotificationType } from 'shared/dist';
 
 type Executor = typeof sql;
 
@@ -40,8 +41,8 @@ export interface StaffMember {
 
 export interface StaffAlert {
     audience: AlertAudience;
-    /** Notification type, e.g. PAYMENT_REVERSED (the admin app picks icons by it). */
-    type: string;
+    /** The admin app picks icons by it. */
+    type: NotificationType;
     title: string;
     body: string;
     /** Dashboard path the notification and email open. */

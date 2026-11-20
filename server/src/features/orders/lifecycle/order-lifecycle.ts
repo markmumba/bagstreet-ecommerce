@@ -8,7 +8,7 @@
  *
  * Applying the same event twice is safe: the table answers "unchanged" for repeats.
  */
-import { LEDGER_DIRECTION, ORDER_SOURCE, ORDER_STATUS, PAYMENT_STATUS, LEDGER_ENTRY, type LedgerDirection, type LedgerEntryType } from 'shared/dist';
+import { LEDGER_DIRECTION, ORDER_SOURCE, ORDER_STATUS, PAYMENT_STATUS, LEDGER_ENTRY, NOTIFICATION_TYPE, type LedgerDirection, type LedgerEntryType } from 'shared/dist';
 import { sql } from '../../../lib/db';
 import { env } from '../../../config/env';
 import { inventory, type StockLine } from '../../inventory/inventory';
@@ -334,7 +334,7 @@ async function applyEffect(run: Run, effect: Effect): Promise<void> {
             const itemCount = items.reduce((sum, item) => sum + Number(item.quantity), 0);
             const staffIds = await alertStaff({
                 audience: 'orders',
-                type: 'NEW_ORDER',
+                type: NOTIFICATION_TYPE.NEW_ORDER,
                 title: `New order ${order.order_number ?? `#${orderId}`}`,
                 body: `Paid — KES ${run.captured.toFixed(2)}`,
                 link: '/orders',

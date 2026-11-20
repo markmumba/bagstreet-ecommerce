@@ -16,7 +16,7 @@ import { BadRequestError } from '../../lib/errors';
 import type { AfterCommit } from '../../lib/after-commit';
 import { alertStaff } from '../staff-alerts/staff-alerts';
 import { stockCrossing, type StockLevel } from './stock-policy';
-import { STOCK_MOVEMENT_REASON, type StockMovementReason } from 'shared/dist';
+import { NOTIFICATION_TYPE, STOCK_MOVEMENT_REASON, type StockMovementReason } from 'shared/dist';
 
 type Executor = typeof sql;
 
@@ -124,7 +124,7 @@ async function alertLowStock(tx: Executor, crossings: { variant: LockedVariant; 
         const label = variantLabel(variant);
         await alertStaff({
             audience: 'stock',
-            type: level === 'out' ? 'OUT_OF_STOCK' : 'LOW_STOCK',
+            type: level === 'out' ? NOTIFICATION_TYPE.OUT_OF_STOCK : NOTIFICATION_TYPE.LOW_STOCK,
             title: `${level === 'out' ? 'Out of stock' : 'Low stock'}: ${variant.product_name}`,
             body: `${label ? `(${label}) — ` : ''}${stock} unit${stock === 1 ? '' : 's'} remaining`,
             link: '/products',

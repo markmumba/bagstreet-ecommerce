@@ -1,5 +1,6 @@
 import { sql } from '../../lib/db';
 import { toJsonbParam } from '../../lib/json-column';
+import type { NotificationType } from 'shared/dist';
 
 export interface NotificationRow {
     id: number;
@@ -54,7 +55,7 @@ export const notificationsQueries = {
     },
 
     create: async (
-        rows: { recipient_id: number; type: string; title: string; body: string; data: object }[],
+        rows: { recipient_id: number; type: NotificationType; title: string; body: string; data: object }[],
         db: typeof sql = sql,
     ): Promise<NotificationRow[]> => {
         const result: NotificationRow[] = [];

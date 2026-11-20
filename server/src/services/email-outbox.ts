@@ -13,6 +13,7 @@ import { redactDeliveredJob, sendEmailJob, type EmailJob } from './email-jobs';
 import { EMAIL_OUTBOX_STATUS, afterFailure, describeError } from './email-outbox-policy';
 import { alertStaff } from '../features/staff-alerts/staff-alerts';
 import { log } from '../lib/log';
+import { NOTIFICATION_TYPE } from 'shared/dist';
 
 type Executor = typeof sql;
 
@@ -146,7 +147,7 @@ async function alertAdminsEmailFailed(row: OutboxRow, error: string) {
     try {
         await alertStaff({
             audience: 'system',
-            type: 'EMAIL_FAILED',
+            type: NOTIFICATION_TYPE.EMAIL_FAILED,
             title: `Email could not be sent to ${row.recipient}`,
             body: `${row.job_type.replace(/_/g, ' ').toLowerCase()} — gave up after ${row.attempts} attempts. Last error: ${error.slice(0, 200)}`,
             link: '/settings',

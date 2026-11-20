@@ -9,6 +9,7 @@ import { UsersQueries } from '../../users/user.queries';
 import type { EmailJob } from '../../../services/email-jobs';
 import type { OrderEvent, StaffAlertKind } from './transitions';
 import type { StaffMember } from '../../staff-alerts/staff-alerts';
+import { NOTIFICATION_TYPE, type NotificationType } from 'shared/dist';
 
 const money = (n: number) => `KES ${n.toFixed(2)}`;
 const orderLabel = (order: any) => order.order_number ?? `#${order.id}`;
@@ -106,7 +107,7 @@ export function staffAlert(
     order: any,
     event: OrderEvent,
     money_: { captured: number },
-): { type: string; title: string; body: string } {
+): { type: NotificationType; title: string; body: string } {
     const ref = orderLabel(order);
     const total = parseFloat(order.total_amount);
     const customer = `${order.customer_name ?? 'the customer'} (${order.customer_phone ?? 'no phone'})`;
@@ -118,7 +119,7 @@ export function staffAlert(
                 ? `${received.currency} ${received.amount.toFixed(2)} (expected ${env.CURRENCY})`
                 : `${money(received?.amount ?? 0)} of ${money(total)}`;
             return {
-                type: 'PAYMENT_MISMATCH',
+                type: NOTIFICATION_TYPE.PAYMENT_MISMATCH,
                 title: `Payment needs review: ${ref}`,
                 body: `Received ${what}. The order was not confirmed. Check it in the Paystack dashboard, then either "Mark as paid" to accept it or cancel and refund.`,
             };
@@ -126,26 +127,26 @@ export function staffAlert(
         case 'overpaid': {
             const difference = money_.captured - total;
             return {
-                type: 'PAYMENT_MISMATCH',
+                type: NOTIFICATION_TYPE.PAYMENT_MISMATCH,
                 title: `Overpaid: ${ref}`,
                 body: `Customer paid ${money(money_.captured)} for a ${money(total)} order. Refund the ${money(difference)} difference and record it on the order.`,
             };
         }
         case 'refund_needed':
             return {
-                type: 'REFUND_REQUIRED',
+                type: NOTIFICATION_TYPE.REFUND_REQUIRED,
                 title: `Refund needed: ${ref}`,
                 body: `Paid ${money(received?.amount ?? total)} after the order was cancelled${received && received.amount < total - 0.5 ? ', and it was not the full amount' : ', and the items are no longer in stock'}. Contact ${customer} to refund or offer an alternative.`,
             };
         case 'payment_reversed':
             return {
-                type: 'PAYMENT_REVERSED',
+                type: NOTIFICATION_TYPE.PAYMENT_REVERSED,
                 title: `Payment reversed: ${ref}`,
                 body: `The payment provider took back the money for this order. Decide: cancel and restock, mark it paid if ${customer} paid another way, or write it off.`,
             };
         case 'duplicate_payment':
             return {
-                type: 'PAYMENT_DUPLICATE',
+                type: NOTIFICATION_TYPE.PAYMENT_DUPLICATE,
                 title: `Extra payment on ${ref}`,
                 body: `A further ${money(received?.amount ?? 0)} arrived for an order that was already paid. Check it in the Paystack dashboard and refund it if it was charged twice.`,
             };

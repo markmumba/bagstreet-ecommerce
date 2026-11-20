@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { useNotifications, useMarkRead, useMarkAllRead } from '@/hooks/useNotifications';
 import type { NotificationItem } from '@/services/notifications.service';
 import { formatRelative } from '@/lib/format';
+import { NOTIFICATION_TYPE } from 'shared';
 
 type NotificationData = Exclude<NotificationItem['data'], string | null>;
 
@@ -78,7 +79,7 @@ export function NotificationBell() {
         }
         setOpen(false);
         const data = normalizeNotificationData(notif.data);
-        const target = typeof data?.link === 'string' ? data.link : notif.type === 'NEW_ORDER' ? '/orders' : '';
+        const target = typeof data?.link === 'string' ? data.link : notif.type === NOTIFICATION_TYPE.NEW_ORDER ? '/orders' : '';
         if (notificationTargets.has(target)) {
             if (target === '/orders' && data?.order_id != null) {
                 navigate({ to: '/orders', search: { order_id: String(data.order_id) } as any });

@@ -15,7 +15,7 @@ import {
     adminListSchema, orderAccessSchema, productReviewsQuerySchema, rejectSchema, replySchema, upsertReviewSchema,
 } from './reviews.schema';
 import { log } from '../../lib/log';
-import { REVIEW_STATUS } from 'shared/dist';
+import { NOTIFICATION_TYPE, REVIEW_STATUS } from 'shared/dist';
 
 const iso = (v: string | Date | null) => (v ? new Date(v).toISOString() : null);
 
@@ -156,7 +156,7 @@ export const reviewsHandlers = {
         // Staff see new and edited reviews in their notifications (admins, in-app only).
         await alertStaff({
             audience: 'system',
-            type: 'REVIEW_PENDING',
+            type: NOTIFICATION_TYPE.REVIEW_PENDING,
             title: `New review to check: ${product.product_name}`,
             body: `${'★'.repeat(data.rating)}${'☆'.repeat(5 - data.rating)} from ${review.author_name}`,
             link: '/reviews',

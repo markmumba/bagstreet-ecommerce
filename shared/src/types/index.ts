@@ -28,3 +28,4 @@ export interface PaginatedResponse<T> extends ApiResponse<T[]> {
   }
 }
 export * from './recommendation';
+export * from './notification';

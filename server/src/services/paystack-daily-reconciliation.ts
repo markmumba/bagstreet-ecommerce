@@ -31,7 +31,7 @@ import {
     type OurAttempt,
     type ProviderIssue,
 } from '../features/payments/paystack-reconciliation';
-import { LEDGER_DIRECTION, LEDGER_ENTRY } from 'shared/dist';
+import { LEDGER_DIRECTION, LEDGER_ENTRY, NOTIFICATION_TYPE } from 'shared/dist';
 
 /** paystack_reconciliation_runs.status (stored: never change the values). */
 export const RUN_STATUS = {
@@ -96,7 +96,7 @@ async function alertGaveUp(deps: ReconciliationDeps, day: string, attempt: numbe
     if (attempt < MAX_ATTEMPTS) return;
     await deps.alertStaff({
         audience: 'money',
-        type: 'PAYSTACK_RECONCILIATION',
+        type: NOTIFICATION_TYPE.PAYSTACK_RECONCILIATION,
         title: `Paystack reconciliation for ${day} could not finish`,
         body: `Tried ${attempt} times. Last error: ${reason}. Rerun it with \`bun run reconcile:paystack --date ${day}\` once Paystack is reachable, or upload that day's statement on the Reconciliation page.`,
         link: '/reconciliation',
@@ -292,7 +292,7 @@ export async function reconcilePaystackDay(day: string, opts: { force?: boolean;
         if (fresh.length > 0 || summary.recovered_payments.length > 0) {
             await deps.alertStaff({
                 audience: 'money',
-                type: 'PAYSTACK_RECONCILIATION',
+                type: NOTIFICATION_TYPE.PAYSTACK_RECONCILIATION,
                 title: fresh.length > 0
                     ? `Paystack reconciliation for ${day}: ${fresh.length} thing(s) to check`
                     : `Paystack reconciliation for ${day}: missed payments recorded`,
